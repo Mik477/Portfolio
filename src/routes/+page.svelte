@@ -4,6 +4,7 @@
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
+  import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
 
   import gsap from 'gsap';
 
@@ -232,14 +233,14 @@
 <main class="portfolio-container">
   <!-- Section 1: Hero / Greeting -->
   <section id="hero" class="full-screen-section hero-section">
-    <div class="content-center">
-      <h1>{siteConfig.heroSection.greeting} <span class="highlight">{siteConfig.heroSection.name}</span></h1>
-      <p>{siteConfig.heroSection.introduction}</p>
-    </div>
+    <!-- REMOVE existing H1 and P tags -->
+    <!-- ADD HeroParticleEffect component -->
+    <HeroParticleEffect activeSectionIndex={$currentSectionIndex} />
   </section>
 
   <!-- Section 2: About Me -->
   <section id="about" class="full-screen-section about-section">
+    <!-- ... (About section content remains the same) ... -->
     <div class="content-center">
       <h2>{siteConfig.aboutSection.title}</h2>
       {#each siteConfig.aboutSection.introduction as paragraph}
@@ -257,6 +258,7 @@
   </section>
 
   <!-- Project Sections -->
+  <!-- ... (Project sections remain the same) ... -->
   {#each projects as project (project.id)}
     {@const projectSectionData = getSectionData(`project-${project.id}`) as Project | undefined}
     <section id="project-{project.id}" class="full-screen-section project-section">
@@ -284,9 +286,11 @@
     </section>
   {/each}
 
+
   <!-- End Section: Contact -->
   <section id="contact" class="full-screen-section contact-section">
-    <div class="content-center">
+    <!-- ... (Contact section content remains the same) ... -->
+     <div class="content-center">
       <h2>{siteConfig.contactSection.title}</h2>
       <p>{siteConfig.contactSection.outroMessage}</p>
       <p>Email: <a href="mailto:{siteConfig.contactSection.email}">{siteConfig.contactSection.email}</a></p>
@@ -302,6 +306,7 @@
 </main>
 
 <style>
+  /* ... (existing styles remain the same) ... */
   .portfolio-container {
     position: relative;
     width: 100%;
@@ -315,26 +320,19 @@
     position: absolute;
     top: 0;
     left: 0;
-    display: flex;
+    display: flex; /* Kept for consistency, but HeroParticleEffect will fill it */
     flex-direction: column;
     justify-content: center;
     align-items: center;
     text-align: center;
-    padding: 2rem;
-    box-sizing: border-box; /* Padding is included within width/height */
-    /* background-color: transparent; */ /* Base background, can be overridden */
+    padding: 0; /* Hero section might not need padding if particles fill it */
+    box-sizing: border-box; 
   }
-
-  .background-image-container {
-    min-width: 100%;
-    min-height: 100%;
+  /* Ensure hero section itself has no padding if particles fill edge to edge */
+  .hero-section {
+    padding: 0 !important; 
+    background-color: #1a1a1a; /* Example background for hero, particles are transparent */
   }
-
-  /* Hero section styling */
-  .hero-section { background-color: #2c3e50; color: white; }
-  .hero-section .highlight { color: #1abc9c; }
-  .hero-section h1, .hero-section p { opacity: 0; /* GSAP controlled */ }
-
   /* About section styling */
   .about-section { background-color: #ecf0f1; color: #333; }
   .profile-image { max-width: 200px; height: auto; border-radius: 50%; margin: 1rem 0; border: 5px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
