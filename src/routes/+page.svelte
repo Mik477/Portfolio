@@ -12,7 +12,7 @@
 
   let sectionElements: HTMLElement[] = [];
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
-  let sectionBackgroundZooms: (gsap.core.Tween | null)[] = []; // Explicitly typed
+  let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
 
   const allSectionsData = [
     { id: 'hero', type: 'hero', data: siteConfig.heroSection },
@@ -21,71 +21,82 @@
     { id: 'contact', type: 'contact', data: siteConfig.contactSection }
   ];
 
-  const transitionDuration = 1.1;
-  const projectBgZoomDuration = 3;
+  // --- TIMING CONFIGURATION ---
+  const transitionDuration = 1.1; // Duration of the main slide transition
+  const projectBgZoomDuration = 3;  // Duration of the project background image zoom
+  const minSectionDisplayDuration = 1.2; // Minimum time a section is displayed before user can scroll again
+                                         // This is the total time from scroll *initiation* to scroll *enablement*
+                                         // Must be >= transitionDuration for a good UX.
+  const contentAnimationStartOffset = -0.3; // Start content animation 0.3s before slide ends (transitionDuration + this value)
+  const projectBgZoomStartOffset = 0.1; // Start project background zoom 0.1s after slide animation begins
 
-  // This onMount structure is standard. The TS error is often ignorable or a config issue.
   onMount((): (() => void) | void => {
     const setupPromise = async () => {
-    await tick();
+      await tick();
 
-    sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
-    if (sectionElements.some(el => !el)) {
-        console.error("One or more sections not found in DOM!");
-        return; // Return void
-    }
-
-    sectionElements.forEach((sectionEl, index) => {
-      const contentTl = gsap.timeline({ paused: true });
-      if (allSectionsData[index].type === 'project') {
-        const headlineEl = sectionEl.querySelector('h2');
-        if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
-      } else if (allSectionsData[index].type === 'hero') {
-        const h1El = sectionEl.querySelector('h1');
-        const pEl = sectionEl.querySelector('p');
-        if (h1El) contentTl.fromTo(h1El, { autoAlpha: 0, y:30 }, {autoAlpha:1, y:0, duration:0.7, ease:'power2.out'}, "start");
-        if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y:30 }, {autoAlpha:1, y:0, duration:0.7, ease:'power2.out'}, "start+=0.2");
+      sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
+      if (sectionElements.some(el => !el)) {
+          console.error("One or more sections not found in DOM!");
+          return;
       }
-      sectionContentTimelines[index] = contentTl;
 
-      sectionBackgroundZooms[index] = null; // Initialize as null
-      if (allSectionsData[index].type === 'project') {
-        const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
-        if (bgTarget) {
-          sectionBackgroundZooms[index] = gsap.to(bgTarget, {
-            scale: 1.05,
-            duration: projectBgZoomDuration,
-            ease: 'power1.out',
-            paused: true,
-            // onComplete for this zoom will be handled in navigateToSection context
-          });
+      sectionElements.forEach((sectionEl, index) => {
+        const contentTl = gsap.timeline({ paused: true });
+        if (allSectionsData[index].type === 'project') {
+          const headlineEl = sectionEl.querySelector('h2');
+          if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
+        } else if (allSectionsData[index].type === 'hero') {
+          const h1El = sectionEl.querySelector('h1');
+          const pEl = sectionEl.querySelector('p');
+          if (h1El) contentTl.fromTo(h1El, { autoAlpha: 0, y:30 }, {autoAlpha:1, y:0, duration:0.7, ease:'power2.out'}, "start");
+          if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y:30 }, {autoAlpha:1, y:0, duration:0.7, ease:'power2.out'}, "start+=0.2");
         }
-      }
+        sectionContentTimelines[index] = contentTl;
 
-      if (index === 0) {
-        gsap.set(sectionEl, { yPercent: 0, autoAlpha: 1 });
+        sectionBackgroundZooms[index] = null;
+        if (allSectionsData[index].type === 'project') {
+          const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
+          if (bgTarget) {
+            sectionBackgroundZooms[index] = gsap.to(bgTarget, {
+              scale: 1.05,
+              duration: projectBgZoomDuration,
+              ease: 'power1.out',
+              paused: true,
+            });
+          }
+        }
+
+        if (index === 0) {
+          gsap.set(sectionEl, { yPercent: 0, autoAlpha: 1 });
+        } else {
+          gsap.set(sectionEl, { yPercent: 100, autoAlpha: 0 });
+        }
+      });
+
+      // Initial state for the first section
+      sectionContentTimelines[0]?.restart();
+
+      if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
+        isAnimating.set(true); // Initial lock if first section is a project with zoom
+        const firstBgZoom = sectionBackgroundZooms[0];
+        if (firstBgZoom) {
+          firstBgZoom.vars.onComplete = () => {
+            if (get(currentSectionIndex) === 0) { // Ensure we are still on the first section
+                isAnimating.set(false);
+                console.log("Initial project background zoom complete, scroll lock released.");
+            }
+          };
+          firstBgZoom.restart();
+        }
       } else {
-        gsap.set(sectionEl, { yPercent: 100, autoAlpha: 0 });
+        console.log("First section not a project with zoom, or no zoom. Scroll lock not engaged by initial BG zoom.");
       }
-    });
 
-    sectionContentTimelines[0]?.restart();
-    if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
-      isAnimating.set(true);
-      const firstBgZoom = sectionBackgroundZooms[0];
-      if (firstBgZoom) {
-        firstBgZoom.vars.onComplete = () => {
-          if (get(currentSectionIndex) === 0) isAnimating.set(false);
-        };
-        firstBgZoom.restart();
-      }
-    }
-
-    window.addEventListener('wheel', handleWheel, { passive: false });
-    window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('wheel', handleWheel, { passive: false });
+      window.addEventListener('keydown', handleKeyDown);
     };
     setupPromise();
-    return () => { // This is the cleanup function
+    return () => {
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
       sectionContentTimelines.forEach(timeline => timeline?.kill());
@@ -100,7 +111,7 @@
     if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) {
       return;
     }
-    isAnimating.set(true); // Master lock
+    isAnimating.set(true); // Master lock engaged
 
     console.log(`Navigating from ${oldIndex} to ${newIndex}`);
 
@@ -108,20 +119,21 @@
     const targetSectionEl = sectionElements[newIndex];
     const direction = newIndex > oldIndex ? 1 : -1;
 
+    // Reset animations for the outgoing section
     sectionContentTimelines[oldIndex]?.progress(0).pause();
-    if (sectionBackgroundZooms[oldIndex]) { // Check if it exists
-        sectionBackgroundZooms[oldIndex]?.progress(0).pause();
-    }
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); // Pause and reset old background zoom
 
     const masterTransitionTl = gsap.timeline({
       onComplete: () => {
         currentSectionIndex.set(newIndex);
-        // The final isAnimating.set(false) is handled by the longest running part (slide or zoom)
+        // isAnimating.set(false) is now handled by a separate delayedCall below
       }
     });
 
+    // Prepare target section (set initial position and make it visible for the transition)
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
 
+    // Slide transitions
     masterTransitionTl.to(currentSectionEl, {
       yPercent: -direction * 100,
       autoAlpha: 0,
@@ -131,84 +143,64 @@
 
     masterTransitionTl.to(targetSectionEl, {
       yPercent: 0,
-      autoAlpha: 1,
+      // autoAlpha: 1, // autoAlpha is already set by gsap.set() above
       duration: transitionDuration,
       ease: 'expo.out'
-    }, "slide"); // Use label to sync start times
+    }, "slide");
 
-    let longestDuration = transitionDuration;
-    let projectZoomIsActive = false;
-
-    // Handle animations for the target section
-    const targetBgZoom = sectionBackgroundZooms[newIndex]; // Can be null if not a project
-    if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
-      projectZoomIsActive = true;
-      longestDuration = Math.max(transitionDuration, projectBgZoomDuration);
-      
-      targetBgZoom.vars.onComplete = () => {
-        console.log(`Project BG Zoom complete for section ${newIndex}`);
-        // Only set isAnimating to false if the main slide is also done
-        // This is tricky; the delayedCall below is more robust for the overall lock.
-        // We'll let the main delayedCall handle the final isAnimating(false)
-      };
-      targetBgZoom.vars.onStart = () => {
-         console.log(`Project BG Zoom started for section ${newIndex}`);
-      };
-
-      // Start background zoom slightly overlapped with the end of the slide
-      masterTransitionTl.call(() => {
-        targetBgZoom.restart();
-      }, [], `slide+=${transitionDuration - 0.3}`); // Start 0.3s before slide ends
-    }
-
+    // Content animations for the target section
     masterTransitionTl.call(() => {
       sectionContentTimelines[newIndex]?.restart();
-    }, [], `slide+=${transitionDuration - 0.3}`);
+    }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); // e.g., slide+=0.8 if offset is -0.3
 
+    // Background zoom for the target project section
+    const targetBgZoom = sectionBackgroundZooms[newIndex];
+    if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
+      targetBgZoom.vars.onStart = () => console.log(`Project BG Zoom started for section ${newIndex}. Duration: ${projectBgZoomDuration}s`);
+      targetBgZoom.vars.onComplete = () => console.log(`Project BG Zoom complete for section ${newIndex}.`);
+      // Start background zoom slightly after the slide animation begins
+      masterTransitionTl.call(() => {
+        targetBgZoom.restart();
+      }, [], `slide+=${projectBgZoomStartOffset}`);
+    }
 
-    // Master lock release based on the longest critical animation
-    gsap.delayedCall(longestDuration, () => {
-      console.log(`Master lock release timer. Current target section: ${newIndex}, Is BG Zoom active on it? ${targetBgZoom?.isActive()}`);
-      // If a BG zoom was supposed to run, ensure it's not active.
-      // If no BG zoom, isAnimating can be set to false.
-      if (projectZoomIsActive) {
-        if (!targetBgZoom?.isActive()) { // If the zoom has finished
-          isAnimating.set(false);
-           console.log(`Master lock released by delayedCall (project zoom finished or wasn't long). Section: ${newIndex}`);
-        } else {
-          // If zoom is still active, set its onComplete to release the lock. This is a fallback.
-          console.log(`Master lock delayedCall: Project zoom on ${newIndex} is still active. Deferring lock release to its onComplete.`);
-          if(targetBgZoom) {
-            targetBgZoom.vars.onComplete = () => {
-              isAnimating.set(false);
-              console.log(`Master lock released by BG Zoom onComplete. Section: ${newIndex}`);
-            }
-          }
-        }
-      } else { // Not a project section, or no bg zoom
-        isAnimating.set(false);
-        console.log(`Master lock released by delayedCall (not a project with zoom). Section: ${newIndex}`);
-      }
+    // Master lock release: based on the slide transition or minSectionDisplayDuration, whichever is longer.
+    // Background zoom duration no longer dictates this lock.
+    const scrollLockReleaseTime = Math.max(transitionDuration, minSectionDisplayDuration);
+    gsap.delayedCall(scrollLockReleaseTime, () => {
+      isAnimating.set(false);
+      console.log(`Master scroll lock released. Section: ${newIndex}. Lock duration: ${scrollLockReleaseTime}s`);
     });
-}
+  }
 
   let lastScrollTime = 0;
-  const scrollDebounce = 200;
+  const scrollDebounce = 200; // Debounce for rapid scroll/key events
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
     const currentTime = Date.now();
-    if (get(isAnimating) || (currentTime - lastScrollTime < scrollDebounce)) return;
+    // Debounce to prevent multiple triggers from a single scroll action
+    if (currentTime - lastScrollTime < scrollDebounce) return; 
+    
+    if (get(isAnimating)) return; // Check master lock *after* debounce check
+    
     lastScrollTime = currentTime;
     navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1));
   }
 
   function handleKeyDown(event: KeyboardEvent) {
     const currentTime = Date.now();
-    if (get(isAnimating) || (currentTime - lastScrollTime < scrollDebounce)) {
+    // Debounce for keydown
+    if (currentTime - lastScrollTime < scrollDebounce) {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
+        return;
+    }
+
+    if (get(isAnimating)) { // Check master lock *after* debounce check
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
       return;
     }
+    
     let newIndex = get(currentSectionIndex);
     let shouldScroll = false;
     switch (event.key) {
@@ -219,9 +211,10 @@
         case 'Home': newIndex = 0; shouldScroll = true; break;
         case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break;
     }
+
     if (shouldScroll && newIndex !== get(currentSectionIndex)) {
         event.preventDefault();
-        lastScrollTime = currentTime;
+        lastScrollTime = currentTime; // Update lastScrollTime only when a scroll is initiated
         navigateToSection(newIndex);
     }
   }
@@ -230,8 +223,6 @@
     return allSectionsData.find(s => s.id === id)?.data;
   }
 </script>
-
-<!-- HTML and Style remain the same as your previous correct version -->
 
 <svelte:head>
   <title>{siteConfig.title}</title>
@@ -312,16 +303,16 @@
 
 <style>
   .portfolio-container {
-    position: relative; /* Needed for absolute positioning of sections */
+    position: relative;
     width: 100%;
-    height: 100vh;
-    overflow: hidden; /* Critical: prevent browser scrollbars */
+    height: 100vh; /* Use vh for viewport height */
+    overflow: hidden;
   }
 
   .full-screen-section {
-    height: 100%; /* Full height of container */
-    width: 100%; /* Full width of container */
-    position: absolute; /* Stack sections on top of each other */
+    height: 100%; 
+    width: 100%;
+    position: absolute;
     top: 0;
     left: 0;
     display: flex;
@@ -330,14 +321,11 @@
     align-items: center;
     text-align: center;
     padding: 2rem;
-    box-sizing: border-box;
-    /* GSAP will handle visibility and yPercent, so no overflow:hidden here is needed */
-    /* Start sections off-screen or invisible - GSAP handles initial set */
-    /* visibility: hidden; */ /* GSAP's autoAlpha is better */
+    box-sizing: border-box; /* Padding is included within width/height */
+    /* background-color: transparent; */ /* Base background, can be overridden */
   }
 
   .background-image-container {
-    /* Will be scaled by GSAP */
     min-width: 100%;
     min-height: 100%;
   }
