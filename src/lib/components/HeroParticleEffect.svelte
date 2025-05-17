@@ -4,65 +4,47 @@
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { 
     Environment as ParticleEnvironment,
-  } from '$lib/three/heroParticleLogic'; // Ensure this path is correct
+  } from '$lib/three/heroParticleLogic';
+  import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
 
   export let activeSectionIndex: number;
   
   const HERO_SECTION_LOGICAL_INDEX = 0; 
+  const HERO_ASSETS_TASK_ID = 'heroEffectAssets';
+  const HERO_INIT_TASK_ID = 'heroEffectInitialization'; // New task for Three.js setup
 
   let threeContainerElement: HTMLDivElement | undefined;
-  let loadingOverlayElement: HTMLDivElement | undefined;
 
   let particleSystemInstance: ParticleEnvironment | null = null;
   let loadedFontAsset: Font | null = null;
   let loadedParticleTextureMap: THREE.Texture | null = null;
   
-  let assetsArePreloaded = false;
-  let assetsAreLoading = false;
   let effectIsVisiblyRunning = false; 
 
   const FONT_ASSET_PATH = '/fonts/Inter_18pt_ExtraLight.json';
   const PARTICLE_TEXTURE_ASSET_PATH = 'https://res.cloudinary.com/dfvtkoboz/image/upload/v1605013866/particle_a64uzf.png';
 
-  function showLoadingOverlay() {
-    if (loadingOverlayElement) {
-        loadingOverlayElement.style.display = 'flex';
-        loadingOverlayElement.classList.remove('hidden-overlay'); 
-        loadingOverlayElement.style.opacity = '1';
-    }
-  }
-
-  function hideLoadingOverlay() {
-    if (loadingOverlayElement && loadingOverlayElement.style.display !== 'none') {
-        setTimeout(() => { 
-            if (loadingOverlayElement) {
-                loadingOverlayElement.classList.add('hidden-overlay');
-                setTimeout(() => {
-                    if (loadingOverlayElement) loadingOverlayElement.style.display = 'none';
-                }, 800); 
-            }
-        }, 100); 
-    }
-  }
-
   async function preloadEffectAssets() {
-    if (assetsArePreloaded || assetsAreLoading) return;
+    const currentStatus = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
+    if (currentStatus === 'loaded') {
+        if (!loadedFontAsset || !loadedParticleTextureMap) {
+            // Assets marked loaded globally, but not in this instance's vars yet.
+            // Proceed to load; manager will use cache.
+        } else {
+            return; // Already loaded and local vars populated
+        }
+    }
+    if (currentStatus === 'loading') return; 
     
-    assetsAreLoading = true;
-    showLoadingOverlay();
-    console.log("HeroParticleEffect: Preloading assets...");
+    startLoadingTask(HERO_ASSETS_TASK_ID);
 
     const manager = new THREE.LoadingManager();
     manager.onLoad = () => {
-      console.log("HeroParticleEffect: Assets loaded by manager.");
-      assetsArePreloaded = true;
-      assetsAreLoading = false;
+      preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
     };
     manager.onError = (url) => {
       console.error(`HeroParticleEffect: Error loading asset: ${url}`);
-      assetsAreLoading = false;
-      assetsArePreloaded = false; 
-      hideLoadingOverlay();
+      preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', `Failed to load ${url}`);
     };
 
     const fontLoader = new FontLoader(manager);
@@ -70,153 +52,190 @@
 
     try {
       loadedFontAsset = await fontLoader.loadAsync(FONT_ASSET_PATH);
-      console.log("HeroParticleEffect: Font loaded.");
       loadedParticleTextureMap = await textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH);
-      console.log("HeroParticleEffect: Particle texture loaded.");
     } catch (error) {
-      console.error("HeroParticleEffect: Asset loading failed:", error);
+      console.error("HeroParticleEffect: Asset loading promise failed:", error);
+      if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'error') {
+        preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading promise failed.');
+      }
     }
   }
 
   function initializeAndRunEffect() {
-    if (!assetsArePreloaded || !threeContainerElement || !loadedFontAsset || !loadedParticleTextureMap) {
-      console.warn("HeroParticleEffect: Cannot initialize, prerequisites not met.", {
-        assetsArePreloaded, 
-        containerReady: !!threeContainerElement, 
-        fontReady: !!loadedFontAsset, 
-        textureReady: !!loadedParticleTextureMap
-      });
-      if (assetsAreLoading) {
-        console.log("HeroParticleEffect: Assets are still loading. Will try again once loaded.");
-      } else if (!assetsArePreloaded) {
-        console.log("HeroParticleEffect: Assets failed to load or not yet loaded. Cannot initialize.");
-        hideLoadingOverlay(); 
+    const assetsStatus = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
+    if (assetsStatus !== 'loaded') {
+      console.warn("HeroParticleEffect: Assets not loaded. Cannot initialize.", { assetsStatus });
+      if (assetsStatus !== 'error' && preloadingStore.getTaskStatus(HERO_INIT_TASK_ID) !== 'error') {
+        // If assets are pending/loading, init task should also wait or reflect this dependency.
+        // For simplicity, we let the reactive block re-trigger when assets are ready.
       }
+      return;
+    }
+
+    if (!threeContainerElement || !loadedFontAsset || !loadedParticleTextureMap) {
+      console.warn("HeroParticleEffect: Cannot initialize, DOM or asset prerequisites not met.");
+      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'DOM/asset prerequisites missing for init.');
       return;
     }
 
     if (particleSystemInstance) { 
+      // Instance exists, resume it
       if (!particleSystemInstance.isLooping()) { 
         particleSystemInstance.startAnimationLoop();
       }
       if (particleSystemInstance.createParticles) {
-        particleSystemInstance.createParticles.bindInteractionEvents(); // Ensure events are bound
+        particleSystemInstance.createParticles.bindInteractionEvents();
         particleSystemInstance.createParticles.resetParticleState(); 
-        console.log("HeroParticleEffect: Reset particle state and bound events on resume.");
       }
       effectIsVisiblyRunning = true; 
       if (threeContainerElement) threeContainerElement.style.opacity = '1';
-      hideLoadingOverlay(); 
+      // If resuming, init task should already be 'loaded'. If not, something is wrong.
+      // For safety, ensure it's marked loaded if we successfully resume.
+      if (preloadingStore.getTaskStatus(HERO_INIT_TASK_ID) !== 'loaded') {
+        preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
+      }
       return;
     }
 
-    console.log("HeroParticleEffect: Initializing ParticleEnvironment for the first time...");
-    particleSystemInstance = new ParticleEnvironment(loadedFontAsset, loadedParticleTextureMap, threeContainerElement);
-    
-    // After new ParticleEnvironment, createParticles is instantiated, so we can bind events.
-    if (particleSystemInstance.createParticles) {
-        particleSystemInstance.createParticles.bindInteractionEvents();
-        console.log("HeroParticleEffect: Bound interaction events after first-time init.");
-    }
+    // First-time initialization for this instance
+    preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loading');
+    try {
+      particleSystemInstance = new ParticleEnvironment(loadedFontAsset, loadedParticleTextureMap, threeContainerElement);
+      
+      if (particleSystemInstance.createParticles) {
+          particleSystemInstance.createParticles.bindInteractionEvents();
+      }
+      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
+      effectIsVisiblyRunning = true; 
 
-    effectIsVisiblyRunning = true; 
-    if (threeContainerElement) {
-        threeContainerElement.style.opacity = '0'; 
-        requestAnimationFrame(() => { 
-            if (threeContainerElement) threeContainerElement.style.opacity = '1';
-        });
+      if (threeContainerElement) {
+          threeContainerElement.style.opacity = '0'; 
+          requestAnimationFrame(() => { 
+              if (threeContainerElement) threeContainerElement.style.opacity = '1';
+          });
+      }
+    } catch (error) {
+      console.error("HeroParticleEffect: Error during ParticleEnvironment instantiation:", error);
+      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'Failed to instantiate ParticleEnvironment.');
+      particleSystemInstance = null; // Ensure it's null on failure
     }
-    console.log("HeroParticleEffect: Effect initialized and running.");
-    hideLoadingOverlay(); 
   }
 
   function pauseEffectLogic() {
     if (particleSystemInstance && effectIsVisiblyRunning) {
       particleSystemInstance.stopAnimationLoop();
       if (particleSystemInstance.createParticles) {
-        particleSystemInstance.createParticles.unbindInteractionEvents(); // Unbind events on pause
-        console.log("HeroParticleEffect: Unbound interaction events on pause.");
+        particleSystemInstance.createParticles.unbindInteractionEvents();
+        // console.log("HeroParticleEffect: Unbound interaction events on pause.");
       }
       effectIsVisiblyRunning = false; 
       if (threeContainerElement) threeContainerElement.style.opacity = '0'; 
-      console.log("HeroParticleEffect: Effect paused.");
+      // console.log("HeroParticleEffect: Effect paused.");
     }
   }
 
-  function destroyEffectLogic() {
+  async function destroyEffectLogic() { // Made async
     if (particleSystemInstance) {
-      console.log("HeroParticleEffect: Destroying ParticleEnvironment...");
-      // Ensure events are unbound and loop is stopped before full disposal
+      // console.log("HeroParticleEffect: Attempting to destroy ParticleEnvironment...");
+      effectIsVisiblyRunning = false; 
+      if (threeContainerElement) {
+        threeContainerElement.style.opacity = '0';
+        // Wait for opacity transition to take effect visually before heavy dispose
+        await new Promise(resolve => setTimeout(resolve, 500)); // Match opacity transition duration
+      }
+      
       if (particleSystemInstance.createParticles) {
         particleSystemInstance.createParticles.unbindInteractionEvents();
       }
-      particleSystemInstance.stopAnimationLoop(); // Explicitly stop loop
+      particleSystemInstance.stopAnimationLoop();
       
       particleSystemInstance.dispose();
       particleSystemInstance = null;
-      effectIsVisiblyRunning = false; 
-      console.log("HeroParticleEffect: Effect destroyed.");
+      // console.log("HeroParticleEffect: Effect destroyed.");
+    }
+    // Reset init task status as the instance is gone
+    if (preloadingStore.getTaskStatus(HERO_INIT_TASK_ID) === 'loaded' || preloadingStore.getTaskStatus(HERO_INIT_TASK_ID) === 'error') {
+        preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'pending');
     }
   }
   
   onMount(async () => {
-    if (loadingOverlayElement) {
-        loadingOverlayElement.style.opacity = '0';
-        loadingOverlayElement.style.display = 'none';
-        loadingOverlayElement.classList.add('hidden-overlay');
+    await tick(); 
+    if (!preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID)) {
+        preloadingStore.registerTask(HERO_ASSETS_TASK_ID, 'pending');
+    }
+    if (!preloadingStore.getTaskStatus(HERO_INIT_TASK_ID)) {
+        preloadingStore.registerTask(HERO_INIT_TASK_ID, 'pending');
     }
   });
 
-  onDestroy(() => {
-    destroyEffectLogic();
-    loadedFontAsset = null;
-    loadedParticleTextureMap = null;
-    assetsArePreloaded = false;
-    assetsAreLoading = false;
+  onDestroy(async () => { // onDestroy can be async
+    await destroyEffectLogic();
   });
 
-  $: if (typeof activeSectionIndex === 'number') { 
+  $: if (typeof activeSectionIndex === 'number' && typeof window !== 'undefined') { 
     (async () => { 
-        while (!threeContainerElement || !loadingOverlayElement) {
-            if (typeof window === 'undefined') return; 
+        while (!threeContainerElement) {
             await tick(); 
         }
-
-        // console.log(`HeroParticleEffect: Index: ${activeSectionIndex}, Preloaded: ${assetsArePreloaded}, Loading: ${assetsAreLoading}, Instance: ${!!particleSystemInstance}, Running: ${effectIsVisiblyRunning}`);
+        
+        const currentAssetStatus = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
+        const currentInitStatus = preloadingStore.getTaskStatus(HERO_INIT_TASK_ID);
         
         if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) { 
-            if (!assetsArePreloaded) { 
-                if (!assetsAreLoading) { 
-                    await preloadEffectAssets(); 
-                }
+            // Step 1: Handle asset loading
+            if (currentAssetStatus !== 'loaded' && currentAssetStatus !== 'loading') { 
+                await preloadEffectAssets(); 
             }
             
-            if (assetsArePreloaded) {
-                if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) { // Re-check index after await
+            // Re-check asset status after attempt
+            const assetStatusAfterAttempt = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
+
+            if (assetStatusAfterAttempt === 'loaded') {
+                // Step 2: Assets are loaded, handle initialization
+                if (currentInitStatus !== 'loaded' && currentInitStatus !== 'loading') {
+                    // If not initialized or currently initializing, call initializeAndRunEffect.
+                    // This function handles setting init task to 'loading' then 'loaded'/'error'.
+                    initializeAndRunEffect();
+                } else if (currentInitStatus === 'loaded') {
+                    // Assets and Init are both loaded.
+                    // Ensure effect is running (e.g. if paused or instance was somehow lost).
                     if (!particleSystemInstance || !effectIsVisiblyRunning) {
-                        initializeAndRunEffect(); 
-                    } else if (particleSystemInstance && effectIsVisiblyRunning) {
-                        // If already running and on hero, ensure events are bound (might have been unbound by quick nav)
-                        // and reset state. initializeAndRunEffect handles this if instance exists.
-                        initializeAndRunEffect();
+                        initializeAndRunEffect(); // This will recreate or resume
+                    } else {
+                         // Already running, ensure events are bound (e.g. quick nav back)
+                        initializeAndRunEffect(); // Handles resume logic
                     }
                 }
-            } else if (!assetsAreLoading) { 
-                console.warn("HeroParticleEffect: Hero active, but assets not loaded and not loading.");
+                // If initStatus is 'loading', wait for it to complete.
+                // If initStatus is 'error', something went wrong during init.
+            } else if (assetStatusAfterAttempt === 'error') {
+                console.error("HeroParticleEffect: Assets failed to load. Cannot display effect.");
+                // If assets failed, init task should also reflect an error if it's not already errored.
+                if (preloadingStore.getTaskStatus(HERO_INIT_TASK_ID) !== 'error') {
+                    preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'Dependent asset loading failed.');
+                }
             }
+            // If assets are 'loading' or 'pending', do nothing more in this cycle; wait for status change.
 
         } else if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX + 1) { 
             if (particleSystemInstance && effectIsVisiblyRunning) {
                 pauseEffectLogic();
-            } else if (!particleSystemInstance) { 
-                if (!assetsArePreloaded && !assetsAreLoading) {
-                    console.log("HeroParticleEffect: Pre-loading for potential scroll to Hero (section 1).");
-                    await preloadEffectAssets();
-                }
-                if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX + 1 && assetsArePreloaded && !particleSystemInstance) {
-                    console.log("HeroParticleEffect: Pre-initializing instance then pausing (section 1).");
-                    initializeAndRunEffect(); 
+            }
+            // Preload assets if not already handled, for faster transition back to hero
+            if (currentAssetStatus !== 'loaded' && currentAssetStatus !== 'loading') {
+                await preloadEffectAssets(); // Non-blocking if not awaited, but better to await for pre-init
+            }
+            // Optional: Pre-initialize if assets are loaded but instance doesn't exist/init not done
+            const assetStatusForPreInit = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
+            const initStatusForPreInit = preloadingStore.getTaskStatus(HERO_INIT_TASK_ID);
+
+            if (assetStatusForPreInit === 'loaded' && initStatusForPreInit !== 'loaded' && initStatusForPreInit !== 'loading') {
+                if (!particleSystemInstance) { // Only if no instance
+                    // console.log("HeroParticleEffect: Pre-initializing instance then pausing (section 1).");
+                    initializeAndRunEffect(); // This will handle HERO_INIT_TASK_ID
                     await tick(); 
+                    // After init, if still on section 1, pause it.
                     if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX + 1 && particleSystemInstance) {
                        pauseEffectLogic(); 
                     }
@@ -224,7 +243,7 @@
             }
         } else if (activeSectionIndex >= HERO_SECTION_LOGICAL_INDEX + 2) { 
             if (particleSystemInstance) {
-                destroyEffectLogic();
+                await destroyEffectLogic();
             }
         }
     })();
@@ -240,14 +259,6 @@
   <!-- Three.js canvas will be appended here by heroParticleLogic.ts -->
 </div>
 
-<div 
-  class="hero-loading-overlay" 
-  bind:this={loadingOverlayElement}
-  id="loading-overlay-particles" 
->
-  <p>Loading Experience...</p>
-</div>
-
 <style>
   .hero-particle-container {
     width: 100%;
@@ -255,32 +266,10 @@
     position: absolute;
     top: 0;
     left: 0;
-    background-color: transparent;
+    background-color: transparent; 
     opacity: 0; 
     transition: opacity 0.5s ease-in-out;
     overflow: hidden;
-    /* Ensure it can receive mouse events for interaction */
     pointer-events: auto; 
-  }
-
-  .hero-loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background-color: #111;
-    color: white;
-    display: none; 
-    justify-content: center;
-    align-items: center;
-    font-size: 1.5rem;
-    z-index: 10000; 
-    opacity: 1;
-    transition: opacity 0.8s ease-out;
-  }
-
-  .hero-loading-overlay.hidden-overlay {
-    opacity: 0;
   }
 </style>

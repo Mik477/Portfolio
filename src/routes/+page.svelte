@@ -5,6 +5,8 @@
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
+  import LoadingScreen from '$lib/components/LoadingScreen.svelte';
+  import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore'; // Import new store
 
   import gsap from 'gsap';
 
@@ -31,15 +33,33 @@
   const contentAnimationStartOffset = -0.3; // Start content animation 0.3s before slide ends (transitionDuration + this value)
   const projectBgZoomStartOffset = 0.1; // Start project background zoom 0.1s after slide animation begins
 
+  let unsubOverallLoadingState: (() => void) | undefined;
+
   onMount((): (() => void) | void => {
+    // preloadingStore.resetTasks(); // Call this if you want a full reset on every page load (e.g. during dev)
+                                  // Otherwise, tasks might persist if user navigates away and back quickly.
+
+    // Subscribe to overallLoadingState to set initialSiteLoadComplete
+    unsubOverallLoadingState = overallLoadingState.subscribe(status => {
+      if (status === 'loaded' && !get(initialSiteLoadComplete)) {
+        console.log("+page.svelte: Initial load sequence complete. Setting initialSiteLoadComplete to true.");
+        initialSiteLoadComplete.set(true);
+      }
+    });
+
     const setupPromise = async () => {
-      await tick();
+      await tick(); // Ensure DOM is ready
 
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
       if (sectionElements.some(el => !el)) {
           console.error("One or more sections not found in DOM!");
+          // If preloadingStore is used for critical DOM elements, it could report an error here.
           return;
       }
+
+      // GSAP and section setup can proceed.
+      // The LoadingScreen component will manage visibility based on preloadingStore.
+      // HeroParticleEffect handles its own asset loading and integration with preloadingStore.
 
       sectionElements.forEach((sectionEl, index) => {
         const contentTl = gsap.timeline({ paused: true });
@@ -75,7 +95,20 @@
       });
 
       // Initial state for the first section
-      sectionContentTimelines[0]?.restart();
+      // Content animation for the first section will be triggered if it's the hero section
+      // by HeroParticleEffect's logic, or by navigateToSection(0) if we force it.
+      // For simplicity, let current logic stand; if section 0 is hero, its content animates
+      // when HeroParticleEffect becomes active. If it's a project, its BG zoom handles it.
+      // We can explicitly call navigateToSection(0) if needed, but it might be redundant.
+      // The current logic in HeroParticleEffect handles its own activation.
+      // Let's ensure the first section's content animation is explicitly started if it's not a project with BG zoom.
+      if (get(currentSectionIndex) === 0) {
+          sectionContentTimelines[0]?.restart();
+          if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
+            // This is handled below
+          }
+      }
+
 
       if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
         isAnimating.set(true); // Initial lock if first section is a project with zoom
@@ -97,12 +130,16 @@
       window.addEventListener('keydown', handleKeyDown);
     };
     setupPromise();
+
     return () => {
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
       sectionContentTimelines.forEach(timeline => timeline?.kill());
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
+      if (unsubOverallLoadingState) {
+        unsubOverallLoadingState();
+      }
     };
   });
 
@@ -229,6 +266,8 @@
   <title>{siteConfig.title}</title>
   <meta name="description" content={siteConfig.description} />
 </svelte:head>
+
+<LoadingScreen /> 
 
 <main class="portfolio-container">
   <!-- Section 1: Hero / Greeting -->
