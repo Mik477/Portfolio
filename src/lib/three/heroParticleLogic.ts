@@ -269,6 +269,7 @@ export class CreateParticles {
     this.camera = camera;
     this.renderer = renderer; 
     this.hostContainer = hostContainer;
+    this.isPressed = false;
 
     this.raycaster = new THREE.Raycaster();
     this.mouse = new THREE.Vector2(1e5, 1e5); // Initialize way off-screen
@@ -487,12 +488,16 @@ export class CreateParticles {
     console.log("HeroParticleLogic: Binding interaction events.");
     this.hostContainer.addEventListener('mousedown', this.boundOnMouseDown);
     this.hostContainer.addEventListener('mousemove', this.boundOnMouseMove);
-    document.addEventListener('mouseup', this.boundOnMouseUp); // Mouseup can occur outside the container
+    document.addEventListener('mouseup', this.boundOnMouseUp); // Mouseup can occur outside
 
     this.hostContainer.addEventListener('touchstart', this.boundOnTouchStart, { passive: false });
     this.hostContainer.addEventListener('touchmove', this.boundOnTouchMove, { passive: false });
     this.hostContainer.addEventListener('touchend', this.boundOnTouchEnd, { passive: false });
-    this.neutralizeLastMousePosition(); 
+
+    // --- RESET isPressed STATE ON BIND ---
+    this.isPressed = false;
+    // this.neutralizeLastMousePosition(); // Also resets isPressed if called here
+    console.log("HeroParticleLogic: isPressed flag reset on binding events.");
   }
 
   public unbindInteractionEvents() {
@@ -504,19 +509,16 @@ export class CreateParticles {
     this.hostContainer.removeEventListener('touchstart', this.boundOnTouchStart);
     this.hostContainer.removeEventListener('touchmove', this.boundOnTouchMove);
     this.hostContainer.removeEventListener('touchend', this.boundOnTouchEnd);
-    this.neutralizeLastMousePosition(); 
+    
+    this.neutralizeLastMousePosition(); // This will also reset isPressed
   }
 
   public neutralizeLastMousePosition() {
-    this.mouse.set(1e5, 1e5); // Move mouse vector far off-screen
-    // This ensures that in the next render() call, if it happens before the loop fully stops
-    // or before particles fully spring back, the `intersects` will be empty
-    // and the `else` block in render() (spring back to original) will take full effect
-    // without influence from the last real mouse position.
-    // Also, reset hasMouseMoved if you want the "First mouse move detected" log to reappear
-    // when interactions are re-enabled and the user moves the mouse again.
+    this.mouse.set(1e5, 1e5); 
     this.hasMouseMoved = false; 
-    console.log("HeroParticleLogic: Last mouse position neutralized.");
+    // --- RESET isPressed STATE HERE AS WELL ---
+    this.isPressed = false; 
+    console.log("HeroParticleLogic: Last mouse position neutralized and isPressed reset.");
   }
 
   private onMouseDown(event: MouseEvent) { this.updateMousePosition(event.clientX, event.clientY); this.isPressed = true; this.data.ease = .01; }
