@@ -1,18 +1,36 @@
+<!-- src/routes/+page.svelte -->
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
+  import type { SvelteComponent } from 'svelte'; // For component instance type
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore';
 
   import gsap from 'gsap';
 
+  // --- Component Instance Type for HeroParticleEffect ---
+  // This assumes HeroParticleEffect.svelte exports these methods
+  interface HeroParticleEffectInstance extends SvelteComponent {
+    onTransitionToHeroStart: () => Promise<void>;
+    onTransitionToHeroComplete: () => void;
+    onTransitionFromHeroStart: () => void;
+  }
+  let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
+  // --- End Component Instance Type ---
+
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
+
+  let particleLayerPointerEvents = 'none';
+  $: particleLayerPointerEvents = ($currentSectionIndex === 0) ? 'auto' : 'none';
+
+  let mainContainerPointerEvents = 'auto';
+  $: mainContainerPointerEvents = ($currentSectionIndex === 0) ? 'none' : 'auto';
 
   let sectionElements: HTMLElement[] = [];
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
@@ -24,6 +42,8 @@
     ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
     { id: 'contact', type: 'contact', data: siteConfig.contactSection }
   ];
+
+  const HERO_LOGICAL_INDEX = 0; // Define for clarity
 
   const transitionDuration = 1.1;
   const projectBgZoomDuration = 3;
@@ -61,15 +81,14 @@
           const h2El = sectionEl.querySelector('.about-text-block h2');
           const pEl = sectionEl.querySelector('.about-text-block p');
           const imageEl = sectionEl.querySelector('.about-background-image'); 
-          // KeyboardButtons have their own CSS animation (animation-delay: 0.6s).
 
           if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
-          if (imageEl) { // Animate the background image itself
+          if (imageEl) { 
             contentTl.fromTo(imageEl, 
               { autoAlpha: 0, scale: 1.1 }, 
               { autoAlpha: 1, scale: 1, duration: 1.2, ease: 'power2.out' }, 
-              "start+=0.1" // Start slightly after text begins for layering effect
+              "start+=0.1"
             );
           }
         
@@ -106,8 +125,15 @@
         }
       });
 
-      if (get(currentSectionIndex) === 0) {
-          sectionContentTimelines[0]?.restart();
+      if (get(currentSectionIndex) === HERO_LOGICAL_INDEX) {
+          sectionContentTimelines[HERO_LOGICAL_INDEX]?.restart(); // Or any other initial animation for hero text if it existed
+          // Initial call for hero effect completion if starting on hero
+          if (heroParticleEffectInstance) {
+            // This scenario is tricky: if starting directly on hero, there's no "transition to hero complete"
+            // The HeroParticleEffect's own onMount and reactive logic should handle its initial setup.
+            // We might call onTransitionToHeroComplete directly IF we know assets are loaded and it's truly settled.
+            // For now, relying on HeroParticleEffect's internal _handleSettledState
+          }
       }
 
       if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
@@ -141,9 +167,7 @@
       sectionContentTimelines.forEach(timeline => timeline?.kill());
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
-      if (unsubOverallLoadingState) {
-        unsubOverallLoadingState();
-      }
+      if (unsubOverallLoadingState) unsubOverallLoadingState();
     };
   });
 
@@ -156,6 +180,22 @@
     isAnimating.set(true);
     isTransitioning.set(true);
 
+    console.log(`Navigate: from ${oldIndex} to ${newIndex}`);
+
+    // --- Call HeroParticleEffect methods based on transition ---
+    if (heroParticleEffectInstance) {
+      if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) {
+        // Transitioning TO Hero
+        console.log("+page: Calling onTransitionToHeroStart");
+        heroParticleEffectInstance.onTransitionToHeroStart();
+      } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) {
+        // Transitioning FROM Hero
+        console.log("+page: Calling onTransitionFromHeroStart");
+        heroParticleEffectInstance.onTransitionFromHeroStart();
+      }
+    }
+    // --- End HeroParticleEffect method calls ---
+
     const currentSectionEl = sectionElements[oldIndex];
     const targetSectionEl = sectionElements[newIndex];
     const direction = newIndex > oldIndex ? 1 : -1;
@@ -167,6 +207,13 @@
       onComplete: () => {
         currentSectionIndex.set(newIndex);
         isTransitioning.set(false);
+
+        // --- Call HeroParticleEffect completion method ---
+        if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) {
+            console.log("+page: Calling onTransitionToHeroComplete");
+            heroParticleEffectInstance.onTransitionToHeroComplete();
+        }
+        // --- End HeroParticleEffect completion method call ---
       }
     });
 
@@ -185,9 +232,13 @@
       ease: 'expo.out'
     }, "slide");
 
-    masterTransitionTl.call(() => {
-      sectionContentTimelines[newIndex]?.restart();
-    }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
+    // Don't animate content for Hero section itself here, it's just the particle effect
+    if (newIndex !== HERO_LOGICAL_INDEX) {
+        masterTransitionTl.call(() => {
+            sectionContentTimelines[newIndex]?.restart();
+        }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
+    }
+
 
     const targetBgZoom = sectionBackgroundZooms[newIndex];
     if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
@@ -256,22 +307,21 @@
 
 <LoadingScreen /> 
 
-<div class="particle-effect-layer">
+<div class="particle-effect-layer" style="pointer-events: {particleLayerPointerEvents};">
   <HeroParticleEffect 
+    bind:this={heroParticleEffectInstance}
     activeSectionIndex={$currentSectionIndex} 
     isTransitioning={$isTransitioning}
     transitionDuration={transitionDuration}
   />
 </div>
 
-<main class="portfolio-container">
+<main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
   <section id="hero" class="full-screen-section hero-section">
     <!-- Hero section is empty - only shows particle effect -->
   </section>
 
-  <!-- Section 2: About Me (REFINED STRUCTURE FOR OVERLAP) -->
   <section id="about" class="full-screen-section about-section">
-    <!-- Background Layer (for image or future effect) -->
     <div class="about-background-layer">
       {#if siteConfig.aboutSection.imageUrl}
         <img
@@ -280,10 +330,7 @@
           class="about-background-image"
         />
       {/if}
-      <!-- Future: A Svelte component for a particle effect could go here, e.g., <AboutParticleEffect /> -->
     </div>
-
-    <!-- Content Layer -->
     <div class="about-content-wrapper">
       <div class="about-text-block">
         <h2>{siteConfig.aboutSection.title}</h2>
@@ -294,14 +341,11 @@
             {contactSectionIndex}
             {navigateToSection}
           />
-        {:else}
-          <!-- Fallback or silent error handled by console.error -->
         {/if}
       </div>
     </div>
   </section>
 
-  <!-- Project Sections (structure remains the same) -->
   {#each projects as project (project.id)}
     {@const projectSectionData = getSectionData(`project-${project.id}`) as Project | undefined}
     <section id="project-{project.id}" class="full-screen-section project-section">
@@ -329,7 +373,6 @@
     </section>
   {/each}
 
-  <!-- Contact Section (structure remains the same) -->
   <section id="contact" class="full-screen-section contact-section">
      <div class="content-center">
       <h2>{siteConfig.contactSection.title}</h2>
@@ -359,14 +402,9 @@
     width: 100vw;
     height: 100vh;
     z-index: 0;
-    pointer-events: none;
     background-color: rgb(9 9 11);
   }
   
-  .particle-effect-layer :global(.hero-particle-container) {
-    pointer-events: auto;
-  }
-
   .portfolio-container {
     position: relative;
     width: 100%;
@@ -388,24 +426,22 @@
     text-align: center;
     padding: 2rem;
     box-sizing: border-box;
-    background-color: rgb(9 9 11); /* Default, can be overridden */
+    background-color: rgb(9 9 11); 
   }
   
   .hero-section {
     background-color: transparent;
     z-index: 2;
+    pointer-events: none;
   }
   
-  /* --- REFINED ABOUT SECTION STYLING --- */
   .about-section {
-    /* display: flex; is inherited */
-    /* justify-content: center; & align-items: center; for mobile centering of content-wrapper */
-    padding: 0; /* Override .full-screen-section default */
-    text-align: left; /* Default for content, can be overridden locally */
-    background-color: transparent; /* To see particle layer or page bg if no image/effect */
+    padding: 0; 
+    text-align: left; 
+    background-color: transparent; 
     z-index: 2;
-    position: relative; /* For absolute positioning of its children layers */
-    overflow: hidden; /* Ensure no overflow from scaled images etc. */
+    position: relative; 
+    overflow: hidden; 
   }
 
   .about-background-layer {
@@ -414,65 +450,51 @@
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 0; /* Behind the content layer */
-    /* background-color: #050506; /* Optional dark fallback if image is transparent/slow */
-    /* pointer-events: none; /* If you want clicks to pass through the entire background layer */
+    z-index: 0; 
   }
 
   .about-background-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    /* This positions the image so its right part is more visible if the image is wider than the screen.
-       Adjust 80% (horizontal) and 50% (vertical) as needed.
-       'right center' or '100% 50%' would pin it hard to the right.
-    */
     object-position: 80% center; 
-    opacity: 0; /* GSAP controlled */
-    /* filter: grayscale(20%) contrast(1.05) brightness(0.9); Optional subtle image treatment */
+    opacity: 0;
   }
 
   .about-content-wrapper {
-    position: relative; /* Stacks above background layer */
+    position: relative; 
     z-index: 1;
     width: 100%;
     height: 100%;
     display: flex;
-    justify-content: flex-start; /* Aligns .about-text-block to the left on desktop */
-    align-items: center; /* Vertically centers .about-text-block */
-    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); /* Accommodate safe areas + dynamic padding */
+    justify-content: flex-start; 
+    align-items: center; 
+    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); 
     padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem);
     box-sizing: border-box;
   }
 
   .about-text-block {
-    max-width: 580px; /* Adjust as needed for your content */
-    /* Optional: For better readability if image is busy and content overlaps a lot */
-    /* background: rgba(9, 9, 11, 0.15); */
-    /* backdrop-filter: blur(5px); */
-    /* padding: 1.5rem; */
-    /* border-radius: 8px; */
+    max-width: 580px; 
   }
 
   .about-text-block h2 {
-    font-size: clamp(2.2rem, 4.5vw, 3rem); /* Responsive font size */
+    font-size: clamp(2.2rem, 4.5vw, 3rem); 
     margin-bottom: 1.5rem;
     font-weight: 300;
     letter-spacing: -0.02em;
     color: rgb(245 245 247);
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
 
   .about-text-block p {
-    font-size: clamp(1rem, 2.2vw, 1.15rem); /* Responsive font size */
+    font-size: clamp(1rem, 2.2vw, 1.15rem); 
     line-height: 1.8;
-    margin-bottom: 2.5rem; /* Space before KeyboardButtons */
+    margin-bottom: 2.5rem; 
     color: rgb(212 212 216);
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
-  /* END REFINED ABOUT SECTION STYLING */
-
-  /* Project section styling (existing, ensure no conflicts) */
+  
   .project-section { 
     color: rgb(245 245 247);
     z-index: 2;
@@ -573,13 +595,12 @@
     box-shadow: 0 4px 20px rgba(99 102 241 / 0.4);
   }
 
-  /* Contact section styling */
   .contact-section { 
     background-color: rgb(24 24 27);
     color: rgb(245 245 247);
     z-index: 2;
   }
-  .content-center { /* Used by Contact section */
+  .content-center { 
     max-width: 800px;
     margin: 0 auto;
     padding: 2rem;
@@ -589,7 +610,7 @@
     margin-bottom: 2rem;
     font-weight: 300;
     letter-spacing: -0.02em;
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
   
   .contact-section p {
@@ -597,7 +618,7 @@
     line-height: 1.8;
     margin-bottom: 1.5rem;
     color: rgb(212 212 216);
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
   
   .contact-section a { 
@@ -617,7 +638,7 @@
     display: flex;
     gap: 2rem;
     justify-content: center;
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
   
   * {
@@ -625,8 +646,7 @@
     -moz-osx-font-smoothing: grayscale;
   }
   
-  /* Responsive adjustments */
-  @media (max-width: 768px) { /* General mobile breakpoint */
+  @media (max-width: 768px) { 
     .project-cards-container {
       flex-direction: column;
       align-items: center;
@@ -636,33 +656,25 @@
       max-width: 320px;
     }
 
-    /* ABOUT SECTION - Mobile */
     .about-section {
-      /* justify-content and align-items already center children for flex */
-      padding: 2rem; /* Add some padding back for mobile */
+      padding: 2rem; 
     }
 
     .about-content-wrapper {
-      justify-content: center; /* Center the .about-text-block */
-      text-align: center; /* Center text within .about-text-block */
-      padding: 1rem; /* Adjust padding */
+      justify-content: center; 
+      text-align: center; 
+      padding: 1rem; 
     }
     
     .about-text-block {
-      max-width: 100%; /* Take full available width */
-      /* background: none; backdrop-filter: none; Remove any desktop bg effects */
+      max-width: 100%; 
     }
     .about-text-block h2, .about-text-block p {
-      text-align: center; /* Ensure text alignment is center for mobile */
+      text-align: center; 
     }
-    /* KeyboardButtons are intrinsically responsive and will be centered by .about-text-block or its parent */
 
     .about-background-layer {
-      display: none; /* Hide image background on mobile as per original requirement */
-      /* Or, for a different effect:
-      opacity: 0.3;
-      filter: blur(5px);
-      */
+      display: none; 
     }
   }
 </style>

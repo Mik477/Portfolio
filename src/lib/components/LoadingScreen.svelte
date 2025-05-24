@@ -1,3 +1,4 @@
+<!-- src/lib/components/LoadingScreen.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore'; 

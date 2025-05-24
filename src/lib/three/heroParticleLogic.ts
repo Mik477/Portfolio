@@ -492,6 +492,7 @@ export class CreateParticles {
     this.hostContainer.addEventListener('touchstart', this.boundOnTouchStart, { passive: false });
     this.hostContainer.addEventListener('touchmove', this.boundOnTouchMove, { passive: false });
     this.hostContainer.addEventListener('touchend', this.boundOnTouchEnd, { passive: false });
+    this.neutralizeLastMousePosition(); 
   }
 
   public unbindInteractionEvents() {
@@ -503,6 +504,19 @@ export class CreateParticles {
     this.hostContainer.removeEventListener('touchstart', this.boundOnTouchStart);
     this.hostContainer.removeEventListener('touchmove', this.boundOnTouchMove);
     this.hostContainer.removeEventListener('touchend', this.boundOnTouchEnd);
+    this.neutralizeLastMousePosition(); 
+  }
+
+  public neutralizeLastMousePosition() {
+    this.mouse.set(1e5, 1e5); // Move mouse vector far off-screen
+    // This ensures that in the next render() call, if it happens before the loop fully stops
+    // or before particles fully spring back, the `intersects` will be empty
+    // and the `else` block in render() (spring back to original) will take full effect
+    // without influence from the last real mouse position.
+    // Also, reset hasMouseMoved if you want the "First mouse move detected" log to reappear
+    // when interactions are re-enabled and the user moves the mouse again.
+    this.hasMouseMoved = false; 
+    console.log("HeroParticleLogic: Last mouse position neutralized.");
   }
 
   private onMouseDown(event: MouseEvent) { this.updateMousePosition(event.clientX, event.clientY); this.isPressed = true; this.data.ease = .01; }
