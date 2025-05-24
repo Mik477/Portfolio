@@ -1,4 +1,3 @@
-<!-- src/routes/+page.svelte -->
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable, get } from 'svelte/store';
@@ -6,12 +5,14 @@
   import { projects, type Project } from '$lib/data/projectsData';
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
-  import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore'; // Import new store
+  import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
+  import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore';
 
   import gsap from 'gsap';
 
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
+  const isTransitioning = writable(false);
 
   let sectionElements: HTMLElement[] = [];
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
@@ -24,58 +25,69 @@
     { id: 'contact', type: 'contact', data: siteConfig.contactSection }
   ];
 
-  // --- TIMING CONFIGURATION ---
-  const transitionDuration = 1.1; // Duration of the main slide transition
-  const projectBgZoomDuration = 3;  // Duration of the project background image zoom
-  const minSectionDisplayDuration = 1.2; // Minimum time a section is displayed before user can scroll again
-                                         // This is the total time from scroll *initiation* to scroll *enablement*
-                                         // Must be >= transitionDuration for a good UX.
-  const contentAnimationStartOffset = -0.3; // Start content animation 0.3s before slide ends (transitionDuration + this value)
-  const projectBgZoomStartOffset = 0.1; // Start project background zoom 0.1s after slide animation begins
+  const transitionDuration = 1.1;
+  const projectBgZoomDuration = 3;
+  const minSectionDisplayDuration = 1.2;
+  const contentAnimationStartOffset = -0.3;
+  const projectBgZoomStartOffset = 0.1;
 
   let unsubOverallLoadingState: (() => void) | undefined;
+  let contactSectionIndex: number = -1;
 
   onMount((): (() => void) | void => {
-    // preloadingStore.resetTasks(); // Call this if you want a full reset on every page load (e.g. during dev)
-                                  // Otherwise, tasks might persist if user navigates away and back quickly.
-
-    // Subscribe to overallLoadingState to set initialSiteLoadComplete
-    unsubOverallLoadingState = overallLoadingState.subscribe(status => {
-      if (status === 'loaded' && !get(initialSiteLoadComplete)) {
-        console.log("+page.svelte: Initial load sequence complete. Setting initialSiteLoadComplete to true.");
-        initialSiteLoadComplete.set(true);
-      }
-    });
-
     const setupPromise = async () => {
-      await tick(); // Ensure DOM is ready
+      await tick();
 
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
       if (sectionElements.some(el => !el)) {
           console.error("One or more sections not found in DOM!");
-          // If preloadingStore is used for critical DOM elements, it could report an error here.
           return;
       }
 
-      // GSAP and section setup can proceed.
-      // The LoadingScreen component will manage visibility based on preloadingStore.
-      // HeroParticleEffect handles its own asset loading and integration with preloadingStore.
+      contactSectionIndex = allSectionsData.findIndex(section => section.id === 'contact');
+      if (contactSectionIndex === -1) {
+          console.error("Contact section ID ('contact') not found!");
+      }
 
       sectionElements.forEach((sectionEl, index) => {
         const contentTl = gsap.timeline({ paused: true });
-        if (allSectionsData[index].type === 'project') {
+        const currentSectionType = allSectionsData[index].type;
+
+        if (currentSectionType === 'project') {
           const headlineEl = sectionEl.querySelector('h2');
           if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
-        } else if (allSectionsData[index].type === 'hero') {
-          const h1El = sectionEl.querySelector('h1');
-          const pEl = sectionEl.querySelector('p');
-          if (h1El) contentTl.fromTo(h1El, { autoAlpha: 0, y:30 }, {autoAlpha:1, y:0, duration:0.7, ease:'power2.out'}, "start");
-          if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y:30 }, {autoAlpha:1, y:0, duration:0.7, ease:'power2.out'}, "start+=0.2");
+        
+        } else if (currentSectionType === 'about') {
+          const h2El = sectionEl.querySelector('.about-text-block h2');
+          const pEl = sectionEl.querySelector('.about-text-block p');
+          const imageEl = sectionEl.querySelector('.about-background-image'); 
+          // KeyboardButtons have their own CSS animation (animation-delay: 0.6s).
+
+          if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
+          if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
+          if (imageEl) { // Animate the background image itself
+            contentTl.fromTo(imageEl, 
+              { autoAlpha: 0, scale: 1.1 }, 
+              { autoAlpha: 1, scale: 1, duration: 1.2, ease: 'power2.out' }, 
+              "start+=0.1" // Start slightly after text begins for layering effect
+            );
+          }
+        
+        } else if (currentSectionType === 'contact') {
+          const h2El = sectionEl.querySelector('h2');
+          const paragraphs = sectionEl.querySelectorAll('p');
+          const links = sectionEl.querySelector('.additional-links');
+          
+          if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
+          paragraphs.forEach((p, i) => {
+            contentTl.fromTo(p, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, `start+=${0.1 * (i + 1)}`);
+          });
+          if (links) contentTl.fromTo(links, { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.3");
         }
         sectionContentTimelines[index] = contentTl;
 
         sectionBackgroundZooms[index] = null;
-        if (allSectionsData[index].type === 'project') {
+        if (currentSectionType === 'project') {
           const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
           if (bgTarget) {
             sectionBackgroundZooms[index] = gsap.to(bgTarget, {
@@ -94,41 +106,33 @@
         }
       });
 
-      // Initial state for the first section
-      // Content animation for the first section will be triggered if it's the hero section
-      // by HeroParticleEffect's logic, or by navigateToSection(0) if we force it.
-      // For simplicity, let current logic stand; if section 0 is hero, its content animates
-      // when HeroParticleEffect becomes active. If it's a project, its BG zoom handles it.
-      // We can explicitly call navigateToSection(0) if needed, but it might be redundant.
-      // The current logic in HeroParticleEffect handles its own activation.
-      // Let's ensure the first section's content animation is explicitly started if it's not a project with BG zoom.
       if (get(currentSectionIndex) === 0) {
           sectionContentTimelines[0]?.restart();
-          if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
-            // This is handled below
-          }
       }
 
-
       if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
-        isAnimating.set(true); // Initial lock if first section is a project with zoom
+        isAnimating.set(true);
         const firstBgZoom = sectionBackgroundZooms[0];
         if (firstBgZoom) {
           firstBgZoom.vars.onComplete = () => {
-            if (get(currentSectionIndex) === 0) { // Ensure we are still on the first section
+            if (get(currentSectionIndex) === 0) {
                 isAnimating.set(false);
-                console.log("Initial project background zoom complete, scroll lock released.");
             }
           };
           firstBgZoom.restart();
         }
-      } else {
-        console.log("First section not a project with zoom, or no zoom. Scroll lock not engaged by initial BG zoom.");
       }
 
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
     };
+    
+    unsubOverallLoadingState = overallLoadingState.subscribe(status => {
+      if (status === 'loaded' && !get(initialSiteLoadComplete)) {
+        initialSiteLoadComplete.set(true);
+      }
+    });
+    
     setupPromise();
 
     return () => {
@@ -149,29 +153,25 @@
     if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) {
       return;
     }
-    isAnimating.set(true); // Master lock engaged
-
-    console.log(`Navigating from ${oldIndex} to ${newIndex}`);
+    isAnimating.set(true);
+    isTransitioning.set(true);
 
     const currentSectionEl = sectionElements[oldIndex];
     const targetSectionEl = sectionElements[newIndex];
     const direction = newIndex > oldIndex ? 1 : -1;
 
-    // Reset animations for the outgoing section
     sectionContentTimelines[oldIndex]?.progress(0).pause();
-    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); // Pause and reset old background zoom
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause();
 
     const masterTransitionTl = gsap.timeline({
       onComplete: () => {
         currentSectionIndex.set(newIndex);
-        // isAnimating.set(false) is now handled by a separate delayedCall below
+        isTransitioning.set(false);
       }
     });
 
-    // Prepare target section (set initial position and make it visible for the transition)
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
 
-    // Slide transitions
     masterTransitionTl.to(currentSectionEl, {
       yPercent: -direction * 100,
       autoAlpha: 0,
@@ -181,46 +181,35 @@
 
     masterTransitionTl.to(targetSectionEl, {
       yPercent: 0,
-      // autoAlpha: 1, // autoAlpha is already set by gsap.set() above
       duration: transitionDuration,
       ease: 'expo.out'
     }, "slide");
 
-    // Content animations for the target section
     masterTransitionTl.call(() => {
       sectionContentTimelines[newIndex]?.restart();
-    }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); // e.g., slide+=0.8 if offset is -0.3
+    }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
 
-    // Background zoom for the target project section
     const targetBgZoom = sectionBackgroundZooms[newIndex];
     if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
-      targetBgZoom.vars.onStart = () => console.log(`Project BG Zoom started for section ${newIndex}. Duration: ${projectBgZoomDuration}s`);
-      targetBgZoom.vars.onComplete = () => console.log(`Project BG Zoom complete for section ${newIndex}.`);
-      // Start background zoom slightly after the slide animation begins
       masterTransitionTl.call(() => {
         targetBgZoom.restart();
       }, [], `slide+=${projectBgZoomStartOffset}`);
     }
 
-    // Master lock release: based on the slide transition or minSectionDisplayDuration, whichever is longer.
-    // Background zoom duration no longer dictates this lock.
     const scrollLockReleaseTime = Math.max(transitionDuration, minSectionDisplayDuration);
     gsap.delayedCall(scrollLockReleaseTime, () => {
       isAnimating.set(false);
-      console.log(`Master scroll lock released. Section: ${newIndex}. Lock duration: ${scrollLockReleaseTime}s`);
     });
   }
 
   let lastScrollTime = 0;
-  const scrollDebounce = 200; // Debounce for rapid scroll/key events
+  const scrollDebounce = 200;
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
     const currentTime = Date.now();
-    // Debounce to prevent multiple triggers from a single scroll action
     if (currentTime - lastScrollTime < scrollDebounce) return; 
-    
-    if (get(isAnimating)) return; // Check master lock *after* debounce check
+    if (get(isAnimating)) return;
     
     lastScrollTime = currentTime;
     navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1));
@@ -228,13 +217,11 @@
 
   function handleKeyDown(event: KeyboardEvent) {
     const currentTime = Date.now();
-    // Debounce for keydown
     if (currentTime - lastScrollTime < scrollDebounce) {
         if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
         return;
     }
-
-    if (get(isAnimating)) { // Check master lock *after* debounce check
+    if (get(isAnimating)) {
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
       return;
     }
@@ -252,7 +239,7 @@
 
     if (shouldScroll && newIndex !== get(currentSectionIndex)) {
         event.preventDefault();
-        lastScrollTime = currentTime; // Update lastScrollTime only when a scroll is initiated
+        lastScrollTime = currentTime;
         navigateToSection(newIndex);
     }
   }
@@ -269,35 +256,52 @@
 
 <LoadingScreen /> 
 
+<div class="particle-effect-layer">
+  <HeroParticleEffect 
+    activeSectionIndex={$currentSectionIndex} 
+    isTransitioning={$isTransitioning}
+    transitionDuration={transitionDuration}
+  />
+</div>
+
 <main class="portfolio-container">
-  <!-- Section 1: Hero / Greeting -->
   <section id="hero" class="full-screen-section hero-section">
-    <!-- REMOVE existing H1 and P tags -->
-    <!-- ADD HeroParticleEffect component -->
-    <HeroParticleEffect activeSectionIndex={$currentSectionIndex} />
+    <!-- Hero section is empty - only shows particle effect -->
   </section>
 
-  <!-- Section 2: About Me -->
+  <!-- Section 2: About Me (REFINED STRUCTURE FOR OVERLAP) -->
   <section id="about" class="full-screen-section about-section">
-    <!-- ... (About section content remains the same) ... -->
-    <div class="content-center">
-      <h2>{siteConfig.aboutSection.title}</h2>
-      {#each siteConfig.aboutSection.introduction as paragraph}
-        <p>{paragraph}</p>
-      {/each}
+    <!-- Background Layer (for image or future effect) -->
+    <div class="about-background-layer">
       {#if siteConfig.aboutSection.imageUrl}
-        <img src={siteConfig.aboutSection.imageUrl} alt="A photo of {siteConfig.author}" class="profile-image"/>
+        <img
+          src={siteConfig.aboutSection.imageUrl}
+          alt="Visual backdrop for the About Me section"
+          class="about-background-image"
+        />
       {/if}
-      <div class="social-links">
-        {#each siteConfig.aboutSection.socialLinks as link}
-          <a href={link.url} target="_blank" rel="noopener noreferrer">{link.name}</a>
-        {/each}
+      <!-- Future: A Svelte component for a particle effect could go here, e.g., <AboutParticleEffect /> -->
+    </div>
+
+    <!-- Content Layer -->
+    <div class="about-content-wrapper">
+      <div class="about-text-block">
+        <h2>{siteConfig.aboutSection.title}</h2>
+        <p>{siteConfig.aboutSection.introduction}</p>
+        {#if contactSectionIndex !== -1}
+          <KeyboardButtons
+            socialLinks={siteConfig.aboutSection.socialLinks}
+            {contactSectionIndex}
+            {navigateToSection}
+          />
+        {:else}
+          <!-- Fallback or silent error handled by console.error -->
+        {/if}
       </div>
     </div>
   </section>
 
-  <!-- Project Sections -->
-  <!-- ... (Project sections remain the same) ... -->
+  <!-- Project Sections (structure remains the same) -->
   {#each projects as project (project.id)}
     {@const projectSectionData = getSectionData(`project-${project.id}`) as Project | undefined}
     <section id="project-{project.id}" class="full-screen-section project-section">
@@ -325,10 +329,8 @@
     </section>
   {/each}
 
-
-  <!-- End Section: Contact -->
+  <!-- Contact Section (structure remains the same) -->
   <section id="contact" class="full-screen-section contact-section">
-    <!-- ... (Contact section content remains the same) ... -->
      <div class="content-center">
       <h2>{siteConfig.contactSection.title}</h2>
       <p>{siteConfig.contactSection.outroMessage}</p>
@@ -345,12 +347,32 @@
 </main>
 
 <style>
-  /* ... (existing styles remain the same) ... */
+  :global(body) {
+    background-color: rgb(9 9 11);
+    color: rgb(245 245 247);
+  }
+
+  .particle-effect-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    pointer-events: none;
+    background-color: rgb(9 9 11);
+  }
+  
+  .particle-effect-layer :global(.hero-particle-container) {
+    pointer-events: auto;
+  }
+
   .portfolio-container {
     position: relative;
     width: 100%;
-    height: 100vh; /* Use vh for viewport height */
+    height: 100vh;
     overflow: hidden;
+    z-index: 1;
   }
 
   .full-screen-section {
@@ -359,39 +381,288 @@
     position: absolute;
     top: 0;
     left: 0;
-    display: flex; /* Kept for consistency, but HeroParticleEffect will fill it */
+    display: flex;
     flex-direction: column;
     justify-content: center;
     align-items: center;
     text-align: center;
-    padding: 0; /* Hero section might not need padding if particles fill it */
-    box-sizing: border-box; 
+    padding: 2rem;
+    box-sizing: border-box;
+    background-color: rgb(9 9 11); /* Default, can be overridden */
   }
-  /* Ensure hero section itself has no padding if particles fill edge to edge */
+  
   .hero-section {
-    padding: 0 !important; 
-    background-color: #1a1a1a; /* Example background for hero, particles are transparent */
+    background-color: transparent;
+    z-index: 2;
   }
-  /* About section styling */
-  .about-section { background-color: #ecf0f1; color: #333; }
-  .profile-image { max-width: 200px; height: auto; border-radius: 50%; margin: 1rem 0; border: 5px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-  .social-links a { margin: 0 0.5rem; text-decoration: none; color: #3498db; }
-  .social-links a:hover { text-decoration: underline; }
+  
+  /* --- REFINED ABOUT SECTION STYLING --- */
+  .about-section {
+    /* display: flex; is inherited */
+    /* justify-content: center; & align-items: center; for mobile centering of content-wrapper */
+    padding: 0; /* Override .full-screen-section default */
+    text-align: left; /* Default for content, can be overridden locally */
+    background-color: transparent; /* To see particle layer or page bg if no image/effect */
+    z-index: 2;
+    position: relative; /* For absolute positioning of its children layers */
+    overflow: hidden; /* Ensure no overflow from scaled images etc. */
+  }
 
-  /* Project section styling */
-  .project-section { color: white; }
-  .project-section .content-overlay { background-color: rgba(0, 0, 0, 0.6); padding: 2rem; border-radius: 8px; width: 90%; max-width: 1000px; z-index: 1; position: relative; }
-  .project-section h2 { opacity: 0; /* GSAP controlled */ }
-  .project-cards-container { display: flex; justify-content: center; gap: 1rem; margin-top: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-  .project-card { background-color: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); padding: 1rem; border-radius: 8px; width: 250px; text-align: left; transition: transform 0.3s ease; }
-  .project-card:hover { transform: translateY(-5px); }
-  .project-card img { width: 100%; height: 150px; object-fit: cover; border-radius: 4px; margin-bottom: 0.5rem; }
-  .project-card h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
-  .project-card p { font-size: 0.9rem; color: #eee; }
-  .project-section button { padding: 0.75rem 1.5rem; background-color: #1abc9c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 1rem; transition: background-color 0.3s ease; }
-  .project-section button:hover { background-color: #16a085; }
+  .about-background-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0; /* Behind the content layer */
+    /* background-color: #050506; /* Optional dark fallback if image is transparent/slow */
+    /* pointer-events: none; /* If you want clicks to pass through the entire background layer */
+  }
+
+  .about-background-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* This positions the image so its right part is more visible if the image is wider than the screen.
+       Adjust 80% (horizontal) and 50% (vertical) as needed.
+       'right center' or '100% 50%' would pin it hard to the right.
+    */
+    object-position: 80% center; 
+    opacity: 0; /* GSAP controlled */
+    /* filter: grayscale(20%) contrast(1.05) brightness(0.9); Optional subtle image treatment */
+  }
+
+  .about-content-wrapper {
+    position: relative; /* Stacks above background layer */
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: flex-start; /* Aligns .about-text-block to the left on desktop */
+    align-items: center; /* Vertically centers .about-text-block */
+    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); /* Accommodate safe areas + dynamic padding */
+    padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem);
+    box-sizing: border-box;
+  }
+
+  .about-text-block {
+    max-width: 580px; /* Adjust as needed for your content */
+    /* Optional: For better readability if image is busy and content overlaps a lot */
+    /* background: rgba(9, 9, 11, 0.15); */
+    /* backdrop-filter: blur(5px); */
+    /* padding: 1.5rem; */
+    /* border-radius: 8px; */
+  }
+
+  .about-text-block h2 {
+    font-size: clamp(2.2rem, 4.5vw, 3rem); /* Responsive font size */
+    margin-bottom: 1.5rem;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    color: rgb(245 245 247);
+    opacity: 0; /* GSAP controlled */
+  }
+
+  .about-text-block p {
+    font-size: clamp(1rem, 2.2vw, 1.15rem); /* Responsive font size */
+    line-height: 1.8;
+    margin-bottom: 2.5rem; /* Space before KeyboardButtons */
+    color: rgb(212 212 216);
+    opacity: 0; /* GSAP controlled */
+  }
+  /* END REFINED ABOUT SECTION STYLING */
+
+  /* Project section styling (existing, ensure no conflicts) */
+  .project-section { 
+    color: rgb(245 245 247);
+    z-index: 2;
+    background-color: transparent;
+  }
+  
+  .project-section .content-overlay { 
+    background-color: rgba(9 9 11 / 0.85);
+    backdrop-filter: blur(8px);
+    padding: 3rem; 
+    border-radius: 16px; 
+    width: 90%; 
+    max-width: 1000px; 
+    z-index: 1; 
+    position: relative;
+    border: 1px solid rgba(255 255 255 / 0.1);
+  }
+  
+  .project-section h2 { 
+    opacity: 0;
+    font-size: 2.5rem;
+    font-weight: 300;
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+  }
+  
+  .project-section > .content-overlay > .project-content > p {
+    font-size: 1.15rem;
+    color: rgb(212 212 216);
+    line-height: 1.7;
+    margin-bottom: 2rem;
+  }
+  
+  .project-cards-container { 
+    display: flex; 
+    justify-content: center; 
+    gap: 1.5rem; 
+    margin-top: 2rem; 
+    margin-bottom: 2rem; 
+    flex-wrap: wrap; 
+  }
+  
+  .project-card { 
+    background-color: rgba(255 255 255 / 0.05);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255 255 255 / 0.1);
+    padding: 1.25rem; 
+    border-radius: 12px; 
+    width: 280px; 
+    text-align: left; 
+    transition: all 0.3s ease;
+  }
+  
+  .project-card:hover { 
+    transform: translateY(-5px);
+    background-color: rgba(255 255 255 / 0.08);
+    border-color: rgba(255 255 255 / 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  
+  .project-card img { 
+    width: 100%; 
+    height: 160px; 
+    object-fit: cover; 
+    border-radius: 8px; 
+    margin-bottom: 1rem;
+  }
+  
+  .project-card h3 { 
+    font-size: 1.3rem; 
+    margin-bottom: 0.5rem;
+    font-weight: 400;
+    color: rgb(245 245 247);
+  }
+  
+  .project-card p { 
+    font-size: 0.95rem; 
+    color: rgb(163 163 170);
+    line-height: 1.6;
+  }
+  
+  .project-section button { 
+    padding: 0.875rem 2rem; 
+    background-color: rgb(99 102 241);
+    color: white; 
+    border: none; 
+    border-radius: 8px; 
+    cursor: pointer; 
+    font-size: 1.05rem; 
+    font-weight: 500;
+    transition: all 0.3s ease;
+    margin-top: 1rem;
+  }
+  
+  .project-section button:hover { 
+    background-color: rgb(79 70 229);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(99 102 241 / 0.4);
+  }
 
   /* Contact section styling */
-  .contact-section { background-color: #34495e; color: white; }
-  .contact-section a { color: #1abc9c; }
+  .contact-section { 
+    background-color: rgb(24 24 27);
+    color: rgb(245 245 247);
+    z-index: 2;
+  }
+  .content-center { /* Used by Contact section */
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+  .contact-section h2 {
+    font-size: 2.5rem;
+    margin-bottom: 2rem;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    opacity: 0; /* GSAP controlled */
+  }
+  
+  .contact-section p {
+    font-size: 1.15rem;
+    line-height: 1.8;
+    margin-bottom: 1.5rem;
+    color: rgb(212 212 216);
+    opacity: 0; /* GSAP controlled */
+  }
+  
+  .contact-section a { 
+    color: rgb(99 102 241);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.3s ease;
+  }
+  
+  .contact-section a:hover {
+    color: rgb(129 140 248);
+    text-decoration: underline;
+  }
+  
+  .additional-links {
+    margin-top: 2rem;
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    opacity: 0; /* GSAP controlled */
+  }
+  
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  /* Responsive adjustments */
+  @media (max-width: 768px) { /* General mobile breakpoint */
+    .project-cards-container {
+      flex-direction: column;
+      align-items: center;
+    }
+    .project-card {
+      width: 100%;
+      max-width: 320px;
+    }
+
+    /* ABOUT SECTION - Mobile */
+    .about-section {
+      /* justify-content and align-items already center children for flex */
+      padding: 2rem; /* Add some padding back for mobile */
+    }
+
+    .about-content-wrapper {
+      justify-content: center; /* Center the .about-text-block */
+      text-align: center; /* Center text within .about-text-block */
+      padding: 1rem; /* Adjust padding */
+    }
+    
+    .about-text-block {
+      max-width: 100%; /* Take full available width */
+      /* background: none; backdrop-filter: none; Remove any desktop bg effects */
+    }
+    .about-text-block h2, .about-text-block p {
+      text-align: center; /* Ensure text alignment is center for mobile */
+    }
+    /* KeyboardButtons are intrinsically responsive and will be centered by .about-text-block or its parent */
+
+    .about-background-layer {
+      display: none; /* Hide image background on mobile as per original requirement */
+      /* Or, for a different effect:
+      opacity: 0.3;
+      filter: blur(5px);
+      */
+    }
+  }
 </style>

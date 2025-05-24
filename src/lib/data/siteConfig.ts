@@ -1,8 +1,6 @@
 // src/lib/data/siteConfig.ts
 
 export interface ParticleEffectConfig {
-  // Define properties for tsParticles configuration later
-  // For now, it can be a placeholder or a simple structure
   type: string; // e.g., 'default', 'starryNight', etc.
   //options?: any; // This will hold the actual tsParticles JSON config
 }
@@ -24,44 +22,34 @@ export const siteConfig = {
     introduction: "A Data Scientist passionate about uncovering insights and building intelligent solutions.",
     particleEffect: {
       type: 'defaultGreetingParticles', // We'll define this later
-      // options: { /* tsParticles config object could go here */ }
     } as ParticleEffectConfig,
   },
 
   aboutSection: {
-    title: "About Me",
-    introduction: [
-      "Driven by a passion for data and its power to transform businesses, I specialize in [mention your key specializations, e.g., machine learning, statistical analysis, data visualization].",
-      "My journey into data science was fueled by [mention a brief motivation or story]. I thrive on tackling complex challenges and translating data into actionable strategies.",
-      "When I'm not exploring datasets, you might find me [mention a hobby or two]."
-    ],
-    imageUrl: "/images/your-profile-image.jpg", // Place your image in the `static/images` folder
+    title: "About Me", // MODIFIED
+    introduction: "This is where you'll learn about who I am and what I do.", // MODIFIED
+    imageUrl: "/images/about-me-placeholder.jpg", // MODIFIED - ensure this image exists in static/images
     imageParticleEffect: {
       type: 'imageAuraParticles', // We'll define this later
-      // options: { /* tsParticles config object */ }
     } as ParticleEffectConfig,
-    socialLinks: [
-      { name: "LinkedIn", url: "https://www.linkedin.com/in/yourprofile/" },
-      { name: "GitHub", url: "https://github.com/yourusername" },
-      { name: "Email", url: "mailto:youremail@example.com" },
-      // Add more social links if needed
+    socialLinks: [ // Existing links, will be used by KeyboardButtons
+      { name: "GitHub", url: "https://github.com/yourusername" }, // Replace with your actual URL
+      { name: "LinkedIn", url: "https://www.linkedin.com/in/yourprofile/" }, // Replace with your actual URL
+      { name: "Email", url: "mailto:youremail@example.com" }, // Replace with your actual email
     ] as SocialLink[],
   },
 
   contactSection: {
     title: "Get in Touch",
     outroMessage: "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
-    email: "youremail@example.com",
-    // You can add more detailed contact info or links here
+    email: "youremail@example.com", // Replace with your actual email
     additionalLinks: [
         { name: "View My Resume", url: "/resume.pdf" } // Place resume in `static` folder
     ]
   },
 
-  // Global animation defaults (can be overridden per project/element)
-  // These are placeholders; we'll define actual usable parameters
   defaultHeadlineAnimation: {
-    type: 'fadeInUp', // Maps to a GSAP animation function we'll create
+    type: 'fadeInUp',
     duration: 0.8,
     delay: 0.2,
     stagger: 0.1,

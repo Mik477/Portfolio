@@ -1,0 +1,27 @@
+/* src/app.css */
+:root {
+    --keyboard-background-2: #09090b;
+    --keyboard-background-3: #232b34;
+    --keyboard-contrast: #fff;
+    --keyboard-key-base-size: 4rem;
+}
+
+@keyframes fade-in-bottom {
+    0% {
+        transform: translateY(50px) rotateY(0.05turn) rotateX(-0.1turn);
+        opacity: 0;
+        filter: blur(16px);
+    }
+    to {
+        transform: translateY(0) rotateY(0.05turn) rotateX(-0.1turn);
+        opacity: 1;
+        filter: blur(0);
+    }
+}
+
+@media (max-width: 768px) {
+    :root { --keyboard-key-base-size: 3.5rem; }
+}
+@media (max-width: 640px) {
+    :root { --keyboard-key-base-size: 3rem; }
+}
