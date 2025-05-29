@@ -1,8 +1,9 @@
 // src/lib/three/heroParticleLogic.ts
 import * as THREE from 'three';
 import type { Font } from 'three/examples/jsm/loaders/FontLoader.js';
+import { HeroBloomEffect } from './HeroBloomEffect'; // IMPORT THE NEW CLASS
 
-// Shaders taken directly from the provided particles.js
+// Shaders (VERTEX_SHADER and FRAGMENT_SHADER remain the same as your last provided version)
 export const VERTEX_SHADER = `
 attribute float size;
 attribute vec3 customColor;
@@ -37,10 +38,10 @@ varying float vSymbolIndex;
 varying float vVariability;
 
 void main() {
-  if(vSymbolState < 0.5) {
+  if(vSymbolState < 0.5) { // It's a normal particle (dot)
     gl_FragColor = vec4(vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
   } 
-  else {
+  else { // It's a symbol
     const float symbolsPerRow = 8.0;
     float symbolIndexVal = vSymbolIndex;
     
@@ -49,13 +50,13 @@ void main() {
     
     vec2 symbolCoord = gl_PointCoord;
     symbolCoord.x = (symbolCoord.x + columnIndex) / symbolsPerRow;
-    symbolCoord.y = (symbolCoord.y + rowIndex) / 6.0;
+    symbolCoord.y = (symbolCoord.y + rowIndex) / 6.0; // Assuming 6 rows in symbolsTexture
     
-    vec4 symbolColor = texture2D(symbolsTexture, symbolCoord);
+    vec4 symbolTexColor = texture2D(symbolsTexture, symbolCoord); // Alpha from symbol texture
     
-    if(symbolColor.a < 0.3) discard;
+    if(symbolTexColor.a < 0.3) discard; // Discard transparent parts of the symbol
     
-    gl_FragColor = vec4(vColor, symbolColor.a);
+    gl_FragColor = vec4(vColor, symbolTexColor.a); 
   }
 }
 `;
@@ -70,6 +71,9 @@ export class Environment {
   public createParticles!: CreateParticles;
   private animationLoopCallback: (() => void) | null = null;
 
+  private clock!: THREE.Clock; // For deltaTime
+  private bloomEffect!: HeroBloomEffect; // Instance of our bloom effect manager
+
   constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
     this.font = font;
     this.particleTexture = particleTexture;
@@ -80,9 +84,21 @@ export class Environment {
       return;
     }
     
+    this.clock = new THREE.Clock(); // Initialize clock
+
     this.scene = new THREE.Scene();
     this.createCamera();
     this.createRenderer();
+    
+    // Initialize Bloom Effect
+    this.bloomEffect = new HeroBloomEffect(
+        this.renderer, 
+        this.scene, 
+        this.camera, 
+        this.container.clientWidth, 
+        this.container.clientHeight
+    );
+
     this.setup(); 
     this.bindWindowResize();
 
@@ -125,16 +141,22 @@ export class Environment {
       this.font, 
       this.particleTexture, 
       this.camera, 
-      this.renderer,
+      this.renderer, // Pass renderer if CreateParticles needs it (it doesn't directly here)
       this.container 
     );
   }
 
   public render() {
+    const deltaTime = this.clock.getDelta();
+
     if (this.createParticles) {
-      this.createParticles.render(); // This is where interaction logic happens
+      this.createParticles.render(); // Update particle positions, colors, etc.
     }
-    if (this.renderer && this.scene && this.camera) {
+    
+    // Instead of renderer.render, use the composer
+    if (this.bloomEffect) {
+      this.bloomEffect.render(deltaTime);
+    } else if (this.renderer && this.scene && this.camera) { // Fallback if bloom somehow not init
       this.renderer.render(this.scene, this.camera);
     }
   }
@@ -146,7 +168,7 @@ export class Environment {
       1, 
       10000
     );
-    this.camera.position.set(0, 0, 100); // As per original particles.js
+    this.camera.position.set(0, 0, 100);
   }
 
   private createRenderer() {
@@ -159,6 +181,8 @@ export class Environment {
     
     if (THREE.ColorManagement.enabled) { 
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    } else { 
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
     
     this.container.appendChild(this.renderer.domElement);
@@ -166,11 +190,16 @@ export class Environment {
 
   public onWindowResize() {
     if (this.camera && this.renderer && this.container) {
-      this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+      const newWidth = this.container.clientWidth;
+      const newHeight = this.container.clientHeight;
+
+      this.camera.aspect = newWidth / newHeight;
       this.camera.updateProjectionMatrix();
-      this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-      // CreateParticles might also need to know about resize if its planeArea depends on it dynamically
-      // However, the original setup sizes planeArea once in setup.
+      this.renderer.setSize(newWidth, newHeight);
+      
+      if (this.bloomEffect) {
+        this.bloomEffect.setSize(newWidth, newHeight);
+      }
     }
   }
 
@@ -180,6 +209,9 @@ export class Environment {
     this.unbindWindowResize();
     if (this.createParticles) {
       this.createParticles.dispose();
+    }
+    if (this.bloomEffect) {
+        this.bloomEffect.dispose();
     }
     if (this.renderer) {
       this.renderer.dispose();
@@ -195,7 +227,7 @@ export class Environment {
                 if (Array.isArray(obj.material)) {
                     obj.material.forEach((material: THREE.Material) => material.dispose());
                 } else {
-                    obj.material.dispose();
+                    (obj.material as THREE.Material).dispose();
                 }
             }
         });
@@ -203,11 +235,12 @@ export class Environment {
   }
 }
 
+// CreateParticles class remains the same as your last provided version
+// Ensure bloomSymbolColor is defined and used as in the previous step.
 interface ParticleData {
   text: string;
   amount: number;
   particleSize: number;
-  particleColor: number; 
   textSize: number;
   area: number;
   ease: number;
@@ -240,6 +273,7 @@ export class CreateParticles {
 
   private matrixSymbols: string[];
   private matrixColors: { [key: string]: THREE.Color };
+  private bloomSymbolColor: THREE.Color; // Color for glowing symbols
   
   private particleStates: number[] = [];
   private heatLevels: number[] = [];
@@ -250,11 +284,10 @@ export class CreateParticles {
 
   private data: ParticleData;
   private symbolsTexture!: THREE.Texture;
-  private planeArea!: THREE.Mesh; // The invisible plane for raycasting
+  private planeArea!: THREE.Mesh; 
   public particles!: THREE.Points;
   private geometryCopy!: THREE.BufferGeometry;
 
-  // Bound event handlers for proper `this` context
   private boundOnMouseDown: (event: MouseEvent) => void;
   private boundOnMouseMove: (event: MouseEvent) => void;
   private boundOnMouseUp: (event: MouseEvent) => void;
@@ -272,32 +305,34 @@ export class CreateParticles {
     this.isPressed = false;
 
     this.raycaster = new THREE.Raycaster();
-    this.mouse = new THREE.Vector2(1e5, 1e5); // Initialize way off-screen
+    this.mouse = new THREE.Vector2(1e5, 1e5);
 
-    this.matrixSymbols = [ // From original particles.js
+    this.matrixSymbols = [ 
       '日', '〇', 'ﾊ', 'ﾐ', 'ﾋ', 'ｰ', 'ｳ', 'ｼ', 'ﾅ', 'ﾓ', 'ﾆ', 'ｻ', 'ﾜ',
       'ﾂ', 'ｵ', 'ﾘ', 'ｱ', 'ﾎ', 'ﾃ', 'ﾏ', 'ｹ', 'ﾒ', 'ｴ', 'ｶ', 'ｷ', 'ﾑ', 
       'ﾕ', 'ﾗ', 'ｾ', 'ﾈ', 'ｦ', 'ｲ', 'ｸ', 'ｺ', 'ｿ', 'ﾀ', 'ﾁ', 'ﾄ', 'ﾉ', 'ﾌ', 'ﾍ', 'ﾏ', 'ﾔ', 'ﾖ', 'ﾙ', 'ﾚ', 'ﾛ',
       '0', '1', '7', '9', '∆', '×', '≠', '≡', '∞'
     ];
     
-    this.matrixColors = { // From original particles.js
+    this.matrixColors = {
       white: new THREE.Color(1.0, 1.0, 1.0),
-      lightGreen: new THREE.Color(0.7, 1.0, 0.7),
-      mediumGreen: new THREE.Color(0.4, 1.0, 0.6),
-      brightGreen: new THREE.Color(0.0, 223/255, 115/255),
-      midGreen: new THREE.Color(0.0, 198/255, 102/255),
-      darkGreen: new THREE.Color(0.0, 173/255, 89/255)
+      verySubtleGreenTint: new THREE.Color(0.95, 1.0, 0.95), 
+      almostWhiteGreen: new THREE.Color(0.85, 1.0, 0.85),
+      paleGreen: new THREE.Color(0.6, 1.0, 0.6),
+      lightMatrixGreen: new THREE.Color(0.3, 1.0, 0.3),
+      classicMatrixGreen: new THREE.Color(0.0, 1.0, 0.0),
+      deepMatrixGreen: new THREE.Color(0.0, 0.85, 0.0)
     };
 
-    this.data = { // From original particles.js
+    this.bloomSymbolColor = new THREE.Color(0.0, 0.95, 0.05); // Bright green for bloom
+
+    this.data = { 
       text: "Hi, I'm\nMiká",
-      amount: 2000,
-      particleSize: 1,
-      particleColor: 0xffffff,
+      amount: 2200,
+      particleSize: 1.3,
       textSize: 16,
-      area: 250, // Radius of mouse influence
-      ease: .05, // Spring-back ease
+      area: 250, 
+      ease: .05, 
       distortionThreshold: 12,
       maxCooldownTime: 180,
       minFadeOutRate: 0.09,
@@ -312,7 +347,6 @@ export class CreateParticles {
       symbolHeatRequirement: 0.4
     };
     
-    // Bind event handlers to `this` instance
     this.boundOnMouseDown = this.onMouseDown.bind(this);
     this.boundOnMouseMove = this.onMouseMove.bind(this);
     this.boundOnMouseUp = this.onMouseUp.bind(this);
@@ -321,20 +355,21 @@ export class CreateParticles {
     this.boundOnTouchEnd = this.onTouchEnd.bind(this);
     
     this.createMatrixSymbolsTexture();
-    this.setupPlaneArea(); // Setup interaction plane first
-    this.createText(); // Then text particles
-    // Event listeners are bound by Svelte component calling public bindInteractionEvents
+    this.setupPlaneArea();
+    this.createText();
   }
 
-  private getMatrixColor(heatLevel: number): THREE.Color { /* ... same as before ... */ 
-    if (heatLevel <= 0.05) return this.matrixColors.white;
-    if (heatLevel <= 0.2) return this.matrixColors.lightGreen;
-    if (heatLevel <= 0.4) return this.matrixColors.mediumGreen;
-    if (heatLevel <= 0.6) return this.matrixColors.brightGreen;
-    if (heatLevel <= 0.8) return this.matrixColors.midGreen;
-    return this.matrixColors.darkGreen;
+  private getMatrixColor(heatLevel: number): THREE.Color {
+    if (heatLevel <= 0.05) return this.matrixColors.white;                
+    if (heatLevel <= 0.18) return this.matrixColors.verySubtleGreenTint; 
+    if (heatLevel <= 0.35) return this.matrixColors.almostWhiteGreen;     
+    if (heatLevel <= 0.55) return this.matrixColors.paleGreen;            
+    if (heatLevel <= 0.75) return this.matrixColors.lightMatrixGreen;
+    if (heatLevel <= 0.92) return this.matrixColors.classicMatrixGreen;   
+    return this.matrixColors.deepMatrixGreen;                             
   }
-  private getSymbolProbability(distortion: number): number { /* ... same as before ... */ 
+
+  private getSymbolProbability(distortion: number): number {
     const { symbolMinThreshold, symbolMidThreshold, symbolMaxThreshold, symbolMinProb, symbolMaxProb } = this.data;
     if (distortion < symbolMinThreshold) return 0;
     if (distortion >= symbolMaxThreshold) return 1;
@@ -347,7 +382,8 @@ export class CreateParticles {
              (symbolMaxProb - symbolMaxProb / 10) * Math.pow(ratio, 1.5);
     }
   }
-  private initParticleStates(count: number) { /* ... same as before ... */ 
+
+  private initParticleStates(count: number) { 
     this.particleStates = new Array(count).fill(0);
     this.heatLevels = new Array(count).fill(0);
     this.cooldownRates = new Array(count);
@@ -362,7 +398,8 @@ export class CreateParticles {
       this.symbolSizesMultipliers[i] = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
     }
   }
-  private createMatrixSymbolsTexture() { /* ... same as before ... */
+
+  private createMatrixSymbolsTexture() {
     const rows = 6; const cols = 8; const symbolSize = 64;
     const canvas = document.createElement('canvas');
     canvas.width = cols * symbolSize; canvas.height = rows * symbolSize;
@@ -371,7 +408,8 @@ export class CreateParticles {
     for (let i = 0; i < this.matrixSymbols.length; i++) {
       const col = i % cols; const row = Math.floor(i / cols);
       const x = col * symbolSize; const y = row * symbolSize;
-      ctx.fillStyle = '#00df73'; ctx.font = 'bold 48px monospace';
+      ctx.fillStyle = '#00FF00'; 
+      ctx.font = 'bold 48px monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(this.matrixSymbols[i], x + symbolSize/2, y + symbolSize/2);
     }
@@ -379,32 +417,24 @@ export class CreateParticles {
     this.symbolsTexture.needsUpdate = true;
   }
 
-  // Renamed from 'setup' to be more specific
   private setupPlaneArea() {
-    // This plane is at z=0 relative to camera's view direction for particles at z=0 from origin
-    // If particles are at a different z, this plane should match that depth.
-    // The camera is at z=100, looking at origin. Particles are at z=0 by default.
-    // So, the plane should be at z=0 in world space for interaction.
-    const planeZ = 0; // Matches default particle Z position
+    const planeZ = 0;
     const planeWidth = this.visibleWidthAtZDepth(planeZ, this.camera);
     const planeHeight = this.visibleHeightAtZDepth(planeZ, this.camera);
 
     const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     const material = new THREE.MeshBasicMaterial({ 
-        // color: 0xff0000, // For debugging plane visibility
-        // opacity: 0.5, // For debugging plane visibility
         transparent: true, 
-        opacity: 0, // Make it invisible
-        depthWrite: false // Good for invisible interaction planes
+        opacity: 0, 
+        depthWrite: false 
     });
     this.planeArea = new THREE.Mesh(geometry, material);
-    this.planeArea.position.z = planeZ; // Position it correctly
-    this.planeArea.visible = true; // It must be 'visible' to the raycaster, even if opacity is 0
+    this.planeArea.position.z = planeZ;
+    this.planeArea.visible = true;
     this.scene.add(this.planeArea);
-    console.log("HeroParticleLogic: Interaction planeArea setup at z=", planeZ, " W:", planeWidth, "H:", planeHeight);
   }
 
-  private createText() { /* ... same as before, ensuring point distribution is robust ... */
+  private createText() {
     const thePoints: THREE.Vector3[] = [];
     const colorsArr: number[] = []; 
     const sizesArr: number[] = []; 
@@ -433,28 +463,29 @@ export class CreateParticles {
     allPaths.forEach(path => totalLength += path.getLength());
     if (totalLength === 0) totalLength = 1; 
 
+    const initialColor = this.matrixColors.white; 
+
     allPaths.forEach(path => {
       const pathLength = path.getLength();
       const numPointsForThisPath = Math.max(10, Math.floor((pathLength / totalLength) * this.data.amount));
       const points = path.getSpacedPoints(numPointsForThisPath);
       
-      points.forEach(p => { // Use p for position
-        thePoints.push(new THREE.Vector3(p.x, p.y, 0)); // Particles at z=0
-        colorsArr.push(1, 1, 1); 
-        sizesArr.push(this.data.particleSize); // Use configured particleSize
+      points.forEach(p => {
+        thePoints.push(new THREE.Vector3(p.x, p.y, 0));
+        colorsArr.push(initialColor.r, initialColor.g, initialColor.b); 
+        sizesArr.push(this.data.particleSize);
         symbolStatesArr.push(0); 
         symbolIndicesArrForAttribute.push(Math.floor(Math.random() * this.matrixSymbols.length));
         variabilitiesArr.push(Math.random());
       });
     });
     
-    // Ensure attribute arrays match the final point count if there were discrepancies
     const finalPointCount = thePoints.length;
-    if (colorsArr.length / 3 !== finalPointCount) colorsArr.length = finalPointCount * 3;
-    if (sizesArr.length !== finalPointCount) sizesArr.length = finalPointCount;
-    if (symbolStatesArr.length !== finalPointCount) symbolStatesArr.length = finalPointCount;
-    if (symbolIndicesArrForAttribute.length !== finalPointCount) symbolIndicesArrForAttribute.length = finalPointCount;
-    if (variabilitiesArr.length !== finalPointCount) variabilitiesArr.length = finalPointCount;
+    if (colorsArr.length / 3 !== finalPointCount) { colorsArr.length = finalPointCount * 3; for(let i=0; i<finalPointCount; ++i) colorsArr.splice(i*3, 3, initialColor.r, initialColor.g, initialColor.b); }
+    if (sizesArr.length !== finalPointCount) { sizesArr.length = finalPointCount; sizesArr.fill(this.data.particleSize); }
+    if (symbolStatesArr.length !== finalPointCount) { symbolStatesArr.length = finalPointCount; symbolStatesArr.fill(0); }
+    if (symbolIndicesArrForAttribute.length !== finalPointCount) { symbolIndicesArrForAttribute.length = finalPointCount; for(let i=0; i<finalPointCount; ++i) symbolIndicesArrForAttribute[i] = Math.floor(Math.random() * this.matrixSymbols.length); }
+    if (variabilitiesArr.length !== finalPointCount) { variabilitiesArr.length = finalPointCount; for(let i=0; i<finalPointCount; ++i) variabilitiesArr[i] = Math.random(); }
 
 
     const geoParticles = new THREE.BufferGeometry().setFromPoints(thePoints);
@@ -472,7 +503,7 @@ export class CreateParticles {
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
       depthTest: false, 
       transparent: true, 
     });
@@ -481,27 +512,20 @@ export class CreateParticles {
     this.scene.add(this.particles);
     this.geometryCopy = new THREE.BufferGeometry().copy(this.particles.geometry);
     this.initParticleStates(thePoints.length);
-    console.log("HeroParticleLogic: Particles created:", thePoints.length);
    }
 
   public bindInteractionEvents() {
-    console.log("HeroParticleLogic: Binding interaction events.");
     this.hostContainer.addEventListener('mousedown', this.boundOnMouseDown);
     this.hostContainer.addEventListener('mousemove', this.boundOnMouseMove);
-    document.addEventListener('mouseup', this.boundOnMouseUp); // Mouseup can occur outside
+    document.addEventListener('mouseup', this.boundOnMouseUp); 
 
     this.hostContainer.addEventListener('touchstart', this.boundOnTouchStart, { passive: false });
     this.hostContainer.addEventListener('touchmove', this.boundOnTouchMove, { passive: false });
     this.hostContainer.addEventListener('touchend', this.boundOnTouchEnd, { passive: false });
-
-    // --- RESET isPressed STATE ON BIND ---
     this.isPressed = false;
-    // this.neutralizeLastMousePosition(); // Also resets isPressed if called here
-    console.log("HeroParticleLogic: isPressed flag reset on binding events.");
   }
 
   public unbindInteractionEvents() {
-    console.log("HeroParticleLogic: Unbinding interaction events.");
     this.hostContainer.removeEventListener('mousedown', this.boundOnMouseDown);
     this.hostContainer.removeEventListener('mousemove', this.boundOnMouseMove);
     document.removeEventListener('mouseup', this.boundOnMouseUp);
@@ -510,27 +534,22 @@ export class CreateParticles {
     this.hostContainer.removeEventListener('touchmove', this.boundOnTouchMove);
     this.hostContainer.removeEventListener('touchend', this.boundOnTouchEnd);
     
-    this.neutralizeLastMousePosition(); // This will also reset isPressed
+    this.neutralizeLastMousePosition();
   }
 
   public neutralizeLastMousePosition() {
     this.mouse.set(1e5, 1e5); 
     this.hasMouseMoved = false; 
-    // --- RESET isPressed STATE HERE AS WELL ---
     this.isPressed = false; 
-    console.log("HeroParticleLogic: Last mouse position neutralized and isPressed reset.");
   }
 
   private onMouseDown(event: MouseEvent) { this.updateMousePosition(event.clientX, event.clientY); this.isPressed = true; this.data.ease = .01; }
   private onMouseUp() { this.isPressed = false; this.data.ease = .05; }
   private onMouseMove(event: MouseEvent) { 
-    if (!this.hasMouseMoved) {
-        console.log("HeroParticleLogic: First mouse move detected.");
-        this.hasMouseMoved = true; 
-    }
+    if (!this.hasMouseMoved) this.hasMouseMoved = true; 
     this.updateMousePosition(event.clientX, event.clientY); 
   }
-  private onTouchStart(event: TouchEvent) { if (event.touches.length > 0) { this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true; /* Treat touch as mouse move for activation */ } event.preventDefault(); }
+  private onTouchStart(event: TouchEvent) { if (event.touches.length > 0) { this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true; } event.preventDefault(); }
   private onTouchMove(event: TouchEvent) { if (event.touches.length > 0) { this.hasMouseMoved = true; this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); } event.preventDefault(); }
   private onTouchEnd(event: TouchEvent) { this.isPressed = false; this.data.ease = .05; event.preventDefault(); }
   
@@ -538,15 +557,12 @@ export class CreateParticles {
     const rect = this.hostContainer.getBoundingClientRect();
     this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    // console.log("Mouse NDC:", this.mouse.x, this.mouse.y); // For debugging
   }
 
   public render() {
-    if (!this.particles || !this.planeArea || !this.camera) return; // Essential objects guard
+    if (!this.particles || !this.planeArea || !this.camera) return; 
 
-    // Interaction logic only runs if mouse has moved OR button is pressed
     if (!this.hasMouseMoved && !this.isPressed) {
-        // Spring back even if no interaction, but only if particles exist
         if (this.particles && this.geometryCopy) {
             const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
             const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
@@ -570,7 +586,6 @@ export class CreateParticles {
     this.raycaster.setFromCamera(this.mouse, this.camera);
     const intersects = this.raycaster.intersectObject(this.planeArea);
 
-    // Keep a flag to update attributes only if changes occurred
     let attributesNeedUpdate = false;
 
     if (intersects.length > 0) {
@@ -583,7 +598,6 @@ export class CreateParticles {
 
       const mx = intersects[0].point.x;
       const my = intersects[0].point.y;
-      // console.log("Intersection point (world):", mx, my); // For debugging
 
       for (let i = 0, l = pos.count; i < l; i++) {
         const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
@@ -591,7 +605,7 @@ export class CreateParticles {
 
         const dx = mx - px; const dy = my - py;
         const mouseDistance = Math.sqrt(dx * dx + dy * dy);
-        const dSquared = Math.max(1e-5, dx * dx + dy * dy); // Avoid division by zero
+        const dSquared = Math.max(1e-5, dx * dx + dy * dy); 
         const f = -this.data.area / dSquared;
 
         if (this.isPressed) {
@@ -609,21 +623,20 @@ export class CreateParticles {
             this.heatLevels[i] = Math.min(this.heatLevels[i] + Math.min(distortion / 50, 0.1), 1.0);
             if (this.particleStates[i] === 0 && this.heatLevels[i] > this.data.symbolHeatRequirement) {
               if (Math.random() < this.getSymbolProbability(distortion)) {
-                this.particleStates[i] = 1; symbolStates.setX(i, 1.0);
+                this.particleStates[i] = 1; 
+                symbolStates.setX(i, 1.0);
                 sizes.setX(i, this.data.particleSize * this.symbolSizesMultipliers[i]);
                 symbolIndicesBuffer.setX(i, Math.floor(Math.random() * this.matrixSymbols.length));
+                
+                const symbolColorToRender = this.bloomSymbolColor;
+                colors.setXYZ(i, symbolColorToRender.r, symbolColorToRender.g, symbolColorToRender.b);
+                attributesNeedUpdate = true; 
               }
             }
           }
         }
 
-        // State-based visual changes
         if (this.particleStates[i] === 1) { 
-          const darkGreen = this.matrixColors.darkGreen;
-          if (colors.getX(i) !== darkGreen.r || colors.getY(i) !== darkGreen.g || colors.getZ(i) !== darkGreen.b) {
-             colors.setXYZ(i, darkGreen.r, darkGreen.g, darkGreen.b);
-             attributesNeedUpdate = true;
-          }
           const newSize = Math.max(this.data.particleSize, sizes.getX(i) - this.fadeOutRates[i]);
           if (sizes.getX(i) !== newSize) {
              sizes.setX(i, newSize);
@@ -632,7 +645,7 @@ export class CreateParticles {
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * 3));
           if (sizes.getX(i) <= this.data.particleSize) {
             this.particleStates[i] = 0; symbolStates.setX(i, 0.0);
-            sizes.setX(i, this.data.particleSize); // Reset to base size
+            sizes.setX(i, this.data.particleSize); 
             attributesNeedUpdate = true;
           }
         } else { 
@@ -643,13 +656,10 @@ export class CreateParticles {
           }
         }
         
-        if (this.heatLevels[i] > 0) {
+        if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) {
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
-          // If heat changed, color might change, so flag update
-          attributesNeedUpdate = true; 
         }
 
-        // Spring back to original position
         const prevPx = px; const prevPy = py; const prevPz = pz;
         px += (initX - px) * this.data.ease; 
         py += (initY - py) * this.data.ease; 
@@ -660,7 +670,7 @@ export class CreateParticles {
             attributesNeedUpdate = true;
         }
       }
-    } else { // No intersection, but mouse has moved or is pressed - ensure particles spring back
+    } else { 
         const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
         const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
         for (let i = 0, l = pos.count; i < l; i++) {
@@ -686,23 +696,20 @@ export class CreateParticles {
     }
   }
   
-  public resetParticleState() { /* ... same as before ... */ 
-    if (!this.particles || !this.particles.geometry) {
-        console.warn("HeroParticleLogic: Attempted to reset state but particles not ready.");
-        return;
-    }
+  public resetParticleState() {
+    if (!this.particles || !this.particles.geometry) return;
+    
     const colors = this.particles.geometry.attributes.customColor as THREE.BufferAttribute;
     const sizes = this.particles.geometry.attributes.size as THREE.BufferAttribute;
     const symbolStates = this.particles.geometry.attributes.symbolState as THREE.BufferAttribute;
     const symbolIndicesBuffer = this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute;
 
-    if (!colors || !sizes || !symbolStates || !symbolIndicesBuffer) {
-        console.warn("HeroParticleLogic: Attempted to reset state but attributes missing.");
-        return;
-    }
+    if (!colors || !sizes || !symbolStates || !symbolIndicesBuffer) return;
+
+    const initialColor = this.matrixColors.white;
 
     for (let i = 0; i < colors.count; i++) {
-      colors.setXYZ(i, 1.0, 1.0, 1.0); 
+      colors.setXYZ(i, initialColor.r, initialColor.g, initialColor.b); 
       this.particleStates[i] = 0; 
       this.heatLevels[i] = 0; 
       sizes.setX(i, this.data.particleSize); 
@@ -716,22 +723,19 @@ export class CreateParticles {
     }
     colors.needsUpdate = true; sizes.needsUpdate = true; 
     symbolStates.needsUpdate = true; symbolIndicesBuffer.needsUpdate = true;
-    
-    console.log("HeroParticleLogic: Particle system state reset.");
   }
 
-  private visibleHeightAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number { /* ... same as before ... */ 
+  private visibleHeightAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number {
     const cameraOffset = camera.position.z;
     const relativeDepth = depth - cameraOffset; 
     const vFOV = camera.fov * Math.PI / 180; 
     return 2 * Math.tan(vFOV / 2) * Math.abs(relativeDepth);
   }
-  private visibleWidthAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number { /* ... same as before ... */ 
+  private visibleWidthAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number {
     return this.visibleHeightAtZDepth(depth, camera) * camera.aspect;
   }
   
-  public dispose() { /* ... same as before ... */ 
-    console.log("HeroParticleLogic: Disposing CreateParticles");
+  public dispose() {
     this.unbindInteractionEvents();
     if (this.particles) {
       this.scene.remove(this.particles);
@@ -752,7 +756,7 @@ export class CreateParticles {
       if (Array.isArray(material)) {
          material.forEach(m => m.dispose());
       } else {
-        material.dispose();
+        (material as THREE.Material).dispose();
       }
     }
   }
