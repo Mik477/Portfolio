@@ -19,9 +19,9 @@ export const siteConfig = {
   description: "A portfolio showcasing data science projects and expertise.",
 
   heroSection: {
-    greeting: "Hello, I'm",
-    name: "Your Name", // Or however you want to display it
-    introduction: "A Data Scientist passionate about uncovering insights and building intelligent solutions.",
+    //greeting: "Hello, I'm",
+    //name: "Your Name", // Or however you want to display it
+    //introduction: "A Data Scientist passionate about uncovering insights and building intelligent solutions.",
     particleEffect: {
       type: 'defaultGreetingParticles', // We'll define this later
       // options: { /* tsParticles config object could go here */ }

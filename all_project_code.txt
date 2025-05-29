@@ -1,0 +1,2538 @@
+--- START OF FILE src\app.css ---
+/* src/app.css */
+:root {
+    --keyboard-background-2: #09090b;
+    --keyboard-background-3: #232b34;
+    --keyboard-contrast: #fff;
+    --keyboard-key-base-size: 4rem;
+}
+
+@keyframes fade-in-bottom {
+    0% {
+        transform: translateY(50px) rotateY(0.05turn) rotateX(-0.1turn);
+        opacity: 0;
+        filter: blur(16px);
+    }
+    to {
+        transform: translateY(0) rotateY(0.05turn) rotateX(-0.1turn);
+        opacity: 1;
+        filter: blur(0);
+    }
+}
+
+@media (max-width: 768px) {
+    :root { --keyboard-key-base-size: 3.5rem; }
+}
+@media (max-width: 640px) {
+    :root { --keyboard-key-base-size: 3rem; }
+}
+--- END OF FILE src\app.css ---
+
+--- START OF FILE src\app.d.ts ---
+// src/app.d.ts
+// See https://svelte.dev/docs/kit/types#app.d.ts
+// for information about these interfaces
+declare global {
+	namespace App {
+		// interface Error {}
+		// interface Locals {}
+		// interface PageData {}
+		// interface PageState {}
+		// interface Platform {}
+	}
+}
+
+export {};
+
+--- END OF FILE src\app.d.ts ---
+
+--- START OF FILE src\app.html ---
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.png" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		%sveltekit.head%
+		<style>
+			/* Global Resets and Viewport Styling */
+			html, body {
+				margin: 0;
+				padding: 0;
+				height: 100%;
+				width: 100%;
+				overflow: hidden; /* Prevent scrollbars on html/body, main container should handle its own scroll/overflow */
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+			}
+
+			/* Ensure SvelteKit's main div also takes full height if needed, though 'display: contents' usually negates its layout impact */
+			body > div[style="display: contents"] {
+				height: 100%; 
+			}
+		</style>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
+--- END OF FILE src\app.html ---
+
+--- START OF FILE src\lib\index.ts ---
+// place files you want to import through the `$lib` alias in this folder.
+
+--- END OF FILE src\lib\index.ts ---
+
+--- START OF FILE src\lib\components\HeroParticleEffect.svelte ---
+<!-- src/lib/components/HeroParticleEffect.svelte -->
+<script lang="ts">
+  import { onMount, onDestroy, tick } from 'svelte';
+  import *  as THREE from 'three';
+  import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
+  import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
+  import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
+
+  export let activeSectionIndex: number;
+  export let isTransitioning: boolean = false;
+  export let transitionDuration: number = 1.1;
+
+  const HERO_SECTION_LOGICAL_INDEX = 0;
+  const HERO_ASSETS_TASK_ID = 'heroEffectAssets';
+  const HERO_INIT_TASK_ID = 'heroEffectInitialization';
+
+  let threeContainerElement: HTMLDivElement | undefined;
+  let particleSystemInstance: ParticleEnvironment | null = null;
+  let loadedFontAsset: Font | null = null;
+  let loadedParticleTextureMap: THREE.Texture | null = null;
+
+  let isThreeJsLoopRunning = false;
+  let areInteractionsBound = false;
+  let animationLoopPauseTimeoutId: number | undefined;
+
+  const FONT_ASSET_PATH = '/fonts/Inter_18pt_ExtraLight.json';
+  const PARTICLE_TEXTURE_ASSET_PATH = 'https://res.cloudinary.com/dfvtkoboz/image/upload/v1605013866/particle_a64uzf.png';
+
+  async function _preloadAssets() {
+    const currentStatus = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
+    if (currentStatus === 'loaded' && loadedFontAsset && loadedParticleTextureMap) return;
+    if (currentStatus === 'loading') return;
+
+    startLoadingTask(HERO_ASSETS_TASK_ID);
+    const manager = new THREE.LoadingManager();
+    manager.onLoad = () => preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
+    manager.onError = (url) => {
+      console.error(`HPE: Error loading asset: ${url}`);
+      preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', `Failed to load ${url}`);
+    };
+    const fontLoader = new FontLoader(manager);
+    const textureLoader = new THREE.TextureLoader(manager);
+    try {
+      loadedFontAsset = await fontLoader.loadAsync(FONT_ASSET_PATH);
+      loadedParticleTextureMap = await textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH);
+    } catch (error) {
+      console.error("HPE: Asset loading promise failed:", error);
+      if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'error') {
+        preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading failed.');
+      }
+    }
+  }
+
+  async function _ensureInstanceAndStartLoop() {
+    if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'loaded' || !loadedFontAsset || !loadedParticleTextureMap) {
+      console.warn("HPE: Assets not ready for _ensureInstanceAndStartLoop.");
+      await _preloadAssets(); 
+      if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'loaded') return; 
+    }
+    if (!threeContainerElement) {
+      console.warn("HPE: DOM container not ready for _ensureInstanceAndStartLoop.");
+      return;
+    }
+
+    if (!particleSystemInstance) {
+      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loading');
+      try {
+        particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement);
+        preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
+        console.log("HPE: Created new Three.js instance.");
+      } catch (error) {
+        console.error("HPE: Error during ParticleEnvironment instantiation:", error);
+        preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'Instantiation failed.');
+        particleSystemInstance = null;
+        return;
+      }
+    }
+
+    if (particleSystemInstance && !particleSystemInstance.isLooping()) {
+      particleSystemInstance.startAnimationLoop();
+      isThreeJsLoopRunning = true;
+      console.log("HPE: Three.js animation loop STARTED.");
+    }
+  }
+
+  function _pauseThreeJsLoop() {
+    if (particleSystemInstance && particleSystemInstance.isLooping()) {
+      particleSystemInstance.stopAnimationLoop();
+      isThreeJsLoopRunning = false;
+      console.log("HPE: Three.js animation loop PAUSED.");
+    }
+  }
+
+  function _bindInteractionEvents() {
+    if (particleSystemInstance?.createParticles && !areInteractionsBound) {
+      particleSystemInstance.createParticles.bindInteractionEvents();
+      // Resetting state when interactions are bound ensures a fresh start for interaction
+      particleSystemInstance.createParticles.resetParticleState(); 
+      areInteractionsBound = true;
+      console.log("HPE: Interaction events BOUND and particle state RESET.");
+    }
+  }
+
+  function _unbindInteractionEvents() {
+    if (particleSystemInstance?.createParticles && areInteractionsBound) {
+      particleSystemInstance.createParticles.unbindInteractionEvents();
+      particleSystemInstance.createParticles.neutralizeLastMousePosition(); 
+      areInteractionsBound = false;
+      console.log("HPE: Interaction events UNBOUND and mouse position neutralized.");
+    }
+  }
+
+  function _fadeInVisuals() {
+    if (threeContainerElement) threeContainerElement.style.opacity = '1';
+  }
+
+  function _fadeOutVisuals() {
+    if (threeContainerElement) threeContainerElement.style.opacity = '0';
+  }
+
+  // --- EXPORTED METHODS FOR +page.svelte ---
+  export async function onTransitionToHeroStart() {
+    console.log("HPE Method: onTransitionToHeroStart triggered.");
+    clearTimeout(animationLoopPauseTimeoutId); // Cancel any pending pause
+    await _ensureInstanceAndStartLoop(); // Resume/start animation loop immediately
+    _fadeInVisuals();                    // Start fading in visuals
+    _unbindInteractionEvents();          // Ensure interactions are off during slide-in (mouse neutralized)
+  }
+
+  export function onTransitionToHeroComplete() {
+    console.log("HPE Method: onTransitionToHeroComplete triggered.");
+    // Animation loop should be running, visuals faded in.
+    _bindInteractionEvents(); // Enable interactions now that Hero is fully in view (also resets particle state)
+  }
+
+  export function onTransitionFromHeroStart() {
+    console.log("HPE Method: onTransitionFromHeroStart triggered.");
+    _unbindInteractionEvents(); // Disable interactions immediately, neutralizes mouse
+    _fadeOutVisuals();          // Start fading out visuals
+                                // Animation loop continues during fade-out.
+    clearTimeout(animationLoopPauseTimeoutId);
+    animationLoopPauseTimeoutId = setTimeout(() => {
+      // This block executes after `transitionDuration` (when visuals are faded out)
+      if (particleSystemInstance?.createParticles) {
+        particleSystemInstance.createParticles.resetParticleState();
+        console.log("HPE: Particle state RESET after fade out.");
+      }
+      _pauseThreeJsLoop();      // Then pause the animation loop
+    }, transitionDuration * 1000);
+  }
+
+  async function _handleSettledState() {
+    if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) {
+      console.log("HPE: Settled on Hero.");
+      clearTimeout(animationLoopPauseTimeoutId); // Cancel any pending pause
+      await _ensureInstanceAndStartLoop();
+      _fadeInVisuals();
+      _bindInteractionEvents(); // Includes resetParticleState
+    } else {
+      console.log("HPE: Settled off Hero.");
+      _unbindInteractionEvents(); // Neutralizes mouse
+      _fadeOutVisuals();
+
+      // If the loop is still running and no pause is scheduled, schedule one with reset.
+      // This handles cases like initial load on a non-hero section or direct navigation.
+      if (isThreeJsLoopRunning && particleSystemInstance?.isLooping() && !animationLoopPauseTimeoutId) {
+        console.log("HPE (SettledOff): Scheduling deferred pause and reset.");
+        animationLoopPauseTimeoutId = setTimeout(() => {
+          if (particleSystemInstance?.createParticles) {
+            particleSystemInstance.createParticles.resetParticleState();
+            console.log("HPE (SettledOff): Particle state RESET.");
+          }
+          _pauseThreeJsLoop();
+        }, transitionDuration * 1000); // Use transitionDuration for visual consistency with fade
+      } else if (!isThreeJsLoopRunning && particleSystemInstance && particleSystemInstance.isLooping()) {
+         // This case implies our isThreeJsLoopRunning flag is out of sync. Correct it and pause.
+         console.warn("HPE (SettledOff): Loop running but flag was false. Pausing.");
+        _pauseThreeJsLoop(); // Pause immediately
+      } else if (!particleSystemInstance?.isLooping() && particleSystemInstance?.createParticles) {
+        // Loop is already paused, but ensure state is reset if particles exist
+        // This might be if it was paused without reset previously.
+        console.log("HPE (SettledOff): Loop already paused. Ensuring particle state is reset.");
+        particleSystemInstance.createParticles.resetParticleState();
+      }
+    }
+  }
+
+  let isMountedAndInitialized = false;
+  onMount(async () => {
+    await tick(); 
+    if (!preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID)) {
+      preloadingStore.registerTask(HERO_ASSETS_TASK_ID, 'pending');
+    }
+    if (!preloadingStore.getTaskStatus(HERO_INIT_TASK_ID)) {
+      preloadingStore.registerTask(HERO_INIT_TASK_ID, 'pending');
+    }
+    await _preloadAssets();
+    isMountedAndInitialized = true;
+
+    if (!isTransitioning) {
+        _handleSettledState();
+    }
+  });
+
+  onDestroy(() => {
+    clearTimeout(animationLoopPauseTimeoutId);
+    _unbindInteractionEvents(); // Ensure mouse is neutralized
+    // Ensure particle state is reset before final pause/dispose if instance exists
+    if (particleSystemInstance?.createParticles) {
+        particleSystemInstance.createParticles.resetParticleState();
+    }
+    _pauseThreeJsLoop(); // Ensure loop is stopped
+    if (particleSystemInstance) {
+      particleSystemInstance.dispose();
+      particleSystemInstance = null;
+      console.log("HPE: Three.js instance disposed.");
+    }
+  });
+
+  $: if (isMountedAndInitialized && typeof activeSectionIndex === 'number') {
+    if (!isTransitioning) {
+        // This ensures that if activeSectionIndex changes directly (e.g. dev tools, future direct nav)
+        // and we are NOT in a GSAP transition, the state is correctly handled.
+        _handleSettledState();
+    }
+  }
+
+</script>
+
+<div
+  class="hero-particle-container"
+  bind:this={threeContainerElement}
+  id="magic"
+  style="opacity: 0; transition: opacity {transitionDuration}s ease-in-out;"
+  >
+  <!-- Three.js canvas will be appended here by heroParticleLogic.ts -->
+</div>
+
+<style>
+  .hero-particle-container {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: rgb(9 9 11);
+    overflow: hidden;
+    pointer-events: auto;
+  }
+</style>
+--- END OF FILE src\lib\components\HeroParticleEffect.svelte ---
+
+--- START OF FILE src\lib\components\KeyboardButtons.svelte ---
+<!-- src/lib/components/KeyboardButtons.svelte -->
+<script lang="ts">
+  import type { SocialLink } from '$lib/data/siteConfig';
+
+  export let socialLinks: SocialLink[] = [];
+  export let contactSectionIndex: number;
+  export let navigateToSection: (index: number) => void;
+
+  const getLink = (name: string): string => {
+    const link = socialLinks.find(l => l.name.toLowerCase() === name.toLowerCase());
+    return link ? link.url : '#'; // Fallback to '#' if not found
+  };
+
+  const handleExploreMoreClick = () => {
+    if (typeof navigateToSection === 'function' && contactSectionIndex !== undefined && contactSectionIndex !== -1) {
+      navigateToSection(contactSectionIndex);
+    } else {
+      console.warn('navigateToSection or valid contactSectionIndex not provided to KeyboardButtons for "Explore More" action.');
+    }
+  };
+</script>
+
+<div class="keyboard-buttons-wrapper">
+  <div class="keyboard-board">
+    <!-- GitHub Button -->
+    {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
+    <div class="key-position">
+      <a
+        aria-label="Github"
+        class="key"
+        data-key="Github"
+        target="_blank"
+        rel="noopener noreferrer"
+        href={getLink('GitHub')}
+      >
+        <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
+          <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor">
+            <path d="M10 20.568c-3.429 1.157-6.286 0-8-3.568"></path>
+            <path d="M10 22v-3.242c0-.598.184-1.118.48-1.588c.204-.322.064-.78-.303-.88C7.134 15.452 5 14.107 5 9.645c0-1.16.38-2.25 1.048-3.2c.166-.236.25-.354.27-.46c.02-.108-.015-.247-.085-.527c-.283-1.136-.264-2.343.16-3.43c0 0 .877-.287 2.874.96c.456.285.684.428.885.46s.469-.035 1.005-.169A9.5 9.5 0 0 1 13.5 3a9.6 9.6 0 0 1 2.343.28c.536.134.805.2 1.006.169c.2-.032.428-.175.884-.46c1.997-1.247 2.874-.96 2.874-.96c.424 1.087.443 2.294.16 3.43c-.07.28-.104.42-.084.526s.103.225.269.461c.668.95 1.048 2.04 1.048 3.2c0 4.462-2.134 5.807-5.177 6.643c-.367.101-.507.559-.303.88c.296.47.48.99.48 1.589V22"></path>
+          </g>
+        </svg>
+      </a>
+    </div>
+    {/if}
+    <!-- LinkedIn Button -->
+    {#if socialLinks.find(l => l.name.toLowerCase() === 'linkedin')}
+    <div class="key-position">
+      <a
+        aria-label="LinkedIn"
+        class="key"
+        data-key="LinkedIn"
+        target="_blank"
+        rel="noopener noreferrer"
+        href={getLink('LinkedIn')}
+      >
+        <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
+            <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.5 9.5H4c-.943 0-1.414 0-1.707.293S2 10.557 2 11.5V20c0 .943 0 1.414.293 1.707S3.057 22 4 22h.5c.943 0 1.414 0 1.707-.293S6.5 20.943 6.5 20v-8.5c0-.943 0-1.414-.293-1.707S5.443 9.5 4.5 9.5m2-5.25a2.25 2.25 0 1 1-4.5 0a2.25 2.25 0 0 1 4.5 0m5.826 5.25H11.5c-.943 0-1.414 0-1.707.293S9.5 10.557 9.5 11.5V20c0 .943 0 1.414.293 1.707S10.557 22 11.5 22h.5c.943 0 1.414 0 1.707-.293S14 20.943 14 20v-3.5c0-1.657.528-3 2.088-3c.78 0 1.412.672 1.412 1.5v4.5c0 .943 0 1.414.293 1.707s.764.293 1.707.293h.499c.942 0 1.414 0 1.707-.293c.292-.293.293-.764.293-1.706L22 14c0-2.486-2.364-4.5-4.703-4.5c-1.332 0-2.52.652-3.297 1.673c0-.63 0-.945-.137-1.179a1 1 0 0 0-.358-.358c-.234-.137-.549-.137-1.179-.137" color="currentColor"></path>
+        </svg>
+      </a>
+    </div>
+    {/if}
+    <!-- Email Button -->
+    {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
+    <div class="key-position">
+      <a
+        aria-label="Email"
+        class="key"
+        data-key="Email"
+        target="_blank" 
+        rel="noopener noreferrer" 
+        href={getLink('Email')}
+      >
+        <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
+            <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor">
+                <path d="m2 6l6.913 3.917c2.549 1.444 3.625 1.444 6.174 0L22 6"></path>
+                <path d="M2.016 13.476c.065 3.065.098 4.598 1.229 5.733c1.131 1.136 2.705 1.175 5.854 1.254c1.94.05 3.862.05 5.802 0c3.149-.079 4.723-.118 5.854-1.254c1.131-1.135 1.164-2.668 1.23-5.733c.02-.986.02-1.966 0-2.952c-.066-3.065-.099-4.598-1.23-5.733c-1.131-1.136-2.705-1.175-5.854-1.254a115 115 0 0 0-5.802 0c-3.149.079-4.723.118-5.854 1.254c-1.131 1.135-1.164 2.668-1.23 5.733a69 69 0 0 0 0 2.952"></path>
+            </g>
+        </svg>
+      </a>
+    </div>
+    {/if}
+  </div>
+  <!-- Explore More Button -->
+  <div class="key-position flex items-center justify-center">
+    <button type="button" id="about-explore-more-btn" class="key call-to-action peer" on:click={handleExploreMoreClick}>
+      <p class="call-to-action-content">Explore more</p>
+    </button>
+  </div>
+</div>
+
+<style>
+  /* SVG icon size within keys */
+  .keyboard-buttons-wrapper svg {
+    width: 1.75rem; /* Adjusted from 2rem to better fit new base key size */
+    height: 1.75rem; /* Adjusted */
+    color: var(--keyboard-contrast);
+  }
+
+  /* Main button container */
+  .keyboard-buttons-wrapper {
+    display: flex;
+    align-items: flex-start;
+    text-align: center;
+    opacity: 0.025; /* Initial state for CSS animation */
+    animation: fade-in-bottom 0.45s cubic-bezier(0.39, 0.575, 0.565, 1) forwards;
+    animation-delay: 0.6s; /* Animation for the whole button group */
+    margin-top: 2.5rem; 
+    gap: calc(var(--keyboard-key-base-size) * 0.1);
+  }
+
+  /* Board holding the individual social keys */
+  .keyboard-board {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: calc(var(--keyboard-key-base-size) * 0.15);
+  }
+
+  .key.call-to-action {
+    width: 140px;
+    font-size: 13px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+
+  .call-to-action-content { /* Removed .text-white, color is inherited */
+    position: relative; /* For pseudo-element positioning */
+  }
+
+  .call-to-action-content:after {
+    position: absolute;
+    content: "";
+    width: 0;
+    left: 0;
+    bottom: -4px; /* Adjust position under text */
+    /* top: 50%; margin: 10px 15%; Original positioning - this change is for underline style */
+    margin-left: 15%;
+    margin-right: 15%;
+    background: var(--keyboard-contrast);
+    height: 1.5px;
+    transition: 0.3s ease-out;
+  }
+
+  .key.call-to-action:hover .call-to-action-content:after {
+    width: 70%; /* 100% - 15% - 15% */
+  }
+
+  .key-position {
+    transform: rotate(0deg) rotateY(0.05turn) rotateX(-0.1turn);
+  }
+  .key-position.flex { /* For "Explore More" button container */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .key {
+    position: relative;
+    width: var(--keyboard-key-base-size);
+    height: var(--keyboard-key-base-size);
+    font-size: calc(var(--keyboard-key-base-size) / 2.2); /* Adjusted for slightly smaller icons */
+    border: 0.1rem solid var(--keyboard-background-3);
+    border-radius: calc(var(--keyboard-key-base-size) * 0.2);
+    background: var(--keyboard-background-2);
+    color: var(--keyboard-contrast);
+    box-shadow:
+      0.15rem 0.15rem 0 0 var(--keyboard-background-3),
+      0.3rem 0.3rem 0 0 var(--keyboard-background-3),
+      0.45rem 0.45rem 0 0 var(--keyboard-background-3),
+      0.6rem 0.6rem 0 0 var(--keyboard-background-3);
+    transition: 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+  }
+  .key p { /* Style for text inside keys, like "Explore more" */
+    color: var(--keyboard-contrast);
+    margin: 0;
+    padding: 0;
+  }
+
+  .key:hover {
+    cursor: pointer;
+    transform: translate(0.3rem, 0.3rem);
+    box-shadow:
+      0.15rem 0.15rem 0 0 var(--keyboard-background-3),
+      0.3rem 0.3rem 0 0 var(--keyboard-background-3),
+      0.45rem 0.45rem 0 0 var(--keyboard-background-3),
+      0.5rem 0.5rem 0 0 var(--keyboard-background-3);
+  }
+
+  .key:active,
+  .key.isDown {
+    cursor: grabbing;
+    transform: translate(0.8rem, 0.8rem);
+    box-shadow:
+      0.1rem 0.1rem 0 0 var(--keyboard-background-3),
+      0.1rem 0.1rem 0 0 var(--keyboard-background-3),
+      0.2rem 0.2rem 0 0 var(--keyboard-background-3),
+      0.2rem 0.2rem 0 0 var(--keyboard-background-3);
+    filter: blur(0.02rem);
+  }
+
+  [data-key] {
+    position: relative;
+    z-index: 2;
+    cursor: pointer;
+  }
+  [data-key]:before,
+  [data-key]:after {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out;
+  }
+  [data-key]:before {
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 5px;
+    padding: 6px 12px;
+    border-radius: 3px;
+    background-color: #333;
+    color: #fff;
+    content: attr(data-key);
+    text-align: center;
+    font-size: 14px;
+    line-height: 1.2;
+    white-space: nowrap;
+    z-index: 10;
+  }
+  [data-key]:after {
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    margin-left: -5px;
+    margin-bottom: 0px;
+    width: 0;
+    border-top: 5px solid #333;
+    border-right: 5px solid transparent;
+    border-left: 5px solid transparent;
+    content: " ";
+    font-size: 0;
+    line-height: 0;
+    z-index: 10;
+  }
+  [data-key]:hover:before,
+  [data-key]:hover:after {
+    visibility: visible;
+    opacity: 1;
+  }
+  
+  /* Responsive adjustments for smaller screens (handled by global :root vars and these specific overrides) */
+  @media (max-width: 768px) {
+    .keyboard-buttons-wrapper svg {
+      width: 1.75rem; 
+      height: 1.75rem;
+    }
+  }
+  @media (max-width: 640px) {
+    .keyboard-buttons-wrapper {
+        flex-direction: column;
+        align-items: center; 
+        gap: 1rem;
+    }
+    .keyboard-board {
+          gap: calc(var(--keyboard-key-base-size) * 0.1);
+    }
+    .key.call-to-action {
+        width: 120px;
+        font-size: 12px;
+    }
+  }
+</style>
+--- END OF FILE src\lib\components\KeyboardButtons.svelte ---
+
+--- START OF FILE src\lib\components\LoadingScreen.svelte ---
+<!-- src/lib/components/LoadingScreen.svelte -->
+<script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+  import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore'; 
+  import { get } from 'svelte/store';
+
+  let showScreen = !get(initialSiteLoadComplete); // Initialize based on initialSiteLoadComplete
+  let isFadingOut = false;
+  let currentLoadingText = "Initialising";
+  let dotAnimationInterval: number | undefined;
+  let dots = "";
+
+  const fadeOutDuration = 500; // ms
+  const fadeOutDelay = 100; // ms
+
+  function updateDots() {
+    if (dots.length < 3) {
+      dots += ".";
+    } else {
+      dots = "";
+    }
+    currentLoadingText = "Initialising" + dots;
+  }
+
+  function startDotAnimation() {
+    if (!dotAnimationInterval) {
+      dots = ""; // Reset dots
+      updateDots(); // Show first dot immediately
+      dotAnimationInterval = setInterval(updateDots, 400);
+    }
+  }
+
+  function stopDotAnimation() {
+    if (dotAnimationInterval) {
+      clearInterval(dotAnimationInterval);
+      dotAnimationInterval = undefined;
+    }
+  }
+
+  const unsubInitialLoad = initialSiteLoadComplete.subscribe(completed => {
+    if (completed) {
+      // If initial load is marked complete, ensure screen starts fading out or is hidden.
+      // This overrides overallLoadingState for visibility.
+      if (showScreen && !isFadingOut) {
+        stopDotAnimation();
+        currentLoadingText = "Initialisation Complete"; // Final message
+        isFadingOut = true;
+        setTimeout(() => {
+          setTimeout(() => {
+            showScreen = false;
+          }, fadeOutDuration);
+        }, fadeOutDelay);
+      } else if (!showScreen) {
+        // Already hidden, do nothing
+      }
+    } else {
+      // Initial load not yet complete, screen should be visible and react to overallLoadingState
+      showScreen = true;
+      isFadingOut = false;
+      // Restart animation if overallLoadingState is 'loading' or 'idle'
+      const currentOverallStatus = get(overallLoadingState);
+      if (currentOverallStatus === 'loading' || currentOverallStatus === 'idle') {
+        startDotAnimation();
+      }
+    }
+  });
+
+  const unsubOverallState = overallLoadingState.subscribe(status => {
+    if (get(initialSiteLoadComplete)) {
+      // If initial load is done, this subscription primarily ensures dots stop if an error occurs
+      // but the screen itself won't reshow due to unsubInitialLoad's effect.
+      if (status === 'error') {
+        stopDotAnimation();
+        // Text might update but screen remains hidden if already faded.
+        // If an error occurs *during* the initial load's fade-out, this could be an edge case.
+        // For simplicity, we assume error state is handled before initialSiteLoadComplete is true.
+      }
+      return; // Do not manage visibility or animations if initial load is complete
+    }
+    
+    // Logic for when initialSiteLoadComplete is false:
+    if (status === 'loaded') {
+      // This will be followed by initialSiteLoadComplete becoming true,
+      // which then handles the fade-out via its own subscriber.
+      // So, just stop dots and set text here.
+      stopDotAnimation();
+      currentLoadingText = "Initialisation Complete";
+    } else if (status === 'error') {
+      stopDotAnimation();
+      currentLoadingText = "Error during initialisation";
+      showScreen = true; 
+      isFadingOut = false; 
+    } else if (status === 'loading' || status === 'idle') {
+      currentLoadingText = "Initialising"; 
+      showScreen = true;
+      isFadingOut = false;
+      startDotAnimation();
+    }
+  });
+
+  onMount(() => {
+    // Initial state is set by store value directly.
+    // If not initially complete and overall state is loading/idle, start dots.
+    if (!get(initialSiteLoadComplete)) {
+        const currentOverallStatus = get(overallLoadingState);
+        if (currentOverallStatus === 'loading' || currentOverallStatus === 'idle') {
+            startDotAnimation();
+        } else if (currentOverallStatus === 'error') {
+            currentLoadingText = "Error during initialisation";
+        }
+    }
+  });
+
+  onDestroy(() => {
+    stopDotAnimation();
+    if (unsubOverallState) unsubOverallState();
+    if (unsubInitialLoad) unsubInitialLoad();
+  });
+</script>
+
+{#if showScreen}
+  <div class="loading-overlay" class:fade-out={isFadingOut} style="--fade-duration: {fadeOutDuration}ms;">
+    <p>{currentLoadingText}</p>
+  </div>
+{/if}
+
+<style>
+  .loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: #000000;
+    color: #ffffff;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 1.5rem;
+    z-index: 10000; /* Ensure it's on top */
+    opacity: 1;
+    transition: opacity var(--fade-duration) ease-out;
+  }
+
+  .loading-overlay.fade-out {
+    opacity: 0;
+    pointer-events: none; /* Allow interaction with content below after fade */
+  }
+
+  .loading-overlay p {
+    padding: 20px;
+    border-radius: 5px;
+  }
+</style>
+
+--- END OF FILE src\lib\components\LoadingScreen.svelte ---
+
+--- START OF FILE src\lib\data\projectsData.ts ---
+// src/lib/data/projectsData.ts
+
+export interface ProjectCard {
+  id: string; // Unique ID for this card, e.g., 'data-exploration'
+  title: string;
+  image: string; // Path to card image, e.g., '/images/projects/project-one/card1.jpg'
+  description?: string; // Short description for the card
+  effect?: string; // Identifier for the card's hover/interaction effect
+  aspectLink?: string; // Anchor link for the subpage section, e.g., '#data-exploration-section'
+}
+
+export interface ProjectSubPageSection {
+    id: string; // Corresponds to aspectLink from a card, used for scrolling
+    title: string;
+    content: string; // Can be HTML or Markdown, we'll decide how to render it
+    // You might add images, charts, or other specific elements here later
+}
+
+export interface Project {
+  id: string; // Unique ID for the project, e.g., 'project-alpha'
+  slug: string; // URL-friendly slug for the project subpage, e.g., 'customer-churn-prediction'
+  headline: string;
+  headlineAnimation?: { // Optional: override default headline animation
+    type?: string;
+    duration?: number;
+    delay?: number;
+    stagger?: number;
+    ease?: string;
+  };
+  summary: string; // A few sentences introducing the project
+  background: {
+    type: 'image' | 'video' | 'color'; // Type of background
+    value: string; // Path to image/video or color code
+    //particleEffect?: any; // Optional tsParticles config for this section
+  };
+  tags?: string[]; // e.g., ['Machine Learning', 'Python', 'TensorFlow']
+  cards: ProjectCard[];
+  subPageSections: ProjectSubPageSection[]; // Content for the project detail page
+  readMoreLinkText?: string;
+}
+
+export const projects: Project[] = [
+  // Project 1 (Placeholder)
+  {
+    id: 'project-one',
+    slug: 'ai-churn-prediction',
+    headline: 'AI-Powered Customer Churn Prediction',
+    summary: 'Leveraging machine learning to proactively identify and mitigate customer churn, improving retention rates.',
+    background: {
+      type: 'image',
+      value: '/images/projects/project-one/background.jpg', // Create this path in `static/images/...`
+      // particleEffect: { /* config */ }
+    },
+    tags: ['Machine Learning', 'Python', 'Scikit-learn', 'Data Analysis'],
+    cards: [
+      {
+        id: 'p1-data-exploration',
+        title: 'Data Exploration',
+        image: '/images/projects/project-one/card-data.jpg',
+        description: 'Deep dive into dataset characteristics.',
+        aspectLink: '#data-exploration'
+      },
+      {
+        id: 'p1-model-building',
+        title: 'Model Building',
+        image: '/images/projects/project-one/card-printing.webp',
+        description: 'Developing predictive models.',
+        aspectLink: '#model-building'
+      },
+      {
+        id: 'p1-results',
+        title: 'Results & Impact',
+        image: '/images/projects/project-one/card-meWorking.webp',
+        description: 'Analyzing model performance and business impact.',
+        aspectLink: '#results'
+      }
+    ],
+    subPageSections: [
+        {
+            id: 'data-exploration',
+            title: 'In-Depth: Data Exploration',
+            content: 'Detailed walkthrough of the data sources, features, and initial findings...'
+        },
+        {
+            id: 'model-building',
+            title: 'Model Building Strategy',
+            content: 'Explanation of the algorithms chosen, feature engineering, and training process...'
+        },
+        {
+            id: 'results',
+            title: 'Achieved Results and Business Value',
+            content: 'Presentation of model accuracy, key metrics, and the tangible benefits realized...'
+        }
+    ],
+    readMoreLinkText: "Explore Churn Prediction Project"
+  },
+  // Project 2 (Placeholder)
+  {
+    id: 'project-two',
+    slug: 'interactive-data-visualization',
+    headline: 'Interactive Dashboard for Sales Analytics',
+    summary: 'Developing a dynamic dashboard to visualize sales trends and provide actionable insights for stakeholders.',
+    background: {
+      type: 'image',
+      value: '/images/projects/project-two/background.jpg', // Create this path
+      // particleEffect: { /* config */ }
+    },
+    tags: ['Data Visualization', 'Tableau (or similar)', 'JavaScript', 'SQL'],
+    cards: [
+      {
+        id: 'p2-data-sourcing',
+        title: 'Data Sourcing & ETL',
+        image: '/images/projects/project-two/card-data.jpg',
+        description: 'Gathering and preparing data from multiple sources.',
+        aspectLink: '#data-sourcing'
+      },
+      {
+        id: 'p2-dashboard-design',
+        title: 'Dashboard Design (UX/UI)',
+        image: '/images/projects/project-two/card-design.jpg',
+        description: 'User-centric design for intuitive navigation.',
+        aspectLink: '#dashboard-design'
+      },
+      {
+        id: 'p2-key-insights',
+        title: 'Key Insights & Features',
+        image: '/images/projects/project-two/card-insights.jpg',
+        description: 'Highlighting impactful visualizations and features.',
+        aspectLink: '#key-insights'
+      }
+    ],
+    subPageSections: [
+        {
+            id: 'data-sourcing',
+            title: 'Data Pipeline and ETL Processes',
+            content: 'Overview of how data was collected, cleaned, and transformed for the dashboard...'
+        },
+        {
+            id: 'dashboard-design',
+            title: 'Designing for User Experience',
+            content: 'The thought process behind the dashboard layout, interactivity, and visual choices...'
+        },
+        {
+            id: 'key-insights',
+            title: 'Unlocking Actionable Insights',
+            content: 'Examples of how the dashboard helps users discover trends and make data-driven decisions...'
+        }
+    ],
+    readMoreLinkText: "Discover Interactive Sales Dashboard"
+  }
+];
+--- END OF FILE src\lib\data\projectsData.ts ---
+
+--- START OF FILE src\lib\data\siteConfig.ts ---
+// src/lib/data/siteConfig.ts
+
+export interface ParticleEffectConfig {
+  type: string; // e.g., 'default', 'starryNight', etc.
+  //options?: any; // This will hold the actual tsParticles JSON config
+}
+
+export interface SocialLink {
+  name: string; // e.g., 'LinkedIn', 'GitHub', 'Email'
+  url: string;
+  icon?: string; // Optional: path to an icon or an icon library class name
+}
+
+export const siteConfig = {
+  title: "Your Name - Data Scientist Portfolio",
+  author: "Your Name",
+  description: "A portfolio showcasing data science projects and expertise.",
+
+  heroSection: {
+    greeting: "Hello, I'm",
+    name: "Your Name", // Or however you want to display it
+    introduction: "A Data Scientist passionate about uncovering insights and building intelligent solutions.",
+    particleEffect: {
+      type: 'defaultGreetingParticles', // We'll define this later
+    } as ParticleEffectConfig,
+  },
+
+  aboutSection: {
+    title: "About Me", // MODIFIED
+    introduction: "This is where you'll learn about who I am and what I do.", // MODIFIED
+    imageUrl: "/images/about-me-placeholder.jpg", // MODIFIED - ensure this image exists in static/images
+    imageParticleEffect: {
+      type: 'imageAuraParticles', // We'll define this later
+    } as ParticleEffectConfig,
+    socialLinks: [ // Existing links, will be used by KeyboardButtons
+      { name: "GitHub", url: "https://github.com/yourusername" }, // Replace with your actual URL
+      { name: "LinkedIn", url: "https://www.linkedin.com/in/yourprofile/" }, // Replace with your actual URL
+      { name: "Email", url: "mailto:youremail@example.com" }, // Replace with your actual email
+    ] as SocialLink[],
+  },
+
+  contactSection: {
+    title: "Get in Touch",
+    outroMessage: "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
+    email: "youremail@example.com", // Replace with your actual email
+    additionalLinks: [
+        { name: "View My Resume", url: "/resume.pdf" } // Place resume in `static` folder
+    ]
+  },
+
+  defaultHeadlineAnimation: {
+    type: 'fadeInUp',
+    duration: 0.8,
+    delay: 0.2,
+    stagger: 0.1,
+  },
+};
+--- END OF FILE src\lib\data\siteConfig.ts ---
+
+--- START OF FILE src\lib\stores\preloadingStore.ts ---
+import { writable, derived, get } from 'svelte/store';
+
+export type TaskStatus = 'idle' | 'pending' | 'loading' | 'loaded' | 'error';
+
+export interface PreloadTask {
+  id: string;
+  status: TaskStatus;
+  message?: string; // Optional message, e.g., for errors
+}
+
+const tasks = writable<Record<string, PreloadTask>>({});
+
+/**
+ * Tracks whether the initial, full-site loading sequence has completed.
+ * Once true, the main loading screen should not reappear.
+ */
+export const initialSiteLoadComplete = writable<boolean>(false);
+
+export const preloadingStore = {
+  subscribe: tasks.subscribe,
+  registerTask: (taskId: string, initialStatus: TaskStatus = 'pending') => {
+    tasks.update(currentTasks => {
+      if (!currentTasks[taskId] || currentTasks[taskId].status === 'idle' || currentTasks[taskId].status === 'error') {
+        currentTasks[taskId] = { id: taskId, status: initialStatus };
+        // console.log(`PreloadingStore: Task '${taskId}' registered with status '${initialStatus}'.`);
+      } else {
+        // console.log(`PreloadingStore: Task '${taskId}' already registered with status '${currentTasks[taskId].status}'. Not overwriting.`);
+      }
+      return currentTasks;
+    });
+  },
+  updateTaskStatus: (taskId: string, status: TaskStatus, message?: string) => {
+    tasks.update(currentTasks => {
+      if (currentTasks[taskId]) {
+        if (currentTasks[taskId].status !== 'loaded' || status !== 'loading') { // Avoid resetting 'loaded' to 'loading'
+            currentTasks[taskId].status = status;
+            if (message) currentTasks[taskId].message = message;
+            // console.log(`PreloadingStore: Task '${taskId}' status updated to '${status}'.`);
+        }
+      } else {
+        // console.warn(`PreloadingStore: Task '${taskId}' not found to update status. Registering.`);
+        currentTasks[taskId] = { id: taskId, status: status, message: message };
+      }
+      return currentTasks;
+    });
+  },
+  getTaskStatus: (taskId: string): TaskStatus | undefined => {
+    const currentTasks = get(tasks);
+    return currentTasks[taskId]?.status;
+  },
+  resetTasks: () => {
+    // console.log("PreloadingStore: Resetting all tasks.");
+    tasks.set({});
+    initialSiteLoadComplete.set(false); // Also reset initial load complete status
+  }
+};
+
+export const overallLoadingState = derived(tasks, $tasks => {
+  const allTasksArray = Object.values($tasks);
+
+  if (allTasksArray.length === 0) {
+    return 'idle'; // No tasks registered yet, or all tasks were cleared.
+  }
+
+  if (allTasksArray.some(task => task.status === 'error')) {
+    return 'error';
+  }
+
+  if (allTasksArray.every(task => task.status === 'loaded')) {
+    return 'loaded';
+  }
+  
+  // If any task is 'loading' or 'pending', overall state is 'loading'.
+  // 'pending' means it's registered but not actively fetching yet.
+  if (allTasksArray.some(task => task.status === 'loading' || task.status === 'pending')) {
+    return 'loading';
+  }
+
+  return 'idle'; // Should ideally be covered by 'loaded' or 'loading' if tasks exist.
+});
+
+export const isEverythingLoading = derived(overallLoadingState, $status => $status === 'loading');
+export const isEverythingLoaded = derived(overallLoadingState, $status => $status === 'loaded');
+export const hasLoadingError = derived(overallLoadingState, $status => $status === 'error');
+
+// Helper to initiate a task: registers it and sets its status to 'loading'.
+export const startLoadingTask = (taskId: string) => {
+  preloadingStore.registerTask(taskId, 'loading'); // Will set to loading only if not already loaded
+};
+
+--- END OF FILE src\lib\stores\preloadingStore.ts ---
+
+--- START OF FILE src\lib\three\heroParticleLogic.ts ---
+// src/lib/three/heroParticleLogic.ts
+import * as THREE from 'three';
+import type { Font } from 'three/examples/jsm/loaders/FontLoader.js';
+
+// Shaders taken directly from the provided particles.js
+export const VERTEX_SHADER = `
+attribute float size;
+attribute vec3 customColor;
+attribute float symbolState;
+attribute float symbolIndex;
+attribute float variability;
+
+varying vec3 vColor;
+varying float vSymbolState;
+varying float vSymbolIndex;
+varying float vVariability;
+
+void main() {
+  vColor = customColor;
+  vSymbolState = symbolState;
+  vSymbolIndex = symbolIndex;
+  vVariability = variability;
+  
+  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+  gl_PointSize = size * (300.0 / -mvPosition.z);
+  gl_Position = projectionMatrix * mvPosition;
+}
+`;
+
+export const FRAGMENT_SHADER = `
+uniform sampler2D pointTexture;
+uniform sampler2D symbolsTexture;
+
+varying vec3 vColor;
+varying float vSymbolState;
+varying float vSymbolIndex;
+varying float vVariability;
+
+void main() {
+  if(vSymbolState < 0.5) {
+    gl_FragColor = vec4(vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
+  } 
+  else {
+    const float symbolsPerRow = 8.0;
+    float symbolIndexVal = vSymbolIndex;
+    
+    float columnIndex = mod(symbolIndexVal, symbolsPerRow);
+    float rowIndex = floor(symbolIndexVal / symbolsPerRow);
+    
+    vec2 symbolCoord = gl_PointCoord;
+    symbolCoord.x = (symbolCoord.x + columnIndex) / symbolsPerRow;
+    symbolCoord.y = (symbolCoord.y + rowIndex) / 6.0;
+    
+    vec4 symbolColor = texture2D(symbolsTexture, symbolCoord);
+    
+    if(symbolColor.a < 0.3) discard;
+    
+    gl_FragColor = vec4(vColor, symbolColor.a);
+  }
+}
+`;
+
+export class Environment {
+  public font: Font;
+  public particleTexture: THREE.Texture;
+  public container: HTMLElement;
+  public scene!: THREE.Scene;
+  public camera!: THREE.PerspectiveCamera;
+  public renderer!: THREE.WebGLRenderer;
+  public createParticles!: CreateParticles;
+  private animationLoopCallback: (() => void) | null = null;
+
+  constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
+    this.font = font;
+    this.particleTexture = particleTexture;
+    this.container = container;
+    
+    if (!this.container) {
+      console.error("HeroParticleLogic: Container not provided to Environment!");
+      return;
+    }
+    
+    this.scene = new THREE.Scene();
+    this.createCamera();
+    this.createRenderer();
+    this.setup(); 
+    this.bindWindowResize();
+
+    if (this.renderer) {
+        this.startAnimationLoop();
+    }
+  }
+
+  public startAnimationLoop() {
+    if (this.renderer && !this.animationLoopCallback) {
+        this.animationLoopCallback = () => { this.render(); };
+        this.renderer.setAnimationLoop(this.animationLoopCallback);
+        console.log("HeroParticleLogic: Animation loop started.");
+    }
+  }
+
+  public stopAnimationLoop() {
+    if (this.renderer && this.animationLoopCallback) {
+        this.renderer.setAnimationLoop(null);
+        this.animationLoopCallback = null;
+        console.log("HeroParticleLogic: Animation loop stopped.");
+    }
+  }
+
+  public isLooping(): boolean {
+    return !!this.animationLoopCallback;
+  }
+
+  private bindWindowResize() {
+    window.addEventListener('resize', this.onWindowResize.bind(this));
+  }
+
+  private unbindWindowResize() {
+    window.removeEventListener('resize', this.onWindowResize.bind(this));
+  }
+
+  private setup() {
+    this.createParticles = new CreateParticles(
+      this.scene, 
+      this.font, 
+      this.particleTexture, 
+      this.camera, 
+      this.renderer,
+      this.container 
+    );
+  }
+
+  public render() {
+    if (this.createParticles) {
+      this.createParticles.render(); // This is where interaction logic happens
+    }
+    if (this.renderer && this.scene && this.camera) {
+      this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  private createCamera() {
+    this.camera = new THREE.PerspectiveCamera(
+      65, 
+      this.container.clientWidth / this.container.clientHeight, 
+      1, 
+      10000
+    );
+    this.camera.position.set(0, 0, 100); // As per original particles.js
+  }
+
+  private createRenderer() {
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true 
+    });
+    this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    
+    if (THREE.ColorManagement.enabled) { 
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    }
+    
+    this.container.appendChild(this.renderer.domElement);
+  }
+
+  public onWindowResize() {
+    if (this.camera && this.renderer && this.container) {
+      this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+      // CreateParticles might also need to know about resize if its planeArea depends on it dynamically
+      // However, the original setup sizes planeArea once in setup.
+    }
+  }
+
+  public dispose() {
+    console.log("HeroParticleLogic: Disposing Environment");
+    this.stopAnimationLoop();
+    this.unbindWindowResize();
+    if (this.createParticles) {
+      this.createParticles.dispose();
+    }
+    if (this.renderer) {
+      this.renderer.dispose();
+      if (this.renderer.domElement && this.renderer.domElement.parentNode) {
+        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+      }
+    }
+    if (this.scene) {
+        this.scene.traverse(object => {
+            const obj = object as THREE.Mesh; 
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) {
+                if (Array.isArray(obj.material)) {
+                    obj.material.forEach((material: THREE.Material) => material.dispose());
+                } else {
+                    obj.material.dispose();
+                }
+            }
+        });
+    }
+  }
+}
+
+interface ParticleData {
+  text: string;
+  amount: number;
+  particleSize: number;
+  particleColor: number; 
+  textSize: number;
+  area: number;
+  ease: number;
+  distortionThreshold: number;
+  maxCooldownTime: number;
+  minFadeOutRate: number;
+  maxFadeOutRate: number;
+  minSymbolSize: number;
+  maxSymbolSize: number;
+  symbolMinThreshold: number;
+  symbolMidThreshold: number;
+  symbolMaxThreshold: number;
+  symbolMinProb: number;
+  symbolMaxProb: number;
+  symbolHeatRequirement: number;
+}
+
+export class CreateParticles {
+  private scene: THREE.Scene;
+  private font: Font;
+  private particleImg: THREE.Texture;
+  private camera: THREE.PerspectiveCamera;
+  private renderer: THREE.WebGLRenderer; 
+  private hostContainer: HTMLElement; 
+
+  private raycaster: THREE.Raycaster;
+  private mouse: THREE.Vector2;
+  private isPressed: boolean = false;
+  private hasMouseMoved: boolean = false; 
+
+  private matrixSymbols: string[];
+  private matrixColors: { [key: string]: THREE.Color };
+  
+  private particleStates: number[] = [];
+  private heatLevels: number[] = [];
+  private cooldownRates: number[] = [];
+  private symbolIndicesAttributeValues: number[] = [];
+  private fadeOutRates: number[] = [];
+  private symbolSizesMultipliers: number[] = [];
+
+  private data: ParticleData;
+  private symbolsTexture!: THREE.Texture;
+  private planeArea!: THREE.Mesh; // The invisible plane for raycasting
+  public particles!: THREE.Points;
+  private geometryCopy!: THREE.BufferGeometry;
+
+  // Bound event handlers for proper `this` context
+  private boundOnMouseDown: (event: MouseEvent) => void;
+  private boundOnMouseMove: (event: MouseEvent) => void;
+  private boundOnMouseUp: (event: MouseEvent) => void;
+  private boundOnTouchStart: (event: TouchEvent) => void;
+  private boundOnTouchMove: (event: TouchEvent) => void;
+  private boundOnTouchEnd: (event: TouchEvent) => void;
+
+  constructor(scene: THREE.Scene, font: Font, particleImg: THREE.Texture, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, hostContainer: HTMLElement) {
+    this.scene = scene;
+    this.font = font;
+    this.particleImg = particleImg;
+    this.camera = camera;
+    this.renderer = renderer; 
+    this.hostContainer = hostContainer;
+    this.isPressed = false;
+
+    this.raycaster = new THREE.Raycaster();
+    this.mouse = new THREE.Vector2(1e5, 1e5); // Initialize way off-screen
+
+    this.matrixSymbols = [ // From original particles.js
+      '日', '〇', 'ﾊ', 'ﾐ', 'ﾋ', 'ｰ', 'ｳ', 'ｼ', 'ﾅ', 'ﾓ', 'ﾆ', 'ｻ', 'ﾜ',
+      'ﾂ', 'ｵ', 'ﾘ', 'ｱ', 'ﾎ', 'ﾃ', 'ﾏ', 'ｹ', 'ﾒ', 'ｴ', 'ｶ', 'ｷ', 'ﾑ', 
+      'ﾕ', 'ﾗ', 'ｾ', 'ﾈ', 'ｦ', 'ｲ', 'ｸ', 'ｺ', 'ｿ', 'ﾀ', 'ﾁ', 'ﾄ', 'ﾉ', 'ﾌ', 'ﾍ', 'ﾏ', 'ﾔ', 'ﾖ', 'ﾙ', 'ﾚ', 'ﾛ',
+      '0', '1', '7', '9', '∆', '×', '≠', '≡', '∞'
+    ];
+    
+    this.matrixColors = { // From original particles.js
+      white: new THREE.Color(1.0, 1.0, 1.0),
+      lightGreen: new THREE.Color(0.7, 1.0, 0.7),
+      mediumGreen: new THREE.Color(0.4, 1.0, 0.6),
+      brightGreen: new THREE.Color(0.0, 223/255, 115/255),
+      midGreen: new THREE.Color(0.0, 198/255, 102/255),
+      darkGreen: new THREE.Color(0.0, 173/255, 89/255)
+    };
+
+    this.data = { // From original particles.js
+      text: "Hi, I'm\nMiká",
+      amount: 2200,
+      particleSize: 1.3,
+      particleColor: 0xffffff,
+      textSize: 16,
+      area: 250, // Radius of mouse influence
+      ease: .05, // Spring-back ease
+      distortionThreshold: 12,
+      maxCooldownTime: 180,
+      minFadeOutRate: 0.09,
+      maxFadeOutRate: 0.12,
+      minSymbolSize: 7,
+      maxSymbolSize: 12,
+      symbolMinThreshold: 13,
+      symbolMidThreshold: 20,
+      symbolMaxThreshold: 40,
+      symbolMinProb: 0.001,
+      symbolMaxProb: 0.15,
+      symbolHeatRequirement: 0.4
+    };
+    
+    // Bind event handlers to `this` instance
+    this.boundOnMouseDown = this.onMouseDown.bind(this);
+    this.boundOnMouseMove = this.onMouseMove.bind(this);
+    this.boundOnMouseUp = this.onMouseUp.bind(this);
+    this.boundOnTouchStart = this.onTouchStart.bind(this);
+    this.boundOnTouchMove = this.onTouchMove.bind(this);
+    this.boundOnTouchEnd = this.onTouchEnd.bind(this);
+    
+    this.createMatrixSymbolsTexture();
+    this.setupPlaneArea(); // Setup interaction plane first
+    this.createText(); // Then text particles
+    // Event listeners are bound by Svelte component calling public bindInteractionEvents
+  }
+
+  private getMatrixColor(heatLevel: number): THREE.Color { /* ... same as before ... */ 
+    if (heatLevel <= 0.05) return this.matrixColors.white;
+    if (heatLevel <= 0.2) return this.matrixColors.lightGreen;
+    if (heatLevel <= 0.4) return this.matrixColors.mediumGreen;
+    if (heatLevel <= 0.6) return this.matrixColors.brightGreen;
+    if (heatLevel <= 0.8) return this.matrixColors.midGreen;
+    return this.matrixColors.darkGreen;
+  }
+  private getSymbolProbability(distortion: number): number { /* ... same as before ... */ 
+    const { symbolMinThreshold, symbolMidThreshold, symbolMaxThreshold, symbolMinProb, symbolMaxProb } = this.data;
+    if (distortion < symbolMinThreshold) return 0;
+    if (distortion >= symbolMaxThreshold) return 1;
+    if (distortion < symbolMidThreshold) {
+      const ratio = (distortion - symbolMinThreshold) / (symbolMidThreshold - symbolMinThreshold);
+      return symbolMinProb + (symbolMaxProb / 10) * Math.pow(ratio, 3);
+    } else {
+      const ratio = (distortion - symbolMidThreshold) / (symbolMaxThreshold - symbolMidThreshold);
+      return (symbolMaxProb / 10) + 
+             (symbolMaxProb - symbolMaxProb / 10) * Math.pow(ratio, 1.5);
+    }
+  }
+  private initParticleStates(count: number) { /* ... same as before ... */ 
+    this.particleStates = new Array(count).fill(0);
+    this.heatLevels = new Array(count).fill(0);
+    this.cooldownRates = new Array(count);
+    this.symbolIndicesAttributeValues = new Array(count);
+    this.fadeOutRates = new Array(count);
+    this.symbolSizesMultipliers = new Array(count);
+    
+    for (let i = 0; i < count; i++) {
+      this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
+      this.cooldownRates[i] = 1 / (this.data.maxCooldownTime * (0.5 + Math.random() * 0.5));
+      this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
+      this.symbolSizesMultipliers[i] = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
+    }
+  }
+  private createMatrixSymbolsTexture() { /* ... same as before ... */
+    const rows = 6; const cols = 8; const symbolSize = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = cols * symbolSize; canvas.height = rows * symbolSize;
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0,0,canvas.width, canvas.height);
+    for (let i = 0; i < this.matrixSymbols.length; i++) {
+      const col = i % cols; const row = Math.floor(i / cols);
+      const x = col * symbolSize; const y = row * symbolSize;
+      ctx.fillStyle = '#00df73'; ctx.font = 'bold 48px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(this.matrixSymbols[i], x + symbolSize/2, y + symbolSize/2);
+    }
+    this.symbolsTexture = new THREE.Texture(canvas);
+    this.symbolsTexture.needsUpdate = true;
+  }
+
+  // Renamed from 'setup' to be more specific
+  private setupPlaneArea() {
+    // This plane is at z=0 relative to camera's view direction for particles at z=0 from origin
+    // If particles are at a different z, this plane should match that depth.
+    // The camera is at z=100, looking at origin. Particles are at z=0 by default.
+    // So, the plane should be at z=0 in world space for interaction.
+    const planeZ = 0; // Matches default particle Z position
+    const planeWidth = this.visibleWidthAtZDepth(planeZ, this.camera);
+    const planeHeight = this.visibleHeightAtZDepth(planeZ, this.camera);
+
+    const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+    const material = new THREE.MeshBasicMaterial({ 
+        // color: 0xff0000, // For debugging plane visibility
+        // opacity: 0.5, // For debugging plane visibility
+        transparent: true, 
+        opacity: 0, // Make it invisible
+        depthWrite: false // Good for invisible interaction planes
+    });
+    this.planeArea = new THREE.Mesh(geometry, material);
+    this.planeArea.position.z = planeZ; // Position it correctly
+    this.planeArea.visible = true; // It must be 'visible' to the raycaster, even if opacity is 0
+    this.scene.add(this.planeArea);
+    console.log("HeroParticleLogic: Interaction planeArea setup at z=", planeZ, " W:", planeWidth, "H:", planeHeight);
+  }
+
+  private createText() { /* ... same as before, ensuring point distribution is robust ... */
+    const thePoints: THREE.Vector3[] = [];
+    const colorsArr: number[] = []; 
+    const sizesArr: number[] = []; 
+    const symbolStatesArr: number[] = []; 
+    const symbolIndicesArrForAttribute: number[] = []; 
+    const variabilitiesArr: number[] = [];
+
+    if (!this.font) { console.error("HeroParticleLogic: Font not available for createText"); return; }
+
+    const mainShapes = this.font.generateShapes(this.data.text, this.data.textSize);
+    const allPaths: THREE.Path[] = [];
+    mainShapes.forEach(shape => {
+        allPaths.push(shape); 
+        if (shape.holes && shape.holes.length > 0) {
+            allPaths.push(...shape.holes); 
+        }
+    });
+    
+    const tempShapeGeometry = new THREE.ShapeGeometry(mainShapes); 
+    tempShapeGeometry.computeBoundingBox();
+    const xMid = -0.5 * (tempShapeGeometry.boundingBox!.max.x - tempShapeGeometry.boundingBox!.min.x);
+    const yMid = (tempShapeGeometry.boundingBox!.max.y - tempShapeGeometry.boundingBox!.min.y) / 2.85; 
+    tempShapeGeometry.dispose();
+
+    let totalLength = 0;
+    allPaths.forEach(path => totalLength += path.getLength());
+    if (totalLength === 0) totalLength = 1; 
+
+    allPaths.forEach(path => {
+      const pathLength = path.getLength();
+      const numPointsForThisPath = Math.max(10, Math.floor((pathLength / totalLength) * this.data.amount));
+      const points = path.getSpacedPoints(numPointsForThisPath);
+      
+      points.forEach(p => { // Use p for position
+        thePoints.push(new THREE.Vector3(p.x, p.y, 0)); // Particles at z=0
+        colorsArr.push(1, 1, 1); 
+        sizesArr.push(this.data.particleSize); // Use configured particleSize
+        symbolStatesArr.push(0); 
+        symbolIndicesArrForAttribute.push(Math.floor(Math.random() * this.matrixSymbols.length));
+        variabilitiesArr.push(Math.random());
+      });
+    });
+    
+    // Ensure attribute arrays match the final point count if there were discrepancies
+    const finalPointCount = thePoints.length;
+    if (colorsArr.length / 3 !== finalPointCount) colorsArr.length = finalPointCount * 3;
+    if (sizesArr.length !== finalPointCount) sizesArr.length = finalPointCount;
+    if (symbolStatesArr.length !== finalPointCount) symbolStatesArr.length = finalPointCount;
+    if (symbolIndicesArrForAttribute.length !== finalPointCount) symbolIndicesArrForAttribute.length = finalPointCount;
+    if (variabilitiesArr.length !== finalPointCount) variabilitiesArr.length = finalPointCount;
+
+
+    const geoParticles = new THREE.BufferGeometry().setFromPoints(thePoints);
+    geoParticles.translate(xMid, yMid, 0); 
+    geoParticles.setAttribute('customColor', new THREE.Float32BufferAttribute(colorsArr, 3));
+    geoParticles.setAttribute('size', new THREE.Float32BufferAttribute(sizesArr, 1));
+    geoParticles.setAttribute('symbolState', new THREE.Float32BufferAttribute(symbolStatesArr, 1));
+    geoParticles.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(symbolIndicesArrForAttribute, 1));
+    geoParticles.setAttribute('variability', new THREE.Float32BufferAttribute(variabilitiesArr, 1));
+
+    const particleMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        pointTexture: { value: this.particleImg },
+        symbolsTexture: { value: this.symbolsTexture }
+      },
+      vertexShader: VERTEX_SHADER,
+      fragmentShader: FRAGMENT_SHADER,
+      blending: THREE.AdditiveBlending,
+      depthTest: false, 
+      transparent: true, 
+    });
+
+    this.particles = new THREE.Points(geoParticles, particleMaterial);
+    this.scene.add(this.particles);
+    this.geometryCopy = new THREE.BufferGeometry().copy(this.particles.geometry);
+    this.initParticleStates(thePoints.length);
+    console.log("HeroParticleLogic: Particles created:", thePoints.length);
+   }
+
+  public bindInteractionEvents() {
+    console.log("HeroParticleLogic: Binding interaction events.");
+    this.hostContainer.addEventListener('mousedown', this.boundOnMouseDown);
+    this.hostContainer.addEventListener('mousemove', this.boundOnMouseMove);
+    document.addEventListener('mouseup', this.boundOnMouseUp); // Mouseup can occur outside
+
+    this.hostContainer.addEventListener('touchstart', this.boundOnTouchStart, { passive: false });
+    this.hostContainer.addEventListener('touchmove', this.boundOnTouchMove, { passive: false });
+    this.hostContainer.addEventListener('touchend', this.boundOnTouchEnd, { passive: false });
+
+    // --- RESET isPressed STATE ON BIND ---
+    this.isPressed = false;
+    // this.neutralizeLastMousePosition(); // Also resets isPressed if called here
+    console.log("HeroParticleLogic: isPressed flag reset on binding events.");
+  }
+
+  public unbindInteractionEvents() {
+    console.log("HeroParticleLogic: Unbinding interaction events.");
+    this.hostContainer.removeEventListener('mousedown', this.boundOnMouseDown);
+    this.hostContainer.removeEventListener('mousemove', this.boundOnMouseMove);
+    document.removeEventListener('mouseup', this.boundOnMouseUp);
+
+    this.hostContainer.removeEventListener('touchstart', this.boundOnTouchStart);
+    this.hostContainer.removeEventListener('touchmove', this.boundOnTouchMove);
+    this.hostContainer.removeEventListener('touchend', this.boundOnTouchEnd);
+    
+    this.neutralizeLastMousePosition(); // This will also reset isPressed
+  }
+
+  public neutralizeLastMousePosition() {
+    this.mouse.set(1e5, 1e5); 
+    this.hasMouseMoved = false; 
+    // --- RESET isPressed STATE HERE AS WELL ---
+    this.isPressed = false; 
+    console.log("HeroParticleLogic: Last mouse position neutralized and isPressed reset.");
+  }
+
+  private onMouseDown(event: MouseEvent) { this.updateMousePosition(event.clientX, event.clientY); this.isPressed = true; this.data.ease = .01; }
+  private onMouseUp() { this.isPressed = false; this.data.ease = .05; }
+  private onMouseMove(event: MouseEvent) { 
+    if (!this.hasMouseMoved) {
+        console.log("HeroParticleLogic: First mouse move detected.");
+        this.hasMouseMoved = true; 
+    }
+    this.updateMousePosition(event.clientX, event.clientY); 
+  }
+  private onTouchStart(event: TouchEvent) { if (event.touches.length > 0) { this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true; /* Treat touch as mouse move for activation */ } event.preventDefault(); }
+  private onTouchMove(event: TouchEvent) { if (event.touches.length > 0) { this.hasMouseMoved = true; this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); } event.preventDefault(); }
+  private onTouchEnd(event: TouchEvent) { this.isPressed = false; this.data.ease = .05; event.preventDefault(); }
+  
+  private updateMousePosition(clientX: number, clientY: number) {
+    const rect = this.hostContainer.getBoundingClientRect();
+    this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    // console.log("Mouse NDC:", this.mouse.x, this.mouse.y); // For debugging
+  }
+
+  public render() {
+    if (!this.particles || !this.planeArea || !this.camera) return; // Essential objects guard
+
+    // Interaction logic only runs if mouse has moved OR button is pressed
+    if (!this.hasMouseMoved && !this.isPressed) {
+        // Spring back even if no interaction, but only if particles exist
+        if (this.particles && this.geometryCopy) {
+            const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
+            const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
+            let changed = false;
+            for (let i = 0, l = pos.count; i < l; i++) {
+                const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
+                let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
+                const prevPx = px; const prevPy = py; const prevPz = pz;
+
+                px += (initX - px) * this.data.ease; 
+                py += (initY - py) * this.data.ease; 
+                pz += (initZ - pz) * this.data.ease;
+                pos.setXYZ(i, px, py, pz);
+                if (px !== prevPx || py !== prevPy || pz !== prevPz) changed = true;
+            }
+            if (changed) pos.needsUpdate = true;
+        }
+        return; 
+    }
+
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const intersects = this.raycaster.intersectObject(this.planeArea);
+
+    // Keep a flag to update attributes only if changes occurred
+    let attributesNeedUpdate = false;
+
+    if (intersects.length > 0) {
+      const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
+      const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
+      const colors = this.particles.geometry.attributes.customColor as THREE.BufferAttribute;
+      const sizes = this.particles.geometry.attributes.size as THREE.BufferAttribute;
+      const symbolStates = this.particles.geometry.attributes.symbolState as THREE.BufferAttribute;
+      const symbolIndicesBuffer = this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute;
+
+      const mx = intersects[0].point.x;
+      const my = intersects[0].point.y;
+      // console.log("Intersection point (world):", mx, my); // For debugging
+
+      for (let i = 0, l = pos.count; i < l; i++) {
+        const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
+        let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
+
+        const dx = mx - px; const dy = my - py;
+        const mouseDistance = Math.sqrt(dx * dx + dy * dy);
+        const dSquared = Math.max(1e-5, dx * dx + dy * dy); // Avoid division by zero
+        const f = -this.data.area / dSquared;
+
+        if (this.isPressed) {
+          const t = Math.atan2(dy, dx);
+          px -= f * Math.cos(t); py -= f * Math.sin(t);
+          this.heatLevels[i] = Math.min(this.heatLevels[i] + 0.1, 1.0);
+          attributesNeedUpdate = true;
+        } else if (mouseDistance < this.data.area) {
+          const t = Math.atan2(dy, dx);
+          px += f * Math.cos(t); py += f * Math.sin(t);
+          attributesNeedUpdate = true;
+          const distortion = Math.sqrt(Math.pow(px - initX, 2) + Math.pow(py - initY, 2));
+          
+          if (distortion > this.data.distortionThreshold) {
+            this.heatLevels[i] = Math.min(this.heatLevels[i] + Math.min(distortion / 50, 0.1), 1.0);
+            if (this.particleStates[i] === 0 && this.heatLevels[i] > this.data.symbolHeatRequirement) {
+              if (Math.random() < this.getSymbolProbability(distortion)) {
+                this.particleStates[i] = 1; symbolStates.setX(i, 1.0);
+                sizes.setX(i, this.data.particleSize * this.symbolSizesMultipliers[i]);
+                symbolIndicesBuffer.setX(i, Math.floor(Math.random() * this.matrixSymbols.length));
+              }
+            }
+          }
+        }
+
+        // State-based visual changes
+        if (this.particleStates[i] === 1) { 
+          const darkGreen = this.matrixColors.darkGreen;
+          if (colors.getX(i) !== darkGreen.r || colors.getY(i) !== darkGreen.g || colors.getZ(i) !== darkGreen.b) {
+             colors.setXYZ(i, darkGreen.r, darkGreen.g, darkGreen.b);
+             attributesNeedUpdate = true;
+          }
+          const newSize = Math.max(this.data.particleSize, sizes.getX(i) - this.fadeOutRates[i]);
+          if (sizes.getX(i) !== newSize) {
+             sizes.setX(i, newSize);
+             attributesNeedUpdate = true;
+          }
+          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * 3));
+          if (sizes.getX(i) <= this.data.particleSize) {
+            this.particleStates[i] = 0; symbolStates.setX(i, 0.0);
+            sizes.setX(i, this.data.particleSize); // Reset to base size
+            attributesNeedUpdate = true;
+          }
+        } else { 
+          const matrixColor = this.getMatrixColor(this.heatLevels[i]);
+          if (colors.getX(i) !== matrixColor.r || colors.getY(i) !== matrixColor.g || colors.getZ(i) !== matrixColor.b) {
+            colors.setXYZ(i, matrixColor.r, matrixColor.g, matrixColor.b);
+            attributesNeedUpdate = true;
+          }
+        }
+        
+        if (this.heatLevels[i] > 0) {
+          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
+          // If heat changed, color might change, so flag update
+          attributesNeedUpdate = true; 
+        }
+
+        // Spring back to original position
+        const prevPx = px; const prevPy = py; const prevPz = pz;
+        px += (initX - px) * this.data.ease; 
+        py += (initY - py) * this.data.ease; 
+        pz += (initZ - pz) * this.data.ease;
+        
+        if (px !== prevPx || py !== prevPy || pz !== prevPz) {
+            pos.setXYZ(i, px, py, pz);
+            attributesNeedUpdate = true;
+        }
+      }
+    } else { // No intersection, but mouse has moved or is pressed - ensure particles spring back
+        const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
+        const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
+        for (let i = 0, l = pos.count; i < l; i++) {
+            const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
+            let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
+            const prevPx = px; const prevPy = py; const prevPz = pz;
+            px += (initX - px) * this.data.ease; 
+            py += (initY - py) * this.data.ease; 
+            pz += (initZ - pz) * this.data.ease;
+            if (px !== prevPx || py !== prevPy || pz !== prevPz) {
+                pos.setXYZ(i, px, py, pz);
+                attributesNeedUpdate = true;
+            }
+        }
+    }
+    
+    if (attributesNeedUpdate) {
+        (this.particles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+        (this.particles.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true;
+        (this.particles.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
+        (this.particles.geometry.attributes.symbolState as THREE.BufferAttribute).needsUpdate = true;
+        (this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+    }
+  }
+  
+  public resetParticleState() { /* ... same as before ... */ 
+    if (!this.particles || !this.particles.geometry) {
+        console.warn("HeroParticleLogic: Attempted to reset state but particles not ready.");
+        return;
+    }
+    const colors = this.particles.geometry.attributes.customColor as THREE.BufferAttribute;
+    const sizes = this.particles.geometry.attributes.size as THREE.BufferAttribute;
+    const symbolStates = this.particles.geometry.attributes.symbolState as THREE.BufferAttribute;
+    const symbolIndicesBuffer = this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute;
+
+    if (!colors || !sizes || !symbolStates || !symbolIndicesBuffer) {
+        console.warn("HeroParticleLogic: Attempted to reset state but attributes missing.");
+        return;
+    }
+
+    for (let i = 0; i < colors.count; i++) {
+      colors.setXYZ(i, 1.0, 1.0, 1.0); 
+      this.particleStates[i] = 0; 
+      this.heatLevels[i] = 0; 
+      sizes.setX(i, this.data.particleSize); 
+      symbolStates.setX(i, 0.0); 
+      
+      this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
+      symbolIndicesBuffer.setX(i, this.symbolIndicesAttributeValues[i]);
+
+      this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
+      this.symbolSizesMultipliers[i] = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
+    }
+    colors.needsUpdate = true; sizes.needsUpdate = true; 
+    symbolStates.needsUpdate = true; symbolIndicesBuffer.needsUpdate = true;
+    
+    console.log("HeroParticleLogic: Particle system state reset.");
+  }
+
+  private visibleHeightAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number { /* ... same as before ... */ 
+    const cameraOffset = camera.position.z;
+    const relativeDepth = depth - cameraOffset; 
+    const vFOV = camera.fov * Math.PI / 180; 
+    return 2 * Math.tan(vFOV / 2) * Math.abs(relativeDepth);
+  }
+  private visibleWidthAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number { /* ... same as before ... */ 
+    return this.visibleHeightAtZDepth(depth, camera) * camera.aspect;
+  }
+  
+  public dispose() { /* ... same as before ... */ 
+    console.log("HeroParticleLogic: Disposing CreateParticles");
+    this.unbindInteractionEvents();
+    if (this.particles) {
+      this.scene.remove(this.particles);
+      this.particles.geometry.dispose();
+      const material = this.particles.material as THREE.Material | THREE.Material[];
+      if (Array.isArray(material)) {
+        material.forEach(m => m.dispose());
+      } else {
+        material.dispose();
+      }
+    }
+    if (this.geometryCopy) this.geometryCopy.dispose();
+    if (this.symbolsTexture) this.symbolsTexture.dispose();
+    if (this.planeArea) {
+      this.scene.remove(this.planeArea);
+      this.planeArea.geometry.dispose();
+      const material = this.planeArea.material as THREE.Material | THREE.Material[];
+      if (Array.isArray(material)) {
+         material.forEach(m => m.dispose());
+      } else {
+        material.dispose();
+      }
+    }
+  }
+}
+--- END OF FILE src\lib\three\heroParticleLogic.ts ---
+
+--- START OF FILE src\routes\+layout.svelte ---
+<!-- src/routes/+layout.svelte -->
+<script lang="ts">
+  import '../app.css'; // Import global styles for keyboard buttons etc.
+</script>
+
+<slot />
+--- END OF FILE src\routes\+layout.svelte ---
+
+--- START OF FILE src\routes\+page.svelte ---
+<!-- src/routes/+page.svelte -->
+<script lang="ts">
+  import { onMount, onDestroy, tick } from 'svelte';
+  import { writable, get } from 'svelte/store';
+  import { siteConfig } from '$lib/data/siteConfig';
+  import { projects, type Project } from '$lib/data/projectsData';
+  import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
+  import type { SvelteComponent } from 'svelte'; // For component instance type
+  import LoadingScreen from '$lib/components/LoadingScreen.svelte';
+  import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
+  import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore';
+
+  import gsap from 'gsap';
+
+  // --- Component Instance Type for HeroParticleEffect ---
+  // This assumes HeroParticleEffect.svelte exports these methods
+  interface HeroParticleEffectInstance extends SvelteComponent {
+    onTransitionToHeroStart: () => Promise<void>;
+    onTransitionToHeroComplete: () => void;
+    onTransitionFromHeroStart: () => void;
+  }
+  let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
+  // --- End Component Instance Type ---
+
+  const isAnimating = writable(false);
+  const currentSectionIndex = writable(0);
+  const isTransitioning = writable(false);
+
+  let particleLayerPointerEvents = 'none';
+  $: particleLayerPointerEvents = ($currentSectionIndex === 0) ? 'auto' : 'none';
+
+  let mainContainerPointerEvents = 'auto';
+  $: mainContainerPointerEvents = ($currentSectionIndex === 0) ? 'none' : 'auto';
+
+  let sectionElements: HTMLElement[] = [];
+  let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
+  let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
+
+  const allSectionsData = [
+    { id: 'hero', type: 'hero', data: siteConfig.heroSection },
+    { id: 'about', type: 'about', data: siteConfig.aboutSection },
+    ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
+    { id: 'contact', type: 'contact', data: siteConfig.contactSection }
+  ];
+
+  const HERO_LOGICAL_INDEX = 0; // Define for clarity
+
+  const transitionDuration = 1.1;
+  const projectBgZoomDuration = 3;
+  const minSectionDisplayDuration = 1.2;
+  const contentAnimationStartOffset = -0.3;
+  const projectBgZoomStartOffset = 0.1;
+
+  let unsubOverallLoadingState: (() => void) | undefined;
+  let contactSectionIndex: number = -1;
+
+  onMount((): (() => void) | void => {
+    const setupPromise = async () => {
+      await tick();
+
+      sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
+      if (sectionElements.some(el => !el)) {
+          console.error("One or more sections not found in DOM!");
+          return;
+      }
+
+      contactSectionIndex = allSectionsData.findIndex(section => section.id === 'contact');
+      if (contactSectionIndex === -1) {
+          console.error("Contact section ID ('contact') not found!");
+      }
+
+      sectionElements.forEach((sectionEl, index) => {
+        const contentTl = gsap.timeline({ paused: true });
+        const currentSectionType = allSectionsData[index].type;
+
+        if (currentSectionType === 'project') {
+          const headlineEl = sectionEl.querySelector('h2');
+          if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
+        
+        } else if (currentSectionType === 'about') {
+          const h2El = sectionEl.querySelector('.about-text-block h2');
+          const pEl = sectionEl.querySelector('.about-text-block p');
+          const imageEl = sectionEl.querySelector('.about-background-image'); 
+
+          if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
+          if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
+          if (imageEl) { 
+            contentTl.fromTo(imageEl, 
+              { autoAlpha: 0, scale: 1.1 }, 
+              { autoAlpha: 1, scale: 1, duration: 1.2, ease: 'power2.out' }, 
+              "start+=0.1"
+            );
+          }
+        
+        } else if (currentSectionType === 'contact') {
+          const h2El = sectionEl.querySelector('h2');
+          const paragraphs = sectionEl.querySelectorAll('p');
+          const links = sectionEl.querySelector('.additional-links');
+          
+          if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
+          paragraphs.forEach((p, i) => {
+            contentTl.fromTo(p, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, `start+=${0.1 * (i + 1)}`);
+          });
+          if (links) contentTl.fromTo(links, { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.3");
+        }
+        sectionContentTimelines[index] = contentTl;
+
+        sectionBackgroundZooms[index] = null;
+        if (currentSectionType === 'project') {
+          const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
+          if (bgTarget) {
+            sectionBackgroundZooms[index] = gsap.to(bgTarget, {
+              scale: 1.05,
+              duration: projectBgZoomDuration,
+              ease: 'power1.out',
+              paused: true,
+            });
+          }
+        }
+
+        if (index === 0) {
+          gsap.set(sectionEl, { yPercent: 0, autoAlpha: 1 });
+        } else {
+          gsap.set(sectionEl, { yPercent: 100, autoAlpha: 0 });
+        }
+      });
+
+      if (get(currentSectionIndex) === HERO_LOGICAL_INDEX) {
+          sectionContentTimelines[HERO_LOGICAL_INDEX]?.restart(); // Or any other initial animation for hero text if it existed
+          // Initial call for hero effect completion if starting on hero
+          if (heroParticleEffectInstance) {
+            // This scenario is tricky: if starting directly on hero, there's no "transition to hero complete"
+            // The HeroParticleEffect's own onMount and reactive logic should handle its initial setup.
+            // We might call onTransitionToHeroComplete directly IF we know assets are loaded and it's truly settled.
+            // For now, relying on HeroParticleEffect's internal _handleSettledState
+          }
+      }
+
+      if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
+        isAnimating.set(true);
+        const firstBgZoom = sectionBackgroundZooms[0];
+        if (firstBgZoom) {
+          firstBgZoom.vars.onComplete = () => {
+            if (get(currentSectionIndex) === 0) {
+                isAnimating.set(false);
+            }
+          };
+          firstBgZoom.restart();
+        }
+      }
+
+      window.addEventListener('wheel', handleWheel, { passive: false });
+      window.addEventListener('keydown', handleKeyDown);
+    };
+    
+    unsubOverallLoadingState = overallLoadingState.subscribe(status => {
+      if (status === 'loaded' && !get(initialSiteLoadComplete)) {
+        initialSiteLoadComplete.set(true);
+      }
+    });
+    
+    setupPromise();
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      sectionContentTimelines.forEach(timeline => timeline?.kill());
+      sectionBackgroundZooms.forEach(tween => tween?.kill());
+      gsap.killTweensOf(sectionElements);
+      if (unsubOverallLoadingState) unsubOverallLoadingState();
+    };
+  });
+
+  function navigateToSection(newIndex: number) {
+    const oldIndex = get(currentSectionIndex);
+
+    if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) {
+      return;
+    }
+    isAnimating.set(true);
+    isTransitioning.set(true);
+
+    console.log(`Navigate: from ${oldIndex} to ${newIndex}`);
+
+    // --- Call HeroParticleEffect methods based on transition ---
+    if (heroParticleEffectInstance) {
+      if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) {
+        // Transitioning TO Hero
+        console.log("+page: Calling onTransitionToHeroStart");
+        heroParticleEffectInstance.onTransitionToHeroStart();
+      } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) {
+        // Transitioning FROM Hero
+        console.log("+page: Calling onTransitionFromHeroStart");
+        heroParticleEffectInstance.onTransitionFromHeroStart();
+      }
+    }
+    // --- End HeroParticleEffect method calls ---
+
+    const currentSectionEl = sectionElements[oldIndex];
+    const targetSectionEl = sectionElements[newIndex];
+    const direction = newIndex > oldIndex ? 1 : -1;
+
+    sectionContentTimelines[oldIndex]?.progress(0).pause();
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause();
+
+    const masterTransitionTl = gsap.timeline({
+      onComplete: () => {
+        currentSectionIndex.set(newIndex);
+        isTransitioning.set(false);
+
+        // --- Call HeroParticleEffect completion method ---
+        if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) {
+            console.log("+page: Calling onTransitionToHeroComplete");
+            heroParticleEffectInstance.onTransitionToHeroComplete();
+        }
+        // --- End HeroParticleEffect completion method call ---
+      }
+    });
+
+    gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
+
+    masterTransitionTl.to(currentSectionEl, {
+      yPercent: -direction * 100,
+      autoAlpha: 0,
+      duration: transitionDuration,
+      ease: 'expo.out'
+    }, "slide");
+
+    masterTransitionTl.to(targetSectionEl, {
+      yPercent: 0,
+      duration: transitionDuration,
+      ease: 'expo.out'
+    }, "slide");
+
+    // Don't animate content for Hero section itself here, it's just the particle effect
+    if (newIndex !== HERO_LOGICAL_INDEX) {
+        masterTransitionTl.call(() => {
+            sectionContentTimelines[newIndex]?.restart();
+        }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
+    }
+
+
+    const targetBgZoom = sectionBackgroundZooms[newIndex];
+    if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
+      masterTransitionTl.call(() => {
+        targetBgZoom.restart();
+      }, [], `slide+=${projectBgZoomStartOffset}`);
+    }
+
+    const scrollLockReleaseTime = Math.max(transitionDuration, minSectionDisplayDuration);
+    gsap.delayedCall(scrollLockReleaseTime, () => {
+      isAnimating.set(false);
+    });
+  }
+
+  let lastScrollTime = 0;
+  const scrollDebounce = 200;
+
+  function handleWheel(event: WheelEvent) {
+    event.preventDefault();
+    const currentTime = Date.now();
+    if (currentTime - lastScrollTime < scrollDebounce) return; 
+    if (get(isAnimating)) return;
+    
+    lastScrollTime = currentTime;
+    navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1));
+  }
+
+  function handleKeyDown(event: KeyboardEvent) {
+    const currentTime = Date.now();
+    if (currentTime - lastScrollTime < scrollDebounce) {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
+        return;
+    }
+    if (get(isAnimating)) {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
+      return;
+    }
+    
+    let newIndex = get(currentSectionIndex);
+    let shouldScroll = false;
+    switch (event.key) {
+        case 'ArrowDown': case 'PageDown': case ' ':
+            newIndex = get(currentSectionIndex) + 1; shouldScroll = true; break;
+        case 'ArrowUp': case 'PageUp':
+            newIndex = get(currentSectionIndex) - 1; shouldScroll = true; break;
+        case 'Home': newIndex = 0; shouldScroll = true; break;
+        case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break;
+    }
+
+    if (shouldScroll && newIndex !== get(currentSectionIndex)) {
+        event.preventDefault();
+        lastScrollTime = currentTime;
+        navigateToSection(newIndex);
+    }
+  }
+
+  function getSectionData(id: string) {
+    return allSectionsData.find(s => s.id === id)?.data;
+  }
+</script>
+
+<svelte:head>
+  <title>{siteConfig.title}</title>
+  <meta name="description" content={siteConfig.description} />
+</svelte:head>
+
+<LoadingScreen /> 
+
+<div class="particle-effect-layer" style="pointer-events: {particleLayerPointerEvents};">
+  <HeroParticleEffect 
+    bind:this={heroParticleEffectInstance}
+    activeSectionIndex={$currentSectionIndex} 
+    isTransitioning={$isTransitioning}
+    transitionDuration={transitionDuration}
+  />
+</div>
+
+<main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
+  <section id="hero" class="full-screen-section hero-section">
+    <!-- Hero section is empty - only shows particle effect -->
+  </section>
+
+  <section id="about" class="full-screen-section about-section">
+    <div class="about-background-layer">
+      {#if siteConfig.aboutSection.imageUrl}
+        <img
+          src={siteConfig.aboutSection.imageUrl}
+          alt="Visual backdrop for the About Me section"
+          class="about-background-image"
+        />
+      {/if}
+    </div>
+    <div class="about-content-wrapper">
+      <div class="about-text-block">
+        <h2>{siteConfig.aboutSection.title}</h2>
+        <p>{siteConfig.aboutSection.introduction}</p>
+        {#if contactSectionIndex !== -1}
+          <KeyboardButtons
+            socialLinks={siteConfig.aboutSection.socialLinks}
+            {contactSectionIndex}
+            {navigateToSection}
+          />
+        {/if}
+      </div>
+    </div>
+  </section>
+
+  {#each projects as project (project.id)}
+    {@const projectSectionData = getSectionData(`project-${project.id}`) as Project | undefined}
+    <section id="project-{project.id}" class="full-screen-section project-section">
+      <div class="background-image-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: url({projectSectionData?.background.type === 'image' ? projectSectionData.background.value : ''}); background-size: cover; background-position: center; z-index: -1; transform: scale(1);"></div>
+      <div class="content-overlay">
+        <div class="project-content">
+          <h2>{project.headline}</h2>
+          <p>{project.summary}</p>
+          <div class="project-cards-container">
+            {#each project.cards as card (card.id)}
+              <div class="project-card">
+                <img src={card.image} alt={card.title} />
+                <h3>{card.title}</h3>
+                <p>{card.description || ''}</p>
+              </div>
+            {/each}
+          </div>
+          {#if project.readMoreLinkText}
+            <button on:click={() => console.log('Navigate to project:', project.slug)}>
+                {project.readMoreLinkText}
+            </button>
+          {/if}
+        </div>
+      </div>
+    </section>
+  {/each}
+
+  <section id="contact" class="full-screen-section contact-section">
+     <div class="content-center">
+      <h2>{siteConfig.contactSection.title}</h2>
+      <p>{siteConfig.contactSection.outroMessage}</p>
+      <p>Email: <a href="mailto:{siteConfig.contactSection.email}">{siteConfig.contactSection.email}</a></p>
+      {#if siteConfig.contactSection.additionalLinks}
+        <div class="additional-links">
+          {#each siteConfig.contactSection.additionalLinks as link}
+            <a href={link.url} target="_blank" rel="noopener noreferrer">{link.name}</a>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  </section>
+</main>
+
+<style>
+  :global(body) {
+    background-color: rgb(9 9 11);
+    color: rgb(245 245 247);
+  }
+
+  .particle-effect-layer {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    background-color: rgb(9 9 11);
+  }
+  
+  .portfolio-container {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+    z-index: 1;
+  }
+
+  .full-screen-section {
+    height: 100%; 
+    width: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 2rem;
+    box-sizing: border-box;
+    background-color: rgb(9 9 11); 
+  }
+  
+  .hero-section {
+    background-color: transparent;
+    z-index: 2;
+    pointer-events: none;
+  }
+  
+  .about-section {
+    padding: 0; 
+    text-align: left; 
+    background-color: transparent; 
+    z-index: 2;
+    position: relative; 
+    overflow: hidden; 
+  }
+
+  .about-background-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0; 
+  }
+
+  .about-background-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 80% center; 
+    opacity: 0;
+  }
+
+  .about-content-wrapper {
+    position: relative; 
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: flex-start; 
+    align-items: center; 
+    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); 
+    padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem);
+    box-sizing: border-box;
+  }
+
+  .about-text-block {
+    max-width: 580px; 
+  }
+
+  .about-text-block h2 {
+    font-size: clamp(2.2rem, 4.5vw, 3rem); 
+    margin-bottom: 1.5rem;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    color: rgb(245 245 247);
+    opacity: 0;
+  }
+
+  .about-text-block p {
+    font-size: clamp(1rem, 2.2vw, 1.15rem); 
+    line-height: 1.8;
+    margin-bottom: 2.5rem; 
+    color: rgb(212 212 216);
+    opacity: 0;
+  }
+  
+  .project-section { 
+    color: rgb(245 245 247);
+    z-index: 2;
+    background-color: transparent;
+  }
+  
+  .project-section .content-overlay { 
+    background-color: rgba(9 9 11 / 0.85);
+    backdrop-filter: blur(8px);
+    padding: 3rem; 
+    border-radius: 16px; 
+    width: 90%; 
+    max-width: 1000px; 
+    z-index: 1; 
+    position: relative;
+    border: 1px solid rgba(255 255 255 / 0.1);
+  }
+  
+  .project-section h2 { 
+    opacity: 0;
+    font-size: 2.5rem;
+    font-weight: 300;
+    margin-bottom: 1rem;
+    letter-spacing: -0.02em;
+  }
+  
+  .project-section > .content-overlay > .project-content > p {
+    font-size: 1.15rem;
+    color: rgb(212 212 216);
+    line-height: 1.7;
+    margin-bottom: 2rem;
+  }
+  
+  .project-cards-container { 
+    display: flex; 
+    justify-content: center; 
+    gap: 1.5rem; 
+    margin-top: 2rem; 
+    margin-bottom: 2rem; 
+    flex-wrap: wrap; 
+  }
+  
+  .project-card { 
+    background-color: rgba(255 255 255 / 0.05);
+    backdrop-filter: blur(4px);
+    border: 1px solid rgba(255 255 255 / 0.1);
+    padding: 1.25rem; 
+    border-radius: 12px; 
+    width: 280px; 
+    text-align: left; 
+    transition: all 0.3s ease;
+  }
+  
+  .project-card:hover { 
+    transform: translateY(-5px);
+    background-color: rgba(255 255 255 / 0.08);
+    border-color: rgba(255 255 255 / 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  }
+  
+  .project-card img { 
+    width: 100%; 
+    height: 160px; 
+    object-fit: cover; 
+    border-radius: 8px; 
+    margin-bottom: 1rem;
+  }
+  
+  .project-card h3 { 
+    font-size: 1.3rem; 
+    margin-bottom: 0.5rem;
+    font-weight: 400;
+    color: rgb(245 245 247);
+  }
+  
+  .project-card p { 
+    font-size: 0.95rem; 
+    color: rgb(163 163 170);
+    line-height: 1.6;
+  }
+  
+  .project-section button { 
+    padding: 0.875rem 2rem; 
+    background-color: rgb(99 102 241);
+    color: white; 
+    border: none; 
+    border-radius: 8px; 
+    cursor: pointer; 
+    font-size: 1.05rem; 
+    font-weight: 500;
+    transition: all 0.3s ease;
+    margin-top: 1rem;
+  }
+  
+  .project-section button:hover { 
+    background-color: rgb(79 70 229);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(99 102 241 / 0.4);
+  }
+
+  .contact-section { 
+    background-color: rgb(24 24 27);
+    color: rgb(245 245 247);
+    z-index: 2;
+  }
+  .content-center { 
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+  .contact-section h2 {
+    font-size: 2.5rem;
+    margin-bottom: 2rem;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    opacity: 0;
+  }
+  
+  .contact-section p {
+    font-size: 1.15rem;
+    line-height: 1.8;
+    margin-bottom: 1.5rem;
+    color: rgb(212 212 216);
+    opacity: 0;
+  }
+  
+  .contact-section a { 
+    color: rgb(99 102 241);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.3s ease;
+  }
+  
+  .contact-section a:hover {
+    color: rgb(129 140 248);
+    text-decoration: underline;
+  }
+  
+  .additional-links {
+    margin-top: 2rem;
+    display: flex;
+    gap: 2rem;
+    justify-content: center;
+    opacity: 0;
+  }
+  
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  
+  @media (max-width: 768px) { 
+    .project-cards-container {
+      flex-direction: column;
+      align-items: center;
+    }
+    .project-card {
+      width: 100%;
+      max-width: 320px;
+    }
+
+    .about-section {
+      padding: 2rem; 
+    }
+
+    .about-content-wrapper {
+      justify-content: center; 
+      text-align: center; 
+      padding: 1rem; 
+    }
+    
+    .about-text-block {
+      max-width: 100%; 
+    }
+    .about-text-block h2, .about-text-block p {
+      text-align: center; 
+    }
+
+    .about-background-layer {
+      display: none; 
+    }
+  }
+</style>
+--- END OF FILE src\routes\+page.svelte ---
+
