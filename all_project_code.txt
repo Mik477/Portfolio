@@ -83,20 +83,19 @@ export {};
 --- END OF FILE src\lib\index.ts ---
 
 --- START OF FILE src\lib\components\HeroParticleEffect.svelte ---
+<!-- src/lib/components/HeroParticleEffect.svelte -->
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
-  import * as THREE from 'three';
+  import *  as THREE from 'three';
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
-  import { 
-    Environment as ParticleEnvironment,
-  } from '$lib/three/heroParticleLogic';
+  import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
   import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
 
   export let activeSectionIndex: number;
   export let isTransitioning: boolean = false;
   export let transitionDuration: number = 1.1;
-  
-  const HERO_SECTION_LOGICAL_INDEX = 0; 
+
+  const HERO_SECTION_LOGICAL_INDEX = 0;
   const HERO_ASSETS_TASK_ID = 'heroEffectAssets';
   const HERO_INIT_TASK_ID = 'heroEffectInitialization';
 
@@ -104,224 +103,221 @@ export {};
   let particleSystemInstance: ParticleEnvironment | null = null;
   let loadedFontAsset: Font | null = null;
   let loadedParticleTextureMap: THREE.Texture | null = null;
-  
-  let effectIsVisiblyRunning = false;
-  let isVisible = false;
-  let opacityTransitionTimeout: number | undefined;
+
+  let isThreeJsLoopRunning = false;
+  let areInteractionsBound = false;
+  let animationLoopPauseTimeoutId: number | undefined;
 
   const FONT_ASSET_PATH = '/fonts/Inter_18pt_ExtraLight.json';
   const PARTICLE_TEXTURE_ASSET_PATH = 'https://res.cloudinary.com/dfvtkoboz/image/upload/v1605013866/particle_a64uzf.png';
 
-  async function preloadEffectAssets() {
+  async function _preloadAssets() {
     const currentStatus = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
-    if (currentStatus === 'loaded') {
-        if (!loadedFontAsset || !loadedParticleTextureMap) {
-            // Assets marked loaded globally, but not in this instance's vars yet.
-        } else {
-            return; // Already loaded and local vars populated
-        }
-    }
-    if (currentStatus === 'loading') return; 
-    
-    startLoadingTask(HERO_ASSETS_TASK_ID);
+    if (currentStatus === 'loaded' && loadedFontAsset && loadedParticleTextureMap) return;
+    if (currentStatus === 'loading') return;
 
+    startLoadingTask(HERO_ASSETS_TASK_ID);
     const manager = new THREE.LoadingManager();
-    manager.onLoad = () => {
-      preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
-    };
+    manager.onLoad = () => preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
     manager.onError = (url) => {
-      console.error(`HeroParticleEffect: Error loading asset: ${url}`);
+      console.error(`HPE: Error loading asset: ${url}`);
       preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', `Failed to load ${url}`);
     };
-
     const fontLoader = new FontLoader(manager);
     const textureLoader = new THREE.TextureLoader(manager);
-
     try {
       loadedFontAsset = await fontLoader.loadAsync(FONT_ASSET_PATH);
       loadedParticleTextureMap = await textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH);
     } catch (error) {
-      console.error("HeroParticleEffect: Asset loading promise failed:", error);
+      console.error("HPE: Asset loading promise failed:", error);
       if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'error') {
-        preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading promise failed.');
+        preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading failed.');
       }
     }
   }
 
-  function initializeOrResumeEffect() {
-    const assetsStatus = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
-    if (assetsStatus !== 'loaded') {
-      console.warn("HeroParticleEffect: Assets not loaded. Cannot initialize.", { assetsStatus });
+  async function _ensureInstanceAndStartLoop() {
+    if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'loaded' || !loadedFontAsset || !loadedParticleTextureMap) {
+      console.warn("HPE: Assets not ready for _ensureInstanceAndStartLoop.");
+      await _preloadAssets(); 
+      if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'loaded') return; 
+    }
+    if (!threeContainerElement) {
+      console.warn("HPE: DOM container not ready for _ensureInstanceAndStartLoop.");
       return;
     }
 
-    if (!threeContainerElement || !loadedFontAsset || !loadedParticleTextureMap) {
-      console.warn("HeroParticleEffect: Cannot initialize, DOM or asset prerequisites not met.");
-      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'DOM/asset prerequisites missing for init.');
-      return;
-    }
-
-    if (particleSystemInstance) { 
-      // Instance exists, resume it
-      if (!particleSystemInstance.isLooping()) { 
-        particleSystemInstance.startAnimationLoop();
-      }
-      if (particleSystemInstance.createParticles) {
-        particleSystemInstance.createParticles.bindInteractionEvents();
-        particleSystemInstance.createParticles.resetParticleState(); 
-      }
-      effectIsVisiblyRunning = true;
-      console.log("HeroParticleEffect: Resumed existing instance");
-      
-      if (preloadingStore.getTaskStatus(HERO_INIT_TASK_ID) !== 'loaded') {
+    if (!particleSystemInstance) {
+      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loading');
+      try {
+        particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement);
         preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
+        console.log("HPE: Created new Three.js instance.");
+      } catch (error) {
+        console.error("HPE: Error during ParticleEnvironment instantiation:", error);
+        preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'Instantiation failed.');
+        particleSystemInstance = null;
+        return;
       }
-      return;
     }
 
-    // First-time initialization
-    preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loading');
-    try {
-      particleSystemInstance = new ParticleEnvironment(loadedFontAsset, loadedParticleTextureMap, threeContainerElement);
-      
-      if (particleSystemInstance.createParticles) {
-          particleSystemInstance.createParticles.bindInteractionEvents();
-      }
-      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
-      effectIsVisiblyRunning = true;
-      console.log("HeroParticleEffect: Created new instance");
-    } catch (error) {
-      console.error("HeroParticleEffect: Error during ParticleEnvironment instantiation:", error);
-      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'Failed to instantiate ParticleEnvironment.');
-      particleSystemInstance = null;
+    if (particleSystemInstance && !particleSystemInstance.isLooping()) {
+      particleSystemInstance.startAnimationLoop();
+      isThreeJsLoopRunning = true;
+      console.log("HPE: Three.js animation loop STARTED.");
     }
   }
 
-  function pauseEffect() {
-    if (particleSystemInstance && effectIsVisiblyRunning) {
+  function _pauseThreeJsLoop() {
+    if (particleSystemInstance && particleSystemInstance.isLooping()) {
       particleSystemInstance.stopAnimationLoop();
-      if (particleSystemInstance.createParticles) {
-        particleSystemInstance.createParticles.unbindInteractionEvents();
-      }
-      effectIsVisiblyRunning = false; 
-      console.log("HeroParticleEffect: Effect paused");
+      isThreeJsLoopRunning = false;
+      console.log("HPE: Three.js animation loop PAUSED.");
     }
   }
 
-  function showEffect() {
-    if (!isVisible) {
-      isVisible = true;
-      if (threeContainerElement) {
-        // First set display to block
-        threeContainerElement.style.display = 'block';
-        // Force reflow to ensure display change is applied
-        void threeContainerElement.offsetWidth;
-        // Then fade in
-        threeContainerElement.style.opacity = '1';
-      }
+  function _bindInteractionEvents() {
+    if (particleSystemInstance?.createParticles && !areInteractionsBound) {
+      particleSystemInstance.createParticles.bindInteractionEvents();
+      // Resetting state when interactions are bound ensures a fresh start for interaction
+      particleSystemInstance.createParticles.resetParticleState(); 
+      areInteractionsBound = true;
+      console.log("HPE: Interaction events BOUND and particle state RESET.");
     }
   }
 
-  function hideEffect() {
-    if (isVisible) {
-      isVisible = false;
-      if (threeContainerElement) {
-        // First fade out
-        threeContainerElement.style.opacity = '0';
-        // Then set display none after transition
-        if (opacityTransitionTimeout) clearTimeout(opacityTransitionTimeout);
-        opacityTransitionTimeout = setTimeout(() => {
-          if (threeContainerElement && !isVisible) {
-            threeContainerElement.style.display = 'none';
+  function _unbindInteractionEvents() {
+    if (particleSystemInstance?.createParticles && areInteractionsBound) {
+      particleSystemInstance.createParticles.unbindInteractionEvents();
+      particleSystemInstance.createParticles.neutralizeLastMousePosition(); 
+      areInteractionsBound = false;
+      console.log("HPE: Interaction events UNBOUND and mouse position neutralized.");
+    }
+  }
+
+  function _fadeInVisuals() {
+    if (threeContainerElement) threeContainerElement.style.opacity = '1';
+  }
+
+  function _fadeOutVisuals() {
+    if (threeContainerElement) threeContainerElement.style.opacity = '0';
+  }
+
+  // --- EXPORTED METHODS FOR +page.svelte ---
+  export async function onTransitionToHeroStart() {
+    console.log("HPE Method: onTransitionToHeroStart triggered.");
+    clearTimeout(animationLoopPauseTimeoutId); // Cancel any pending pause
+    await _ensureInstanceAndStartLoop(); // Resume/start animation loop immediately
+    _fadeInVisuals();                    // Start fading in visuals
+    _unbindInteractionEvents();          // Ensure interactions are off during slide-in (mouse neutralized)
+  }
+
+  export function onTransitionToHeroComplete() {
+    console.log("HPE Method: onTransitionToHeroComplete triggered.");
+    // Animation loop should be running, visuals faded in.
+    _bindInteractionEvents(); // Enable interactions now that Hero is fully in view (also resets particle state)
+  }
+
+  export function onTransitionFromHeroStart() {
+    console.log("HPE Method: onTransitionFromHeroStart triggered.");
+    _unbindInteractionEvents(); // Disable interactions immediately, neutralizes mouse
+    _fadeOutVisuals();          // Start fading out visuals
+                                // Animation loop continues during fade-out.
+    clearTimeout(animationLoopPauseTimeoutId);
+    animationLoopPauseTimeoutId = setTimeout(() => {
+      // This block executes after `transitionDuration` (when visuals are faded out)
+      if (particleSystemInstance?.createParticles) {
+        particleSystemInstance.createParticles.resetParticleState();
+        console.log("HPE: Particle state RESET after fade out.");
+      }
+      _pauseThreeJsLoop();      // Then pause the animation loop
+    }, transitionDuration * 1000);
+  }
+
+  async function _handleSettledState() {
+    if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) {
+      console.log("HPE: Settled on Hero.");
+      clearTimeout(animationLoopPauseTimeoutId); // Cancel any pending pause
+      await _ensureInstanceAndStartLoop();
+      _fadeInVisuals();
+      _bindInteractionEvents(); // Includes resetParticleState
+    } else {
+      console.log("HPE: Settled off Hero.");
+      _unbindInteractionEvents(); // Neutralizes mouse
+      _fadeOutVisuals();
+
+      // If the loop is still running and no pause is scheduled, schedule one with reset.
+      // This handles cases like initial load on a non-hero section or direct navigation.
+      if (isThreeJsLoopRunning && particleSystemInstance?.isLooping() && !animationLoopPauseTimeoutId) {
+        console.log("HPE (SettledOff): Scheduling deferred pause and reset.");
+        animationLoopPauseTimeoutId = setTimeout(() => {
+          if (particleSystemInstance?.createParticles) {
+            particleSystemInstance.createParticles.resetParticleState();
+            console.log("HPE (SettledOff): Particle state RESET.");
           }
-        }, transitionDuration * 1000);
+          _pauseThreeJsLoop();
+        }, transitionDuration * 1000); // Use transitionDuration for visual consistency with fade
+      } else if (!isThreeJsLoopRunning && particleSystemInstance && particleSystemInstance.isLooping()) {
+         // This case implies our isThreeJsLoopRunning flag is out of sync. Correct it and pause.
+         console.warn("HPE (SettledOff): Loop running but flag was false. Pausing.");
+        _pauseThreeJsLoop(); // Pause immediately
+      } else if (!particleSystemInstance?.isLooping() && particleSystemInstance?.createParticles) {
+        // Loop is already paused, but ensure state is reset if particles exist
+        // This might be if it was paused without reset previously.
+        console.log("HPE (SettledOff): Loop already paused. Ensuring particle state is reset.");
+        particleSystemInstance.createParticles.resetParticleState();
       }
     }
   }
-  
+
+  let isMountedAndInitialized = false;
   onMount(async () => {
     await tick(); 
     if (!preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID)) {
-        preloadingStore.registerTask(HERO_ASSETS_TASK_ID, 'pending');
+      preloadingStore.registerTask(HERO_ASSETS_TASK_ID, 'pending');
     }
     if (!preloadingStore.getTaskStatus(HERO_INIT_TASK_ID)) {
-        preloadingStore.registerTask(HERO_INIT_TASK_ID, 'pending');
+      preloadingStore.registerTask(HERO_INIT_TASK_ID, 'pending');
     }
-    
-    // Always preload assets on mount for faster transitions
-    await preloadEffectAssets();
+    await _preloadAssets();
+    isMountedAndInitialized = true;
+
+    if (!isTransitioning) {
+        _handleSettledState();
+    }
   });
 
   onDestroy(() => {
-    if (opacityTransitionTimeout) clearTimeout(opacityTransitionTimeout);
-    
-    // Clean disposal on component destroy
+    clearTimeout(animationLoopPauseTimeoutId);
+    _unbindInteractionEvents(); // Ensure mouse is neutralized
+    // Ensure particle state is reset before final pause/dispose if instance exists
+    if (particleSystemInstance?.createParticles) {
+        particleSystemInstance.createParticles.resetParticleState();
+    }
+    _pauseThreeJsLoop(); // Ensure loop is stopped
     if (particleSystemInstance) {
-      pauseEffect();
       particleSystemInstance.dispose();
       particleSystemInstance = null;
+      console.log("HPE: Three.js instance disposed.");
     }
   });
 
-  // Main reactive block for managing effect state based on section index
-  $: if (typeof activeSectionIndex === 'number' && typeof window !== 'undefined') {
-    (async () => {
-      // Wait for container element
-      while (!threeContainerElement) {
-        await tick();
-      }
-
-      if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) {
-        // On hero section - show and activate
-        
-        // If transitioning to hero, synchronize the fade-in
-        if (isTransitioning) {
-          // Start showing immediately when transition starts
-          showEffect();
-        } else {
-          // Not transitioning, show immediately
-          showEffect();
-        }
-        
-        // Initialize or resume the effect
-        const currentAssetStatus = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
-        if (currentAssetStatus === 'loaded') {
-          await initializeOrResumeEffect();
-        } else if (currentAssetStatus !== 'loading') {
-          // Need to load assets first
-          await preloadEffectAssets();
-          // Check again after loading attempt
-          if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) === 'loaded') {
-            await initializeOrResumeEffect();
-          }
-        }
-        
-      } else {
-        // Not on hero section - hide and pause
-        
-        // If transitioning away from hero, start fade immediately
-        if (isTransitioning && effectIsVisiblyRunning) {
-          hideEffect();
-        }
-        
-        // Pause the effect (but keep instance alive)
-        pauseEffect();
-        
-        // If not transitioning and still visible, hide it
-        if (!isTransitioning && isVisible) {
-          hideEffect();
-        }
-      }
-    })();
+  $: if (isMountedAndInitialized && typeof activeSectionIndex === 'number') {
+    if (!isTransitioning) {
+        // This ensures that if activeSectionIndex changes directly (e.g. dev tools, future direct nav)
+        // and we are NOT in a GSAP transition, the state is correctly handled.
+        _handleSettledState();
+    }
   }
+
 </script>
 
-<div 
-  class="hero-particle-container" 
-  bind:this={threeContainerElement} 
+<div
+  class="hero-particle-container"
+  bind:this={threeContainerElement}
   id="magic"
-  style="display: none; opacity: 0; transition: opacity {transitionDuration}s ease-in-out;"
->
+  style="opacity: 0; transition: opacity {transitionDuration}s ease-in-out;"
+  >
   <!-- Three.js canvas will be appended here by heroParticleLogic.ts -->
 </div>
 
@@ -621,6 +617,7 @@ export {};
 --- END OF FILE src\lib\components\KeyboardButtons.svelte ---
 
 --- START OF FILE src\lib\components\LoadingScreen.svelte ---
+<!-- src/lib/components/LoadingScreen.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore'; 
@@ -1085,12 +1082,96 @@ export const startLoadingTask = (taskId: string) => {
 
 --- END OF FILE src\lib\stores\preloadingStore.ts ---
 
+--- START OF FILE src\lib\three\HeroBloomEffect.ts ---
+// src/lib/three/HeroBloomEffect.ts
+import * as THREE from 'three';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+
+export class HeroBloomEffect {
+    private renderer: THREE.WebGLRenderer;
+    private scene: THREE.Scene;
+    private camera: THREE.PerspectiveCamera;
+    
+    public composer: EffectComposer;
+    private renderPass: RenderPass;
+    private bloomPass: UnrealBloomPass;
+    private outputPass: OutputPass;
+
+    // Bloom Parameters (tweak these to control the glow)
+    private bloomParams = {
+        threshold: 0.5,   // How bright a pixel needs to be to start blooming.
+                           // Adjusted because our bright symbols are around (0, 0.95, 0.05), luminance ~0.68.
+        strength: 0.2,     // Intensity of the bloom.
+        radius: 0.3,      // Radius/spread of the bloom. Smaller values keep it tighter.
+    };
+
+    constructor(
+        renderer: THREE.WebGLRenderer, 
+        scene: THREE.Scene, 
+        camera: THREE.PerspectiveCamera, 
+        width: number, 
+        height: number
+    ) {
+        this.renderer = renderer;
+        this.scene = scene;
+        this.camera = camera;
+
+        this.composer = new EffectComposer(this.renderer);
+        this.composer.setSize(width, height);
+        this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        // 1. Render the original scene
+        this.renderPass = new RenderPass(this.scene, this.camera);
+        this.composer.addPass(this.renderPass);
+
+        // 2. Apply bloom
+        this.bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(width, height),
+            this.bloomParams.strength,
+            this.bloomParams.radius,
+            this.bloomParams.threshold
+        );
+        this.composer.addPass(this.bloomPass);
+        
+        // 3. Output the result (handles tone mapping and color space conversion)
+        this.outputPass = new OutputPass();
+        this.composer.addPass(this.outputPass);
+    }
+
+    public render(deltaTime: number): void {
+        this.composer.render(deltaTime);
+    }
+
+    public setSize(width: number, height: number): void {
+        this.composer.setSize(width, height);
+        this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    }
+
+    public updateParameters(params: { threshold?: number; strength?: number; radius?: number }): void {
+        if (params.threshold !== undefined) this.bloomPass.threshold = params.threshold;
+        if (params.strength !== undefined) this.bloomPass.strength = params.strength;
+        if (params.radius !== undefined) this.bloomPass.radius = params.radius;
+    }
+
+    public dispose(): void {
+        // EffectComposer automatically disposes its passes' render targets
+        // if they were created internally by the composer or pass.
+        // If you manually created render targets for passes, dispose them here.
+        // The renderer itself is managed by the Environment class.
+    }
+}
+--- END OF FILE src\lib\three\HeroBloomEffect.ts ---
+
 --- START OF FILE src\lib\three\heroParticleLogic.ts ---
 // src/lib/three/heroParticleLogic.ts
 import * as THREE from 'three';
 import type { Font } from 'three/examples/jsm/loaders/FontLoader.js';
+import { HeroBloomEffect } from './HeroBloomEffect';
 
-// Shaders taken directly from the provided particles.js
+// Shaders (VERTEX_SHADER and FRAGMENT_SHADER remain the same)
 export const VERTEX_SHADER = `
 attribute float size;
 attribute vec3 customColor;
@@ -1125,10 +1206,10 @@ varying float vSymbolIndex;
 varying float vVariability;
 
 void main() {
-  if(vSymbolState < 0.5) {
+  if(vSymbolState < 0.5) { // It's a normal particle (dot)
     gl_FragColor = vec4(vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
   } 
-  else {
+  else { // It's a symbol
     const float symbolsPerRow = 8.0;
     float symbolIndexVal = vSymbolIndex;
     
@@ -1137,13 +1218,13 @@ void main() {
     
     vec2 symbolCoord = gl_PointCoord;
     symbolCoord.x = (symbolCoord.x + columnIndex) / symbolsPerRow;
-    symbolCoord.y = (symbolCoord.y + rowIndex) / 6.0;
+    symbolCoord.y = (symbolCoord.y + rowIndex) / 6.0; // Assuming 6 rows in symbolsTexture
     
-    vec4 symbolColor = texture2D(symbolsTexture, symbolCoord);
+    vec4 symbolTexColor = texture2D(symbolsTexture, symbolCoord); // Alpha from symbol texture
     
-    if(symbolColor.a < 0.3) discard;
+    if(symbolTexColor.a < 0.3) discard; // Discard transparent parts of the symbol
     
-    gl_FragColor = vec4(vColor, symbolColor.a);
+    gl_FragColor = vec4(vColor, symbolTexColor.a); 
   }
 }
 `;
@@ -1158,6 +1239,9 @@ export class Environment {
   public createParticles!: CreateParticles;
   private animationLoopCallback: (() => void) | null = null;
 
+  private clock!: THREE.Clock; 
+  private bloomEffect!: HeroBloomEffect; 
+
   constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
     this.font = font;
     this.particleTexture = particleTexture;
@@ -1168,9 +1252,20 @@ export class Environment {
       return;
     }
     
+    this.clock = new THREE.Clock(); 
+
     this.scene = new THREE.Scene();
     this.createCamera();
     this.createRenderer();
+    
+    this.bloomEffect = new HeroBloomEffect(
+        this.renderer, 
+        this.scene, 
+        this.camera, 
+        this.container.clientWidth, 
+        this.container.clientHeight
+    );
+
     this.setup(); 
     this.bindWindowResize();
 
@@ -1213,16 +1308,21 @@ export class Environment {
       this.font, 
       this.particleTexture, 
       this.camera, 
-      this.renderer,
+      this.renderer, 
       this.container 
     );
   }
 
   public render() {
+    const deltaTime = this.clock.getDelta();
+
     if (this.createParticles) {
-      this.createParticles.render(); // This is where interaction logic happens
+      this.createParticles.render(); 
     }
-    if (this.renderer && this.scene && this.camera) {
+    
+    if (this.bloomEffect) {
+      this.bloomEffect.render(deltaTime);
+    } else if (this.renderer && this.scene && this.camera) { 
       this.renderer.render(this.scene, this.camera);
     }
   }
@@ -1234,7 +1334,7 @@ export class Environment {
       1, 
       10000
     );
-    this.camera.position.set(0, 0, 100); // As per original particles.js
+    this.camera.position.set(0, 0, 100);
   }
 
   private createRenderer() {
@@ -1247,6 +1347,8 @@ export class Environment {
     
     if (THREE.ColorManagement.enabled) { 
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    } else { 
+        this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
     
     this.container.appendChild(this.renderer.domElement);
@@ -1254,11 +1356,16 @@ export class Environment {
 
   public onWindowResize() {
     if (this.camera && this.renderer && this.container) {
-      this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+      const newWidth = this.container.clientWidth;
+      const newHeight = this.container.clientHeight;
+
+      this.camera.aspect = newWidth / newHeight;
       this.camera.updateProjectionMatrix();
-      this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-      // CreateParticles might also need to know about resize if its planeArea depends on it dynamically
-      // However, the original setup sizes planeArea once in setup.
+      this.renderer.setSize(newWidth, newHeight);
+      
+      if (this.bloomEffect) {
+        this.bloomEffect.setSize(newWidth, newHeight);
+      }
     }
   }
 
@@ -1268,6 +1375,9 @@ export class Environment {
     this.unbindWindowResize();
     if (this.createParticles) {
       this.createParticles.dispose();
+    }
+    if (this.bloomEffect) {
+        this.bloomEffect.dispose();
     }
     if (this.renderer) {
       this.renderer.dispose();
@@ -1283,7 +1393,7 @@ export class Environment {
                 if (Array.isArray(obj.material)) {
                     obj.material.forEach((material: THREE.Material) => material.dispose());
                 } else {
-                    obj.material.dispose();
+                    (obj.material as THREE.Material).dispose();
                 }
             }
         });
@@ -1295,12 +1405,11 @@ interface ParticleData {
   text: string;
   amount: number;
   particleSize: number;
-  particleColor: number; 
   textSize: number;
   area: number;
   ease: number;
   distortionThreshold: number;
-  maxCooldownTime: number;
+  // maxCooldownTime: number; // REMOVED - Replaced by min/max duration
   minFadeOutRate: number;
   maxFadeOutRate: number;
   minSymbolSize: number;
@@ -1311,6 +1420,11 @@ interface ParticleData {
   symbolMinProb: number;
   symbolMaxProb: number;
   symbolHeatRequirement: number;
+  // --- NEW Cooldown Parameters ---
+  particleCooldownDurationMin: number;
+  particleCooldownDurationMax: number;
+  symbolCooldownSpeedMultiplier: number;
+  // --- END NEW Cooldown Parameters ---
 }
 
 export class CreateParticles {
@@ -1328,6 +1442,7 @@ export class CreateParticles {
 
   private matrixSymbols: string[];
   private matrixColors: { [key: string]: THREE.Color };
+  private bloomSymbolColor: THREE.Color; 
   
   private particleStates: number[] = [];
   private heatLevels: number[] = [];
@@ -1338,17 +1453,20 @@ export class CreateParticles {
 
   private data: ParticleData;
   private symbolsTexture!: THREE.Texture;
-  private planeArea!: THREE.Mesh; // The invisible plane for raycasting
+  private planeArea!: THREE.Mesh; 
   public particles!: THREE.Points;
   private geometryCopy!: THREE.BufferGeometry;
 
-  // Bound event handlers for proper `this` context
   private boundOnMouseDown: (event: MouseEvent) => void;
   private boundOnMouseMove: (event: MouseEvent) => void;
   private boundOnMouseUp: (event: MouseEvent) => void;
   private boundOnTouchStart: (event: TouchEvent) => void;
   private boundOnTouchMove: (event: TouchEvent) => void;
   private boundOnTouchEnd: (event: TouchEvent) => void;
+
+  private readonly SYMBOL_HUE_SHIFT_RANGE = 0.08; 
+  private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.075; 
+  private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.40; 
 
   constructor(scene: THREE.Scene, font: Font, particleImg: THREE.Texture, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, hostContainer: HTMLElement) {
     this.scene = scene;
@@ -1357,36 +1475,39 @@ export class CreateParticles {
     this.camera = camera;
     this.renderer = renderer; 
     this.hostContainer = hostContainer;
+    this.isPressed = false;
 
     this.raycaster = new THREE.Raycaster();
-    this.mouse = new THREE.Vector2(1e5, 1e5); // Initialize way off-screen
+    this.mouse = new THREE.Vector2(1e5, 1e5);
 
-    this.matrixSymbols = [ // From original particles.js
+    this.matrixSymbols = [ 
       '日', '〇', 'ﾊ', 'ﾐ', 'ﾋ', 'ｰ', 'ｳ', 'ｼ', 'ﾅ', 'ﾓ', 'ﾆ', 'ｻ', 'ﾜ',
       'ﾂ', 'ｵ', 'ﾘ', 'ｱ', 'ﾎ', 'ﾃ', 'ﾏ', 'ｹ', 'ﾒ', 'ｴ', 'ｶ', 'ｷ', 'ﾑ', 
       'ﾕ', 'ﾗ', 'ｾ', 'ﾈ', 'ｦ', 'ｲ', 'ｸ', 'ｺ', 'ｿ', 'ﾀ', 'ﾁ', 'ﾄ', 'ﾉ', 'ﾌ', 'ﾍ', 'ﾏ', 'ﾔ', 'ﾖ', 'ﾙ', 'ﾚ', 'ﾛ',
       '0', '1', '7', '9', '∆', '×', '≠', '≡', '∞'
     ];
     
-    this.matrixColors = { // From original particles.js
+    this.matrixColors = {
       white: new THREE.Color(1.0, 1.0, 1.0),
-      lightGreen: new THREE.Color(0.7, 1.0, 0.7),
-      mediumGreen: new THREE.Color(0.4, 1.0, 0.6),
-      brightGreen: new THREE.Color(0.0, 223/255, 115/255),
-      midGreen: new THREE.Color(0.0, 198/255, 102/255),
-      darkGreen: new THREE.Color(0.0, 173/255, 89/255)
+      verySubtleGreenTint: new THREE.Color(0.95, 1.0, 0.95), 
+      almostWhiteGreen: new THREE.Color(0.85, 1.0, 0.85),
+      paleGreen: new THREE.Color(0.6, 1.0, 0.6),
+      lightMatrixGreen: new THREE.Color(0.3, 1.0, 0.3),
+      classicMatrixGreen: new THREE.Color(0.0, 1.0, 0.0),
+      deepMatrixGreen: new THREE.Color(0.0, 0.85, 0.0)
     };
 
-    this.data = { // From original particles.js
+    this.bloomSymbolColor = new THREE.Color(0.0, 0.95, 0.05); 
+
+    this.data = { 
       text: "Hi, I'm\nMiká",
-      amount: 2000,
-      particleSize: 1,
-      particleColor: 0xffffff,
+      amount: 2200,
+      particleSize: 1.3,
       textSize: 16,
-      area: 250, // Radius of mouse influence
-      ease: .05, // Spring-back ease
+      area: 250, 
+      ease: .05, 
       distortionThreshold: 12,
-      maxCooldownTime: 180,
+      // maxCooldownTime: 180, // REMOVED
       minFadeOutRate: 0.09,
       maxFadeOutRate: 0.12,
       minSymbolSize: 7,
@@ -1396,10 +1517,12 @@ export class CreateParticles {
       symbolMaxThreshold: 40,
       symbolMinProb: 0.001,
       symbolMaxProb: 0.15,
-      symbolHeatRequirement: 0.4
+      symbolHeatRequirement: 0.4,
+      particleCooldownDurationMin: 250,  // e.g., 1.5 seconds at 60fps
+      particleCooldownDurationMax: 400, // e.g., 3 seconds at 60fps
+      symbolCooldownSpeedMultiplier: 3.0,
     };
     
-    // Bind event handlers to `this` instance
     this.boundOnMouseDown = this.onMouseDown.bind(this);
     this.boundOnMouseMove = this.onMouseMove.bind(this);
     this.boundOnMouseUp = this.onMouseUp.bind(this);
@@ -1408,23 +1531,24 @@ export class CreateParticles {
     this.boundOnTouchEnd = this.onTouchEnd.bind(this);
     
     this.createMatrixSymbolsTexture();
-    this.setupPlaneArea(); // Setup interaction plane first
-    this.createText(); // Then text particles
-    // Event listeners are bound by Svelte component calling public bindInteractionEvents
+    this.setupPlaneArea();
+    this.createText();
   }
 
-  private getMatrixColor(heatLevel: number): THREE.Color { /* ... same as before ... */ 
-    if (heatLevel <= 0.05) return this.matrixColors.white;
-    if (heatLevel <= 0.2) return this.matrixColors.lightGreen;
-    if (heatLevel <= 0.4) return this.matrixColors.mediumGreen;
-    if (heatLevel <= 0.6) return this.matrixColors.brightGreen;
-    if (heatLevel <= 0.8) return this.matrixColors.midGreen;
-    return this.matrixColors.darkGreen;
+  private getMatrixColor(heatLevel: number): THREE.Color {
+    if (heatLevel <= 0.05) return this.matrixColors.white;                
+    if (heatLevel <= 0.18) return this.matrixColors.verySubtleGreenTint; 
+    if (heatLevel <= 0.35) return this.matrixColors.almostWhiteGreen;     
+    if (heatLevel <= 0.55) return this.matrixColors.paleGreen;            
+    if (heatLevel <= 0.75) return this.matrixColors.lightMatrixGreen;
+    if (heatLevel <= 0.92) return this.matrixColors.classicMatrixGreen;   
+    return this.matrixColors.deepMatrixGreen;                             
   }
-  private getSymbolProbability(distortion: number): number { /* ... same as before ... */ 
+
+  private getSymbolProbability(distortion: number): number {
     const { symbolMinThreshold, symbolMidThreshold, symbolMaxThreshold, symbolMinProb, symbolMaxProb } = this.data;
     if (distortion < symbolMinThreshold) return 0;
-    if (distortion >= symbolMaxThreshold) return 1;
+    if (distortion >= symbolMaxThreshold) return symbolMaxProb; 
     if (distortion < symbolMidThreshold) {
       const ratio = (distortion - symbolMinThreshold) / (symbolMidThreshold - symbolMinThreshold);
       return symbolMinProb + (symbolMaxProb / 10) * Math.pow(ratio, 3);
@@ -1434,7 +1558,8 @@ export class CreateParticles {
              (symbolMaxProb - symbolMaxProb / 10) * Math.pow(ratio, 1.5);
     }
   }
-  private initParticleStates(count: number) { /* ... same as before ... */ 
+
+  private initParticleStates(count: number) { 
     this.particleStates = new Array(count).fill(0);
     this.heatLevels = new Array(count).fill(0);
     this.cooldownRates = new Array(count);
@@ -1444,12 +1569,19 @@ export class CreateParticles {
     
     for (let i = 0; i < count; i++) {
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
-      this.cooldownRates[i] = 1 / (this.data.maxCooldownTime * (0.5 + Math.random() * 0.5));
+      
+      // --- MODIFIED Cooldown Rate Calculation ---
+      const randomDuration = this.data.particleCooldownDurationMin + 
+                             Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
+      this.cooldownRates[i] = 1 / Math.max(1, randomDuration); // Rate is 1/duration. Ensure duration > 0.
+      // --- END MODIFIED ---
+
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
       this.symbolSizesMultipliers[i] = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
     }
   }
-  private createMatrixSymbolsTexture() { /* ... same as before ... */
+
+  private createMatrixSymbolsTexture() {
     const rows = 6; const cols = 8; const symbolSize = 64;
     const canvas = document.createElement('canvas');
     canvas.width = cols * symbolSize; canvas.height = rows * symbolSize;
@@ -1458,7 +1590,8 @@ export class CreateParticles {
     for (let i = 0; i < this.matrixSymbols.length; i++) {
       const col = i % cols; const row = Math.floor(i / cols);
       const x = col * symbolSize; const y = row * symbolSize;
-      ctx.fillStyle = '#00df73'; ctx.font = 'bold 48px monospace';
+      ctx.fillStyle = '#00FF00'; 
+      ctx.font = 'bold 48px monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(this.matrixSymbols[i], x + symbolSize/2, y + symbolSize/2);
     }
@@ -1466,32 +1599,24 @@ export class CreateParticles {
     this.symbolsTexture.needsUpdate = true;
   }
 
-  // Renamed from 'setup' to be more specific
   private setupPlaneArea() {
-    // This plane is at z=0 relative to camera's view direction for particles at z=0 from origin
-    // If particles are at a different z, this plane should match that depth.
-    // The camera is at z=100, looking at origin. Particles are at z=0 by default.
-    // So, the plane should be at z=0 in world space for interaction.
-    const planeZ = 0; // Matches default particle Z position
+    const planeZ = 0;
     const planeWidth = this.visibleWidthAtZDepth(planeZ, this.camera);
     const planeHeight = this.visibleHeightAtZDepth(planeZ, this.camera);
 
     const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
     const material = new THREE.MeshBasicMaterial({ 
-        // color: 0xff0000, // For debugging plane visibility
-        // opacity: 0.5, // For debugging plane visibility
         transparent: true, 
-        opacity: 0, // Make it invisible
-        depthWrite: false // Good for invisible interaction planes
+        opacity: 0, 
+        depthWrite: false 
     });
     this.planeArea = new THREE.Mesh(geometry, material);
-    this.planeArea.position.z = planeZ; // Position it correctly
-    this.planeArea.visible = true; // It must be 'visible' to the raycaster, even if opacity is 0
+    this.planeArea.position.z = planeZ;
+    this.planeArea.visible = true;
     this.scene.add(this.planeArea);
-    console.log("HeroParticleLogic: Interaction planeArea setup at z=", planeZ, " W:", planeWidth, "H:", planeHeight);
   }
 
-  private createText() { /* ... same as before, ensuring point distribution is robust ... */
+  private createText() {
     const thePoints: THREE.Vector3[] = [];
     const colorsArr: number[] = []; 
     const sizesArr: number[] = []; 
@@ -1520,28 +1645,29 @@ export class CreateParticles {
     allPaths.forEach(path => totalLength += path.getLength());
     if (totalLength === 0) totalLength = 1; 
 
+    const initialColor = this.matrixColors.white; 
+
     allPaths.forEach(path => {
       const pathLength = path.getLength();
       const numPointsForThisPath = Math.max(10, Math.floor((pathLength / totalLength) * this.data.amount));
       const points = path.getSpacedPoints(numPointsForThisPath);
       
-      points.forEach(p => { // Use p for position
-        thePoints.push(new THREE.Vector3(p.x, p.y, 0)); // Particles at z=0
-        colorsArr.push(1, 1, 1); 
-        sizesArr.push(this.data.particleSize); // Use configured particleSize
+      points.forEach(p => {
+        thePoints.push(new THREE.Vector3(p.x, p.y, 0));
+        colorsArr.push(initialColor.r, initialColor.g, initialColor.b); 
+        sizesArr.push(this.data.particleSize);
         symbolStatesArr.push(0); 
         symbolIndicesArrForAttribute.push(Math.floor(Math.random() * this.matrixSymbols.length));
         variabilitiesArr.push(Math.random());
       });
     });
     
-    // Ensure attribute arrays match the final point count if there were discrepancies
     const finalPointCount = thePoints.length;
-    if (colorsArr.length / 3 !== finalPointCount) colorsArr.length = finalPointCount * 3;
-    if (sizesArr.length !== finalPointCount) sizesArr.length = finalPointCount;
-    if (symbolStatesArr.length !== finalPointCount) symbolStatesArr.length = finalPointCount;
-    if (symbolIndicesArrForAttribute.length !== finalPointCount) symbolIndicesArrForAttribute.length = finalPointCount;
-    if (variabilitiesArr.length !== finalPointCount) variabilitiesArr.length = finalPointCount;
+    if (colorsArr.length / 3 !== finalPointCount) { colorsArr.length = finalPointCount * 3; for(let i=0; i<finalPointCount; ++i) colorsArr.splice(i*3, 3, initialColor.r, initialColor.g, initialColor.b); }
+    if (sizesArr.length !== finalPointCount) { sizesArr.length = finalPointCount; sizesArr.fill(this.data.particleSize); }
+    if (symbolStatesArr.length !== finalPointCount) { symbolStatesArr.length = finalPointCount; symbolStatesArr.fill(0); }
+    if (symbolIndicesArrForAttribute.length !== finalPointCount) { symbolIndicesArrForAttribute.length = finalPointCount; for(let i=0; i<finalPointCount; ++i) symbolIndicesArrForAttribute[i] = Math.floor(Math.random() * this.matrixSymbols.length); }
+    if (variabilitiesArr.length !== finalPointCount) { variabilitiesArr.length = finalPointCount; for(let i=0; i<finalPointCount; ++i) variabilitiesArr[i] = Math.random(); }
 
 
     const geoParticles = new THREE.BufferGeometry().setFromPoints(thePoints);
@@ -1559,7 +1685,7 @@ export class CreateParticles {
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending, 
       depthTest: false, 
       transparent: true, 
     });
@@ -1568,22 +1694,20 @@ export class CreateParticles {
     this.scene.add(this.particles);
     this.geometryCopy = new THREE.BufferGeometry().copy(this.particles.geometry);
     this.initParticleStates(thePoints.length);
-    console.log("HeroParticleLogic: Particles created:", thePoints.length);
    }
 
   public bindInteractionEvents() {
-    console.log("HeroParticleLogic: Binding interaction events.");
     this.hostContainer.addEventListener('mousedown', this.boundOnMouseDown);
     this.hostContainer.addEventListener('mousemove', this.boundOnMouseMove);
-    document.addEventListener('mouseup', this.boundOnMouseUp); // Mouseup can occur outside the container
+    document.addEventListener('mouseup', this.boundOnMouseUp); 
 
     this.hostContainer.addEventListener('touchstart', this.boundOnTouchStart, { passive: false });
     this.hostContainer.addEventListener('touchmove', this.boundOnTouchMove, { passive: false });
     this.hostContainer.addEventListener('touchend', this.boundOnTouchEnd, { passive: false });
+    this.isPressed = false;
   }
 
   public unbindInteractionEvents() {
-    console.log("HeroParticleLogic: Unbinding interaction events.");
     this.hostContainer.removeEventListener('mousedown', this.boundOnMouseDown);
     this.hostContainer.removeEventListener('mousemove', this.boundOnMouseMove);
     document.removeEventListener('mouseup', this.boundOnMouseUp);
@@ -1591,18 +1715,23 @@ export class CreateParticles {
     this.hostContainer.removeEventListener('touchstart', this.boundOnTouchStart);
     this.hostContainer.removeEventListener('touchmove', this.boundOnTouchMove);
     this.hostContainer.removeEventListener('touchend', this.boundOnTouchEnd);
+    
+    this.neutralizeLastMousePosition();
+  }
+
+  public neutralizeLastMousePosition() {
+    this.mouse.set(1e5, 1e5); 
+    this.hasMouseMoved = false; 
+    this.isPressed = false; 
   }
 
   private onMouseDown(event: MouseEvent) { this.updateMousePosition(event.clientX, event.clientY); this.isPressed = true; this.data.ease = .01; }
   private onMouseUp() { this.isPressed = false; this.data.ease = .05; }
   private onMouseMove(event: MouseEvent) { 
-    if (!this.hasMouseMoved) {
-        console.log("HeroParticleLogic: First mouse move detected.");
-        this.hasMouseMoved = true; 
-    }
+    if (!this.hasMouseMoved) this.hasMouseMoved = true; 
     this.updateMousePosition(event.clientX, event.clientY); 
   }
-  private onTouchStart(event: TouchEvent) { if (event.touches.length > 0) { this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true; /* Treat touch as mouse move for activation */ } event.preventDefault(); }
+  private onTouchStart(event: TouchEvent) { if (event.touches.length > 0) { this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true; } event.preventDefault(); }
   private onTouchMove(event: TouchEvent) { if (event.touches.length > 0) { this.hasMouseMoved = true; this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); } event.preventDefault(); }
   private onTouchEnd(event: TouchEvent) { this.isPressed = false; this.data.ease = .05; event.preventDefault(); }
   
@@ -1610,15 +1739,31 @@ export class CreateParticles {
     const rect = this.hostContainer.getBoundingClientRect();
     this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    // console.log("Mouse NDC:", this.mouse.x, this.mouse.y); // For debugging
+  }
+
+  private getVariedSymbolColor(): THREE.Color {
+    const variedColor = this.bloomSymbolColor.clone(); 
+    const hsl = { h: 0, s: 0, l: 0 };
+    variedColor.getHSL(hsl); 
+
+    const hueOffset = (Math.random() - 0.5) * this.SYMBOL_HUE_SHIFT_RANGE;
+    hsl.h += hueOffset;
+    hsl.h = (hsl.h + 1.0) % 1.0; 
+
+    const luminanceReduction = Math.random() * this.SYMBOL_LUMINANCE_REDUCTION_MAX;
+    hsl.l -= luminanceReduction;
+    
+    hsl.l = Math.max(this.SYMBOL_MIN_LUMINANCE_TARGET, hsl.l);
+    hsl.l = Math.min(1.0, hsl.l);
+
+    variedColor.setHSL(hsl.h, hsl.s, hsl.l); 
+    return variedColor;
   }
 
   public render() {
-    if (!this.particles || !this.planeArea || !this.camera) return; // Essential objects guard
+    if (!this.particles || !this.planeArea || !this.camera) return; 
 
-    // Interaction logic only runs if mouse has moved OR button is pressed
     if (!this.hasMouseMoved && !this.isPressed) {
-        // Spring back even if no interaction, but only if particles exist
         if (this.particles && this.geometryCopy) {
             const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
             const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
@@ -1642,7 +1787,6 @@ export class CreateParticles {
     this.raycaster.setFromCamera(this.mouse, this.camera);
     const intersects = this.raycaster.intersectObject(this.planeArea);
 
-    // Keep a flag to update attributes only if changes occurred
     let attributesNeedUpdate = false;
 
     if (intersects.length > 0) {
@@ -1655,7 +1799,6 @@ export class CreateParticles {
 
       const mx = intersects[0].point.x;
       const my = intersects[0].point.y;
-      // console.log("Intersection point (world):", mx, my); // For debugging
 
       for (let i = 0, l = pos.count; i < l; i++) {
         const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
@@ -1663,7 +1806,7 @@ export class CreateParticles {
 
         const dx = mx - px; const dy = my - py;
         const mouseDistance = Math.sqrt(dx * dx + dy * dy);
-        const dSquared = Math.max(1e-5, dx * dx + dy * dy); // Avoid division by zero
+        const dSquared = Math.max(1e-5, dx * dx + dy * dy); 
         const f = -this.data.area / dSquared;
 
         if (this.isPressed) {
@@ -1681,30 +1824,31 @@ export class CreateParticles {
             this.heatLevels[i] = Math.min(this.heatLevels[i] + Math.min(distortion / 50, 0.1), 1.0);
             if (this.particleStates[i] === 0 && this.heatLevels[i] > this.data.symbolHeatRequirement) {
               if (Math.random() < this.getSymbolProbability(distortion)) {
-                this.particleStates[i] = 1; symbolStates.setX(i, 1.0);
+                this.particleStates[i] = 1; 
+                symbolStates.setX(i, 1.0);
                 sizes.setX(i, this.data.particleSize * this.symbolSizesMultipliers[i]);
                 symbolIndicesBuffer.setX(i, Math.floor(Math.random() * this.matrixSymbols.length));
+                
+                const symbolColorToRender = this.getVariedSymbolColor();
+                colors.setXYZ(i, symbolColorToRender.r, symbolColorToRender.g, symbolColorToRender.b);
+                attributesNeedUpdate = true; 
               }
             }
           }
         }
 
-        // State-based visual changes
         if (this.particleStates[i] === 1) { 
-          const darkGreen = this.matrixColors.darkGreen;
-          if (colors.getX(i) !== darkGreen.r || colors.getY(i) !== darkGreen.g || colors.getZ(i) !== darkGreen.b) {
-             colors.setXYZ(i, darkGreen.r, darkGreen.g, darkGreen.b);
-             attributesNeedUpdate = true;
-          }
           const newSize = Math.max(this.data.particleSize, sizes.getX(i) - this.fadeOutRates[i]);
           if (sizes.getX(i) !== newSize) {
              sizes.setX(i, newSize);
              attributesNeedUpdate = true;
           }
-          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * 3));
+          // --- MODIFIED Symbol Cooldown ---
+          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier));
+          // --- END MODIFIED ---
           if (sizes.getX(i) <= this.data.particleSize) {
             this.particleStates[i] = 0; symbolStates.setX(i, 0.0);
-            sizes.setX(i, this.data.particleSize); // Reset to base size
+            sizes.setX(i, this.data.particleSize); 
             attributesNeedUpdate = true;
           }
         } else { 
@@ -1715,13 +1859,10 @@ export class CreateParticles {
           }
         }
         
-        if (this.heatLevels[i] > 0) {
+        if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) { // For normal particles
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
-          // If heat changed, color might change, so flag update
-          attributesNeedUpdate = true; 
         }
 
-        // Spring back to original position
         const prevPx = px; const prevPy = py; const prevPz = pz;
         px += (initX - px) * this.data.ease; 
         py += (initY - py) * this.data.ease; 
@@ -1732,7 +1873,7 @@ export class CreateParticles {
             attributesNeedUpdate = true;
         }
       }
-    } else { // No intersection, but mouse has moved or is pressed - ensure particles spring back
+    } else { 
         const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
         const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
         for (let i = 0, l = pos.count; i < l; i++) {
@@ -1758,23 +1899,20 @@ export class CreateParticles {
     }
   }
   
-  public resetParticleState() { /* ... same as before ... */ 
-    if (!this.particles || !this.particles.geometry) {
-        console.warn("HeroParticleLogic: Attempted to reset state but particles not ready.");
-        return;
-    }
+  public resetParticleState() {
+    if (!this.particles || !this.particles.geometry) return;
+    
     const colors = this.particles.geometry.attributes.customColor as THREE.BufferAttribute;
     const sizes = this.particles.geometry.attributes.size as THREE.BufferAttribute;
     const symbolStates = this.particles.geometry.attributes.symbolState as THREE.BufferAttribute;
     const symbolIndicesBuffer = this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute;
 
-    if (!colors || !sizes || !symbolStates || !symbolIndicesBuffer) {
-        console.warn("HeroParticleLogic: Attempted to reset state but attributes missing.");
-        return;
-    }
+    if (!colors || !sizes || !symbolStates || !symbolIndicesBuffer) return;
+
+    const initialColor = this.matrixColors.white;
 
     for (let i = 0; i < colors.count; i++) {
-      colors.setXYZ(i, 1.0, 1.0, 1.0); 
+      colors.setXYZ(i, initialColor.r, initialColor.g, initialColor.b); 
       this.particleStates[i] = 0; 
       this.heatLevels[i] = 0; 
       sizes.setX(i, this.data.particleSize); 
@@ -1788,22 +1926,19 @@ export class CreateParticles {
     }
     colors.needsUpdate = true; sizes.needsUpdate = true; 
     symbolStates.needsUpdate = true; symbolIndicesBuffer.needsUpdate = true;
-    
-    console.log("HeroParticleLogic: Particle system state reset.");
   }
 
-  private visibleHeightAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number { /* ... same as before ... */ 
+  private visibleHeightAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number {
     const cameraOffset = camera.position.z;
     const relativeDepth = depth - cameraOffset; 
     const vFOV = camera.fov * Math.PI / 180; 
     return 2 * Math.tan(vFOV / 2) * Math.abs(relativeDepth);
   }
-  private visibleWidthAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number { /* ... same as before ... */ 
+  private visibleWidthAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number {
     return this.visibleHeightAtZDepth(depth, camera) * camera.aspect;
   }
   
-  public dispose() { /* ... same as before ... */ 
-    console.log("HeroParticleLogic: Disposing CreateParticles");
+  public dispose() {
     this.unbindInteractionEvents();
     if (this.particles) {
       this.scene.remove(this.particles);
@@ -1824,7 +1959,7 @@ export class CreateParticles {
       if (Array.isArray(material)) {
          material.forEach(m => m.dispose());
       } else {
-        material.dispose();
+        (material as THREE.Material).dispose();
       }
     }
   }
@@ -1841,21 +1976,39 @@ export class CreateParticles {
 --- END OF FILE src\routes\+layout.svelte ---
 
 --- START OF FILE src\routes\+page.svelte ---
+<!-- src/routes/+page.svelte -->
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
+  import type { SvelteComponent } from 'svelte'; // For component instance type
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore';
 
   import gsap from 'gsap';
 
+  // --- Component Instance Type for HeroParticleEffect ---
+  // This assumes HeroParticleEffect.svelte exports these methods
+  interface HeroParticleEffectInstance extends SvelteComponent {
+    onTransitionToHeroStart: () => Promise<void>;
+    onTransitionToHeroComplete: () => void;
+    onTransitionFromHeroStart: () => void;
+  }
+  let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
+  // --- End Component Instance Type ---
+
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
+
+  let particleLayerPointerEvents = 'none';
+  $: particleLayerPointerEvents = ($currentSectionIndex === 0) ? 'auto' : 'none';
+
+  let mainContainerPointerEvents = 'auto';
+  $: mainContainerPointerEvents = ($currentSectionIndex === 0) ? 'none' : 'auto';
 
   let sectionElements: HTMLElement[] = [];
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
@@ -1867,6 +2020,8 @@ export class CreateParticles {
     ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
     { id: 'contact', type: 'contact', data: siteConfig.contactSection }
   ];
+
+  const HERO_LOGICAL_INDEX = 0; // Define for clarity
 
   const transitionDuration = 1.1;
   const projectBgZoomDuration = 3;
@@ -1904,15 +2059,14 @@ export class CreateParticles {
           const h2El = sectionEl.querySelector('.about-text-block h2');
           const pEl = sectionEl.querySelector('.about-text-block p');
           const imageEl = sectionEl.querySelector('.about-background-image'); 
-          // KeyboardButtons have their own CSS animation (animation-delay: 0.6s).
 
           if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
-          if (imageEl) { // Animate the background image itself
+          if (imageEl) { 
             contentTl.fromTo(imageEl, 
               { autoAlpha: 0, scale: 1.1 }, 
               { autoAlpha: 1, scale: 1, duration: 1.2, ease: 'power2.out' }, 
-              "start+=0.1" // Start slightly after text begins for layering effect
+              "start+=0.1"
             );
           }
         
@@ -1949,8 +2103,15 @@ export class CreateParticles {
         }
       });
 
-      if (get(currentSectionIndex) === 0) {
-          sectionContentTimelines[0]?.restart();
+      if (get(currentSectionIndex) === HERO_LOGICAL_INDEX) {
+          sectionContentTimelines[HERO_LOGICAL_INDEX]?.restart(); // Or any other initial animation for hero text if it existed
+          // Initial call for hero effect completion if starting on hero
+          if (heroParticleEffectInstance) {
+            // This scenario is tricky: if starting directly on hero, there's no "transition to hero complete"
+            // The HeroParticleEffect's own onMount and reactive logic should handle its initial setup.
+            // We might call onTransitionToHeroComplete directly IF we know assets are loaded and it's truly settled.
+            // For now, relying on HeroParticleEffect's internal _handleSettledState
+          }
       }
 
       if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
@@ -1984,9 +2145,7 @@ export class CreateParticles {
       sectionContentTimelines.forEach(timeline => timeline?.kill());
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
-      if (unsubOverallLoadingState) {
-        unsubOverallLoadingState();
-      }
+      if (unsubOverallLoadingState) unsubOverallLoadingState();
     };
   });
 
@@ -1999,6 +2158,22 @@ export class CreateParticles {
     isAnimating.set(true);
     isTransitioning.set(true);
 
+    console.log(`Navigate: from ${oldIndex} to ${newIndex}`);
+
+    // --- Call HeroParticleEffect methods based on transition ---
+    if (heroParticleEffectInstance) {
+      if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) {
+        // Transitioning TO Hero
+        console.log("+page: Calling onTransitionToHeroStart");
+        heroParticleEffectInstance.onTransitionToHeroStart();
+      } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) {
+        // Transitioning FROM Hero
+        console.log("+page: Calling onTransitionFromHeroStart");
+        heroParticleEffectInstance.onTransitionFromHeroStart();
+      }
+    }
+    // --- End HeroParticleEffect method calls ---
+
     const currentSectionEl = sectionElements[oldIndex];
     const targetSectionEl = sectionElements[newIndex];
     const direction = newIndex > oldIndex ? 1 : -1;
@@ -2010,6 +2185,13 @@ export class CreateParticles {
       onComplete: () => {
         currentSectionIndex.set(newIndex);
         isTransitioning.set(false);
+
+        // --- Call HeroParticleEffect completion method ---
+        if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) {
+            console.log("+page: Calling onTransitionToHeroComplete");
+            heroParticleEffectInstance.onTransitionToHeroComplete();
+        }
+        // --- End HeroParticleEffect completion method call ---
       }
     });
 
@@ -2028,9 +2210,13 @@ export class CreateParticles {
       ease: 'expo.out'
     }, "slide");
 
-    masterTransitionTl.call(() => {
-      sectionContentTimelines[newIndex]?.restart();
-    }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
+    // Don't animate content for Hero section itself here, it's just the particle effect
+    if (newIndex !== HERO_LOGICAL_INDEX) {
+        masterTransitionTl.call(() => {
+            sectionContentTimelines[newIndex]?.restart();
+        }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
+    }
+
 
     const targetBgZoom = sectionBackgroundZooms[newIndex];
     if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
@@ -2099,22 +2285,21 @@ export class CreateParticles {
 
 <LoadingScreen /> 
 
-<div class="particle-effect-layer">
+<div class="particle-effect-layer" style="pointer-events: {particleLayerPointerEvents};">
   <HeroParticleEffect 
+    bind:this={heroParticleEffectInstance}
     activeSectionIndex={$currentSectionIndex} 
     isTransitioning={$isTransitioning}
     transitionDuration={transitionDuration}
   />
 </div>
 
-<main class="portfolio-container">
+<main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
   <section id="hero" class="full-screen-section hero-section">
     <!-- Hero section is empty - only shows particle effect -->
   </section>
 
-  <!-- Section 2: About Me (REFINED STRUCTURE FOR OVERLAP) -->
   <section id="about" class="full-screen-section about-section">
-    <!-- Background Layer (for image or future effect) -->
     <div class="about-background-layer">
       {#if siteConfig.aboutSection.imageUrl}
         <img
@@ -2123,10 +2308,7 @@ export class CreateParticles {
           class="about-background-image"
         />
       {/if}
-      <!-- Future: A Svelte component for a particle effect could go here, e.g., <AboutParticleEffect /> -->
     </div>
-
-    <!-- Content Layer -->
     <div class="about-content-wrapper">
       <div class="about-text-block">
         <h2>{siteConfig.aboutSection.title}</h2>
@@ -2137,14 +2319,11 @@ export class CreateParticles {
             {contactSectionIndex}
             {navigateToSection}
           />
-        {:else}
-          <!-- Fallback or silent error handled by console.error -->
         {/if}
       </div>
     </div>
   </section>
 
-  <!-- Project Sections (structure remains the same) -->
   {#each projects as project (project.id)}
     {@const projectSectionData = getSectionData(`project-${project.id}`) as Project | undefined}
     <section id="project-{project.id}" class="full-screen-section project-section">
@@ -2172,7 +2351,6 @@ export class CreateParticles {
     </section>
   {/each}
 
-  <!-- Contact Section (structure remains the same) -->
   <section id="contact" class="full-screen-section contact-section">
      <div class="content-center">
       <h2>{siteConfig.contactSection.title}</h2>
@@ -2202,14 +2380,9 @@ export class CreateParticles {
     width: 100vw;
     height: 100vh;
     z-index: 0;
-    pointer-events: none;
     background-color: rgb(9 9 11);
   }
   
-  .particle-effect-layer :global(.hero-particle-container) {
-    pointer-events: auto;
-  }
-
   .portfolio-container {
     position: relative;
     width: 100%;
@@ -2231,24 +2404,22 @@ export class CreateParticles {
     text-align: center;
     padding: 2rem;
     box-sizing: border-box;
-    background-color: rgb(9 9 11); /* Default, can be overridden */
+    background-color: rgb(9 9 11); 
   }
   
   .hero-section {
     background-color: transparent;
     z-index: 2;
+    pointer-events: none;
   }
   
-  /* --- REFINED ABOUT SECTION STYLING --- */
   .about-section {
-    /* display: flex; is inherited */
-    /* justify-content: center; & align-items: center; for mobile centering of content-wrapper */
-    padding: 0; /* Override .full-screen-section default */
-    text-align: left; /* Default for content, can be overridden locally */
-    background-color: transparent; /* To see particle layer or page bg if no image/effect */
+    padding: 0; 
+    text-align: left; 
+    background-color: transparent; 
     z-index: 2;
-    position: relative; /* For absolute positioning of its children layers */
-    overflow: hidden; /* Ensure no overflow from scaled images etc. */
+    position: relative; 
+    overflow: hidden; 
   }
 
   .about-background-layer {
@@ -2257,65 +2428,51 @@ export class CreateParticles {
     left: 0;
     width: 100%;
     height: 100%;
-    z-index: 0; /* Behind the content layer */
-    /* background-color: #050506; /* Optional dark fallback if image is transparent/slow */
-    /* pointer-events: none; /* If you want clicks to pass through the entire background layer */
+    z-index: 0; 
   }
 
   .about-background-image {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    /* This positions the image so its right part is more visible if the image is wider than the screen.
-       Adjust 80% (horizontal) and 50% (vertical) as needed.
-       'right center' or '100% 50%' would pin it hard to the right.
-    */
     object-position: 80% center; 
-    opacity: 0; /* GSAP controlled */
-    /* filter: grayscale(20%) contrast(1.05) brightness(0.9); Optional subtle image treatment */
+    opacity: 0;
   }
 
   .about-content-wrapper {
-    position: relative; /* Stacks above background layer */
+    position: relative; 
     z-index: 1;
     width: 100%;
     height: 100%;
     display: flex;
-    justify-content: flex-start; /* Aligns .about-text-block to the left on desktop */
-    align-items: center; /* Vertically centers .about-text-block */
-    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); /* Accommodate safe areas + dynamic padding */
+    justify-content: flex-start; 
+    align-items: center; 
+    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); 
     padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem);
     box-sizing: border-box;
   }
 
   .about-text-block {
-    max-width: 580px; /* Adjust as needed for your content */
-    /* Optional: For better readability if image is busy and content overlaps a lot */
-    /* background: rgba(9, 9, 11, 0.15); */
-    /* backdrop-filter: blur(5px); */
-    /* padding: 1.5rem; */
-    /* border-radius: 8px; */
+    max-width: 580px; 
   }
 
   .about-text-block h2 {
-    font-size: clamp(2.2rem, 4.5vw, 3rem); /* Responsive font size */
+    font-size: clamp(2.2rem, 4.5vw, 3rem); 
     margin-bottom: 1.5rem;
     font-weight: 300;
     letter-spacing: -0.02em;
     color: rgb(245 245 247);
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
 
   .about-text-block p {
-    font-size: clamp(1rem, 2.2vw, 1.15rem); /* Responsive font size */
+    font-size: clamp(1rem, 2.2vw, 1.15rem); 
     line-height: 1.8;
-    margin-bottom: 2.5rem; /* Space before KeyboardButtons */
+    margin-bottom: 2.5rem; 
     color: rgb(212 212 216);
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
-  /* END REFINED ABOUT SECTION STYLING */
-
-  /* Project section styling (existing, ensure no conflicts) */
+  
   .project-section { 
     color: rgb(245 245 247);
     z-index: 2;
@@ -2416,13 +2573,12 @@ export class CreateParticles {
     box-shadow: 0 4px 20px rgba(99 102 241 / 0.4);
   }
 
-  /* Contact section styling */
   .contact-section { 
     background-color: rgb(24 24 27);
     color: rgb(245 245 247);
     z-index: 2;
   }
-  .content-center { /* Used by Contact section */
+  .content-center { 
     max-width: 800px;
     margin: 0 auto;
     padding: 2rem;
@@ -2432,7 +2588,7 @@ export class CreateParticles {
     margin-bottom: 2rem;
     font-weight: 300;
     letter-spacing: -0.02em;
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
   
   .contact-section p {
@@ -2440,7 +2596,7 @@ export class CreateParticles {
     line-height: 1.8;
     margin-bottom: 1.5rem;
     color: rgb(212 212 216);
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
   
   .contact-section a { 
@@ -2460,7 +2616,7 @@ export class CreateParticles {
     display: flex;
     gap: 2rem;
     justify-content: center;
-    opacity: 0; /* GSAP controlled */
+    opacity: 0;
   }
   
   * {
@@ -2468,8 +2624,7 @@ export class CreateParticles {
     -moz-osx-font-smoothing: grayscale;
   }
   
-  /* Responsive adjustments */
-  @media (max-width: 768px) { /* General mobile breakpoint */
+  @media (max-width: 768px) { 
     .project-cards-container {
       flex-direction: column;
       align-items: center;
@@ -2479,33 +2634,25 @@ export class CreateParticles {
       max-width: 320px;
     }
 
-    /* ABOUT SECTION - Mobile */
     .about-section {
-      /* justify-content and align-items already center children for flex */
-      padding: 2rem; /* Add some padding back for mobile */
+      padding: 2rem; 
     }
 
     .about-content-wrapper {
-      justify-content: center; /* Center the .about-text-block */
-      text-align: center; /* Center text within .about-text-block */
-      padding: 1rem; /* Adjust padding */
+      justify-content: center; 
+      text-align: center; 
+      padding: 1rem; 
     }
     
     .about-text-block {
-      max-width: 100%; /* Take full available width */
-      /* background: none; backdrop-filter: none; Remove any desktop bg effects */
+      max-width: 100%; 
     }
     .about-text-block h2, .about-text-block p {
-      text-align: center; /* Ensure text alignment is center for mobile */
+      text-align: center; 
     }
-    /* KeyboardButtons are intrinsically responsive and will be centered by .about-text-block or its parent */
 
     .about-background-layer {
-      display: none; /* Hide image background on mobile as per original requirement */
-      /* Or, for a different effect:
-      opacity: 0.3;
-      filter: blur(5px);
-      */
+      display: none; 
     }
   }
 </style>

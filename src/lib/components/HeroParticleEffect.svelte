@@ -1,6 +1,7 @@
 <!-- src/lib/components/HeroParticleEffect.svelte -->
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
+  import { createEventDispatcher } from 'svelte';
   import *  as THREE from 'three';
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
@@ -9,6 +10,9 @@
   export let activeSectionIndex: number;
   export let isTransitioning: boolean = false;
   export let transitionDuration: number = 1.1;
+  export let isInitialLoad: boolean = false; // This needs to be used
+
+  const dispatch = createEventDispatcher();
 
   const HERO_SECTION_LOGICAL_INDEX = 0;
   const HERO_ASSETS_TASK_ID = 'heroEffectAssets';
@@ -22,6 +26,10 @@
   let isThreeJsLoopRunning = false;
   let areInteractionsBound = false;
   let animationLoopPauseTimeoutId: number | undefined;
+
+  
+   // Use isInitialLoad to control initial opacity
+  let initialOpacity = isInitialLoad ? '0' : '1'; // ADD THIS
 
   const FONT_ASSET_PATH = '/fonts/Inter_18pt_ExtraLight.json';
   const PARTICLE_TEXTURE_ASSET_PATH = 'https://res.cloudinary.com/dfvtkoboz/image/upload/v1605013866/particle_a64uzf.png';
@@ -109,9 +117,21 @@
       console.log("HPE: Interaction events UNBOUND and mouse position neutralized.");
     }
   }
-
   function _fadeInVisuals() {
-    if (threeContainerElement) threeContainerElement.style.opacity = '1';
+    if (threeContainerElement) {
+      if (isInitialLoad) {
+        // For initial load, ensure we start from 0 opacity
+        threeContainerElement.style.opacity = '0';
+        // Small delay to ensure the opacity is set before transitioning
+        requestAnimationFrame(() => {
+          if (threeContainerElement) {
+            threeContainerElement.style.opacity = '1';
+          }
+        });
+      } else {
+        threeContainerElement.style.opacity = '1';
+      }
+    }
   }
 
   function _fadeOutVisuals() {
@@ -197,8 +217,12 @@
     await _preloadAssets();
     isMountedAndInitialized = true;
 
-    if (!isTransitioning) {
-        _handleSettledState();
+    // Dispatch ready event
+    dispatch('ready');
+    
+    // Handle initial state differently if isInitialLoad is true
+    if (!isTransitioning && !isInitialLoad) {
+      _handleSettledState();
     }
   });
 
@@ -231,8 +255,8 @@
   class="hero-particle-container"
   bind:this={threeContainerElement}
   id="magic"
-  style="opacity: 0; transition: opacity {transitionDuration}s ease-in-out;"
-  >
+  style="opacity: {initialOpacity}; transition: opacity {transitionDuration}s ease-in-out;"
+>
   <!-- Three.js canvas will be appended here by heroParticleLogic.ts -->
 </div>
 

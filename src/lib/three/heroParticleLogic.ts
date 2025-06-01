@@ -1,9 +1,9 @@
 // src/lib/three/heroParticleLogic.ts
 import * as THREE from 'three';
 import type { Font } from 'three/examples/jsm/loaders/FontLoader.js';
-import { HeroBloomEffect } from './HeroBloomEffect'; // IMPORT THE NEW CLASS
+import { HeroBloomEffect } from './HeroBloomEffect';
 
-// Shaders (VERTEX_SHADER and FRAGMENT_SHADER remain the same as your last provided version)
+// Shaders (VERTEX_SHADER and FRAGMENT_SHADER remain the same)
 export const VERTEX_SHADER = `
 attribute float size;
 attribute vec3 customColor;
@@ -71,8 +71,8 @@ export class Environment {
   public createParticles!: CreateParticles;
   private animationLoopCallback: (() => void) | null = null;
 
-  private clock!: THREE.Clock; // For deltaTime
-  private bloomEffect!: HeroBloomEffect; // Instance of our bloom effect manager
+  private clock!: THREE.Clock; 
+  private bloomEffect!: HeroBloomEffect; 
 
   constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
     this.font = font;
@@ -84,13 +84,12 @@ export class Environment {
       return;
     }
     
-    this.clock = new THREE.Clock(); // Initialize clock
+    this.clock = new THREE.Clock(); 
 
     this.scene = new THREE.Scene();
     this.createCamera();
     this.createRenderer();
     
-    // Initialize Bloom Effect
     this.bloomEffect = new HeroBloomEffect(
         this.renderer, 
         this.scene, 
@@ -141,7 +140,7 @@ export class Environment {
       this.font, 
       this.particleTexture, 
       this.camera, 
-      this.renderer, // Pass renderer if CreateParticles needs it (it doesn't directly here)
+      this.renderer, 
       this.container 
     );
   }
@@ -150,13 +149,12 @@ export class Environment {
     const deltaTime = this.clock.getDelta();
 
     if (this.createParticles) {
-      this.createParticles.render(); // Update particle positions, colors, etc.
+      this.createParticles.render(); 
     }
     
-    // Instead of renderer.render, use the composer
     if (this.bloomEffect) {
       this.bloomEffect.render(deltaTime);
-    } else if (this.renderer && this.scene && this.camera) { // Fallback if bloom somehow not init
+    } else if (this.renderer && this.scene && this.camera) { 
       this.renderer.render(this.scene, this.camera);
     }
   }
@@ -235,8 +233,6 @@ export class Environment {
   }
 }
 
-// CreateParticles class remains the same as your last provided version
-// Ensure bloomSymbolColor is defined and used as in the previous step.
 interface ParticleData {
   text: string;
   amount: number;
@@ -245,7 +241,7 @@ interface ParticleData {
   area: number;
   ease: number;
   distortionThreshold: number;
-  maxCooldownTime: number;
+  // maxCooldownTime: number; // REMOVED - Replaced by min/max duration
   minFadeOutRate: number;
   maxFadeOutRate: number;
   minSymbolSize: number;
@@ -256,6 +252,11 @@ interface ParticleData {
   symbolMinProb: number;
   symbolMaxProb: number;
   symbolHeatRequirement: number;
+  // --- NEW Cooldown Parameters ---
+  particleCooldownDurationMin: number;
+  particleCooldownDurationMax: number;
+  symbolCooldownSpeedMultiplier: number;
+  // --- END NEW Cooldown Parameters ---
 }
 
 export class CreateParticles {
@@ -273,7 +274,7 @@ export class CreateParticles {
 
   private matrixSymbols: string[];
   private matrixColors: { [key: string]: THREE.Color };
-  private bloomSymbolColor: THREE.Color; // Color for glowing symbols
+  private bloomSymbolColor: THREE.Color; 
   
   private particleStates: number[] = [];
   private heatLevels: number[] = [];
@@ -294,6 +295,10 @@ export class CreateParticles {
   private boundOnTouchStart: (event: TouchEvent) => void;
   private boundOnTouchMove: (event: TouchEvent) => void;
   private boundOnTouchEnd: (event: TouchEvent) => void;
+
+  private readonly SYMBOL_HUE_SHIFT_RANGE = 0.08; 
+  private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.075; 
+  private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.40; 
 
   constructor(scene: THREE.Scene, font: Font, particleImg: THREE.Texture, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, hostContainer: HTMLElement) {
     this.scene = scene;
@@ -316,25 +321,25 @@ export class CreateParticles {
     
     this.matrixColors = {
       white: new THREE.Color(1.0, 1.0, 1.0),
-      verySubtleGreenTint: new THREE.Color(0.95, 1.0, 0.95), 
-      almostWhiteGreen: new THREE.Color(0.85, 1.0, 0.85),
-      paleGreen: new THREE.Color(0.6, 1.0, 0.6),
+      verySubtleGreenTint: new THREE.Color(0.9, 1.0, 0.9), 
+      almostWhiteGreen: new THREE.Color(0.8, 1.0, 0.8),
+      paleGreen: new THREE.Color(0.58, 1.0, 0.58),
       lightMatrixGreen: new THREE.Color(0.3, 1.0, 0.3),
       classicMatrixGreen: new THREE.Color(0.0, 1.0, 0.0),
       deepMatrixGreen: new THREE.Color(0.0, 0.85, 0.0)
     };
 
-    this.bloomSymbolColor = new THREE.Color(0.0, 0.95, 0.05); // Bright green for bloom
+    this.bloomSymbolColor = new THREE.Color(0.0, 0.95, 0.05); 
 
     this.data = { 
       text: "Hi, I'm\nMiká",
-      amount: 2200,
-      particleSize: 1.3,
+      amount: 2700,
+      particleSize: 1.5,
       textSize: 16,
       area: 250, 
       ease: .05, 
       distortionThreshold: 12,
-      maxCooldownTime: 180,
+      // maxCooldownTime: 180, // REMOVED
       minFadeOutRate: 0.09,
       maxFadeOutRate: 0.12,
       minSymbolSize: 7,
@@ -344,7 +349,10 @@ export class CreateParticles {
       symbolMaxThreshold: 40,
       symbolMinProb: 0.001,
       symbolMaxProb: 0.15,
-      symbolHeatRequirement: 0.4
+      symbolHeatRequirement: 0.4,
+      particleCooldownDurationMin: 200,  // e.g., 1.5 seconds at 60fps
+      particleCooldownDurationMax: 340, // e.g., 3 seconds at 60fps
+      symbolCooldownSpeedMultiplier: 3.1,
     };
     
     this.boundOnMouseDown = this.onMouseDown.bind(this);
@@ -372,7 +380,7 @@ export class CreateParticles {
   private getSymbolProbability(distortion: number): number {
     const { symbolMinThreshold, symbolMidThreshold, symbolMaxThreshold, symbolMinProb, symbolMaxProb } = this.data;
     if (distortion < symbolMinThreshold) return 0;
-    if (distortion >= symbolMaxThreshold) return 1;
+    if (distortion >= symbolMaxThreshold) return symbolMaxProb; 
     if (distortion < symbolMidThreshold) {
       const ratio = (distortion - symbolMinThreshold) / (symbolMidThreshold - symbolMinThreshold);
       return symbolMinProb + (symbolMaxProb / 10) * Math.pow(ratio, 3);
@@ -393,7 +401,13 @@ export class CreateParticles {
     
     for (let i = 0; i < count; i++) {
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
-      this.cooldownRates[i] = 1 / (this.data.maxCooldownTime * (0.5 + Math.random() * 0.5));
+      
+      // --- MODIFIED Cooldown Rate Calculation ---
+      const randomDuration = this.data.particleCooldownDurationMin + 
+                             Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
+      this.cooldownRates[i] = 1 / Math.max(1, randomDuration); // Rate is 1/duration. Ensure duration > 0.
+      // --- END MODIFIED ---
+
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
       this.symbolSizesMultipliers[i] = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
     }
@@ -503,7 +517,7 @@ export class CreateParticles {
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
-      blending: THREE.NormalBlending,
+      blending: THREE.NormalBlending, 
       depthTest: false, 
       transparent: true, 
     });
@@ -557,6 +571,25 @@ export class CreateParticles {
     const rect = this.hostContainer.getBoundingClientRect();
     this.mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
     this.mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  }
+
+  private getVariedSymbolColor(): THREE.Color {
+    const variedColor = this.bloomSymbolColor.clone(); 
+    const hsl = { h: 0, s: 0, l: 0 };
+    variedColor.getHSL(hsl); 
+
+    const hueOffset = (Math.random() - 0.5) * this.SYMBOL_HUE_SHIFT_RANGE;
+    hsl.h += hueOffset;
+    hsl.h = (hsl.h + 1.0) % 1.0; 
+
+    const luminanceReduction = Math.random() * this.SYMBOL_LUMINANCE_REDUCTION_MAX;
+    hsl.l -= luminanceReduction;
+    
+    hsl.l = Math.max(this.SYMBOL_MIN_LUMINANCE_TARGET, hsl.l);
+    hsl.l = Math.min(1.0, hsl.l);
+
+    variedColor.setHSL(hsl.h, hsl.s, hsl.l); 
+    return variedColor;
   }
 
   public render() {
@@ -628,7 +661,7 @@ export class CreateParticles {
                 sizes.setX(i, this.data.particleSize * this.symbolSizesMultipliers[i]);
                 symbolIndicesBuffer.setX(i, Math.floor(Math.random() * this.matrixSymbols.length));
                 
-                const symbolColorToRender = this.bloomSymbolColor;
+                const symbolColorToRender = this.getVariedSymbolColor();
                 colors.setXYZ(i, symbolColorToRender.r, symbolColorToRender.g, symbolColorToRender.b);
                 attributesNeedUpdate = true; 
               }
@@ -642,7 +675,9 @@ export class CreateParticles {
              sizes.setX(i, newSize);
              attributesNeedUpdate = true;
           }
-          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * 3));
+          // --- MODIFIED Symbol Cooldown ---
+          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier));
+          // --- END MODIFIED ---
           if (sizes.getX(i) <= this.data.particleSize) {
             this.particleStates[i] = 0; symbolStates.setX(i, 0.0);
             sizes.setX(i, this.data.particleSize); 
@@ -656,7 +691,7 @@ export class CreateParticles {
           }
         }
         
-        if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) {
+        if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) { // For normal particles
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
         }
 

@@ -5,15 +5,14 @@
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
-  import type { SvelteComponent } from 'svelte'; // For component instance type
+  import type { SvelteComponent } from 'svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
-  import { overallLoadingState, initialSiteLoadComplete } from '$lib/stores/preloadingStore';
+  import { overallLoadingState, initialSiteLoadComplete, loadingProgress, minimumLoadingDuration } from '$lib/stores/preloadingStore';
 
   import gsap from 'gsap';
 
   // --- Component Instance Type for HeroParticleEffect ---
-  // This assumes HeroParticleEffect.svelte exports these methods
   interface HeroParticleEffectInstance extends SvelteComponent {
     onTransitionToHeroStart: () => Promise<void>;
     onTransitionToHeroComplete: () => void;
@@ -26,11 +25,15 @@
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
 
+  // New store for controlling initial reveal animation
+  const isInitialReveal = writable(true);
+  const particleEffectReady = writable(false);
+
   let particleLayerPointerEvents = 'none';
-  $: particleLayerPointerEvents = ($currentSectionIndex === 0) ? 'auto' : 'none';
+  $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
 
   let mainContainerPointerEvents = 'auto';
-  $: mainContainerPointerEvents = ($currentSectionIndex === 0) ? 'none' : 'auto';
+  $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
 
   let sectionElements: HTMLElement[] = [];
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
@@ -43,7 +46,7 @@
     { id: 'contact', type: 'contact', data: siteConfig.contactSection }
   ];
 
-  const HERO_LOGICAL_INDEX = 0; // Define for clarity
+  const HERO_LOGICAL_INDEX = 0;
 
   const transitionDuration = 1.1;
   const projectBgZoomDuration = 3;
@@ -51,8 +54,16 @@
   const contentAnimationStartOffset = -0.3;
   const projectBgZoomStartOffset = 0.1;
 
+  // Timing for initial reveal animation
+  const initialRevealDelay = 300; // Delay after loading screen starts fading
+  const particleFadeInDuration = 1.5; // Duration for particles to fade in
+
   let unsubOverallLoadingState: (() => void) | undefined;
+  let unsubInitialLoadComplete: (() => void) | undefined;
   let contactSectionIndex: number = -1;
+
+  // Track if we've started the initial reveal sequence
+  let hasStartedInitialReveal = false;
 
   onMount((): (() => void) | void => {
     const setupPromise = async () => {
@@ -125,37 +136,34 @@
         }
       });
 
-      if (get(currentSectionIndex) === HERO_LOGICAL_INDEX) {
-          sectionContentTimelines[HERO_LOGICAL_INDEX]?.restart(); // Or any other initial animation for hero text if it existed
-          // Initial call for hero effect completion if starting on hero
-          if (heroParticleEffectInstance) {
-            // This scenario is tricky: if starting directly on hero, there's no "transition to hero complete"
-            // The HeroParticleEffect's own onMount and reactive logic should handle its initial setup.
-            // We might call onTransitionToHeroComplete directly IF we know assets are loaded and it's truly settled.
-            // For now, relying on HeroParticleEffect's internal _handleSettledState
-          }
-      }
-
-      if (allSectionsData[0].type === 'project' && sectionBackgroundZooms[0]) {
-        isAnimating.set(true);
-        const firstBgZoom = sectionBackgroundZooms[0];
-        if (firstBgZoom) {
-          firstBgZoom.vars.onComplete = () => {
-            if (get(currentSectionIndex) === 0) {
-                isAnimating.set(false);
-            }
-          };
-          firstBgZoom.restart();
-        }
-      }
-
+      // Don't start any animations until loading is complete
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
     };
     
+    // Listen for when particle effect is ready
+    particleEffectReady.subscribe(ready => {
+      if (ready && get(initialSiteLoadComplete) && !hasStartedInitialReveal) {
+        startInitialReveal();
+      }
+    });
+    
     unsubOverallLoadingState = overallLoadingState.subscribe(status => {
       if (status === 'loaded' && !get(initialSiteLoadComplete)) {
-        initialSiteLoadComplete.set(true);
+        // Ensure minimum loading duration has passed
+        setTimeout(() => {
+          initialSiteLoadComplete.set(true);
+          // Check if we can start the reveal
+          if (get(particleEffectReady) && !hasStartedInitialReveal) {
+            startInitialReveal();
+          }
+        }, 100); // Small delay to ensure loading screen gets the signal first
+      }
+    });
+    
+    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
+      if (complete && get(particleEffectReady) && !hasStartedInitialReveal) {
+        startInitialReveal();
       }
     });
     
@@ -168,10 +176,38 @@
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
       if (unsubOverallLoadingState) unsubOverallLoadingState();
+      if (unsubInitialLoadComplete) unsubInitialLoadComplete();
     };
   });
 
+  function startInitialReveal() {
+    if (hasStartedInitialReveal) return;
+    hasStartedInitialReveal = true;
+    
+    console.log("Starting initial reveal sequence");
+    
+    // Wait for loading screen to start fading, then begin particle fade-in
+    setTimeout(() => {
+      // Trigger particle effect fade-in
+      if (heroParticleEffectInstance && get(currentSectionIndex) === HERO_LOGICAL_INDEX) {
+        // The particle effect should already be initialized and ready
+        // Just need to ensure it's in the right state
+        heroParticleEffectInstance.onTransitionToHeroComplete();
+      }
+      
+      // Enable interactions after fade-in completes
+      setTimeout(() => {
+        isInitialReveal.set(false);
+        console.log("Initial reveal complete");
+      }, particleFadeInDuration * 1000);
+      
+    }, initialRevealDelay);
+  }
+
   function navigateToSection(newIndex: number) {
+    // Prevent navigation during initial reveal
+    if (get(isInitialReveal)) return;
+    
     const oldIndex = get(currentSectionIndex);
 
     if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) {
@@ -185,11 +221,9 @@
     // --- Call HeroParticleEffect methods based on transition ---
     if (heroParticleEffectInstance) {
       if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) {
-        // Transitioning TO Hero
         console.log("+page: Calling onTransitionToHeroStart");
         heroParticleEffectInstance.onTransitionToHeroStart();
       } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) {
-        // Transitioning FROM Hero
         console.log("+page: Calling onTransitionFromHeroStart");
         heroParticleEffectInstance.onTransitionFromHeroStart();
       }
@@ -232,13 +266,11 @@
       ease: 'expo.out'
     }, "slide");
 
-    // Don't animate content for Hero section itself here, it's just the particle effect
     if (newIndex !== HERO_LOGICAL_INDEX) {
         masterTransitionTl.call(() => {
             sectionContentTimelines[newIndex]?.restart();
         }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
     }
-
 
     const targetBgZoom = sectionBackgroundZooms[newIndex];
     if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
@@ -258,6 +290,8 @@
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
+    if (get(isInitialReveal)) return; // Prevent during initial reveal
+    
     const currentTime = Date.now();
     if (currentTime - lastScrollTime < scrollDebounce) return; 
     if (get(isAnimating)) return;
@@ -267,6 +301,13 @@
   }
 
   function handleKeyDown(event: KeyboardEvent) {
+    if (get(isInitialReveal)) {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+      }
+      return; // Prevent during initial reveal
+    }
+    
     const currentTime = Date.now();
     if (currentTime - lastScrollTime < scrollDebounce) {
         if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
@@ -298,6 +339,11 @@
   function getSectionData(id: string) {
     return allSectionsData.find(s => s.id === id)?.data;
   }
+
+  // Notify when particle effect is ready
+  function onParticleEffectReady() {
+    particleEffectReady.set(true);
+  }
 </script>
 
 <svelte:head>
@@ -307,12 +353,18 @@
 
 <LoadingScreen /> 
 
-<div class="particle-effect-layer" style="pointer-events: {particleLayerPointerEvents};">
+<div 
+  class="particle-effect-layer" 
+  class:initial-state={$isInitialReveal}
+  style="pointer-events: {particleLayerPointerEvents};"
+>
   <HeroParticleEffect 
     bind:this={heroParticleEffectInstance}
     activeSectionIndex={$currentSectionIndex} 
     isTransitioning={$isTransitioning}
     transitionDuration={transitionDuration}
+    isInitialLoad={$isInitialReveal}
+    on:ready={onParticleEffectReady}
   />
 </div>
 
@@ -403,6 +455,12 @@
     height: 100vh;
     z-index: 0;
     background-color: rgb(9 9 11);
+    transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  
+  /* Initial state with subtle green tint matching loading screen */
+  .particle-effect-layer.initial-state {
+    background-color: rgb(5 8 5); /* Subtle green-black matching loading screen */
   }
   
   .portfolio-container {
