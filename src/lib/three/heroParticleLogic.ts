@@ -31,6 +31,7 @@ void main() {
 export const FRAGMENT_SHADER = `
 uniform sampler2D pointTexture;
 uniform sampler2D symbolsTexture;
+uniform float symbolRows;
 
 varying vec3 vColor;
 varying float vSymbolState;
@@ -50,9 +51,9 @@ void main() {
     
     vec2 symbolCoord = gl_PointCoord;
     symbolCoord.x = (symbolCoord.x + columnIndex) / symbolsPerRow;
-    symbolCoord.y = (symbolCoord.y + rowIndex) / 6.0; // Assuming 6 rows in symbolsTexture
+    symbolCoord.y = (symbolCoord.y + rowIndex) / symbolRows; // Use dynamic row count
     
-    vec4 symbolTexColor = texture2D(symbolsTexture, symbolCoord); // Alpha from symbol texture
+    vec4 symbolTexColor = texture2D(symbolsTexture, symbolCoord);
     
     if(symbolTexColor.a < 0.3) discard; // Discard transparent parts of the symbol
     
@@ -289,7 +290,6 @@ export class CreateParticles {
   private cooldownRates: number[] = [];
   private symbolIndicesAttributeValues: number[] = [];
   private fadeOutRates: number[] = [];
-  private symbolSizesMultipliers: number[] = [];
 
   private data: ParticleData;
   private symbolsTexture!: THREE.Texture;
@@ -330,16 +330,16 @@ export class CreateParticles {
       amount: 1200,
       particleSize: 1.0,
       textSize: 12,
-      minSymbolSize: 5,
-      maxSymbolSize: 8,
+      minSymbolSize: 7,
+      maxSymbolSize: 11,
       area: 150
     },
     tablet: {
       amount: 1800,
       particleSize: 1.1,
       textSize: 14,
-      minSymbolSize: 6,
-      maxSymbolSize: 10,
+      minSymbolSize: 7,
+      maxSymbolSize: 11,
       area: 200
     },
     laptop: {
@@ -351,11 +351,11 @@ export class CreateParticles {
       area: 230
     },
     desktop: {
-      amount: 2300,
+      amount: 2400,
       particleSize: 1.4,
       textSize: 16,
       minSymbolSize: 7,
-      maxSymbolSize: 12,
+      maxSymbolSize: 11,
       area: 250
     },
     large: {
@@ -363,7 +363,7 @@ export class CreateParticles {
       particleSize: 1.55,
       textSize: 18,
       minSymbolSize: 8,
-      maxSymbolSize: 14,
+      maxSymbolSize: 11,
       area: 280
     },
     ultrawide: {
@@ -375,6 +375,8 @@ export class CreateParticles {
       area: 300
     }
   };
+
+  private symbolTextureRows: number = 6; // Add this property declaration
 
   constructor(scene: THREE.Scene, font: Font, particleImg: THREE.Texture, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, hostContainer: HTMLElement) {
     this.scene = scene;
@@ -392,7 +394,7 @@ export class CreateParticles {
       '日', '〇', 'ﾊ', 'ﾐ', 'ﾋ', 'ｰ', 'ｳ', 'ｼ', 'ﾅ', 'ﾓ', 'ﾆ', 'ｻ', 'ﾜ',
       'ﾂ', 'ｵ', 'ﾘ', 'ｱ', 'ﾎ', 'ﾃ', 'ﾏ', 'ｹ', 'ﾒ', 'ｴ', 'ｶ', 'ｷ', 'ﾑ', 
       'ﾕ', 'ﾗ', 'ｾ', 'ﾈ', 'ｦ', 'ｲ', 'ｸ', 'ｺ', 'ｿ', 'ﾀ', 'ﾁ', 'ﾄ', 'ﾉ', 'ﾌ', 'ﾍ', 'ﾏ', 'ﾔ', 'ﾖ', 'ﾙ', 'ﾚ', 'ﾛ',
-      '0', '1', '7', '9', '∆', '×', '≠', '≡', '∞'
+      '∆','δ', 'ε', 'ζ', 'η', 'θ','∀', '∃', '∄','∅','ﾊ', 'ﾍ', 'ﾎ', 'ﾞ', 'ﾟ', 'ｧ', 'ｨ', 'ｩ', 'ｪ', 'ｫ', 'ｬ', 'ｭ', 'ｮ', 'ｯ','Д'
     ];
     
     this.matrixColors = {
@@ -492,7 +494,7 @@ export class CreateParticles {
     this.cooldownRates = new Array(count);
     this.symbolIndicesAttributeValues = new Array(count);
     this.fadeOutRates = new Array(count);
-    this.symbolSizesMultipliers = new Array(count);
+    // Remove symbolSizesMultipliers array since we generate sizes dynamically
     
     for (let i = 0; i < count; i++) {
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
@@ -504,26 +506,61 @@ export class CreateParticles {
       // --- END MODIFIED ---
 
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
-      this.symbolSizesMultipliers[i] = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
+      // Remove pre-calculation of symbol sizes
     }
   }
 
   private createMatrixSymbolsTexture() {
-    const rows = 6; const cols = 8; const symbolSize = 64;
+    // Calculate required rows based on symbol count
+    const cols = 8;
+    const symbolSize = 64;
+    const rows = Math.ceil(this.matrixSymbols.length / cols);
+    
     const canvas = document.createElement('canvas');
-    canvas.width = cols * symbolSize; canvas.height = rows * symbolSize;
+    canvas.width = cols * symbolSize; 
+    canvas.height = rows * symbolSize;
     const ctx = canvas.getContext('2d')!;
-    ctx.fillStyle = 'rgba(0,0,0,0)'; ctx.fillRect(0,0,canvas.width, canvas.height);
-    for (let i = 0; i < this.matrixSymbols.length; i++) {
-      const col = i % cols; const row = Math.floor(i / cols);
-      const x = col * symbolSize; const y = row * symbolSize;
-      ctx.fillStyle = '#00FF00'; 
-      ctx.font = 'bold 48px monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(this.matrixSymbols[i], x + symbolSize/2, y + symbolSize/2);
+    
+    // Clear canvas with transparent background
+    ctx.fillStyle = 'rgba(0,0,0,0)'; 
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Improved font rendering settings
+    ctx.font = 'bold 48px "Courier New", monospace';
+    ctx.textAlign = 'center'; 
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#00FF00';
+    
+    // Enable better text rendering (remove invalid textRenderingOptimization)
+    if (ctx.imageSmoothingEnabled !== undefined) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
     }
+    
+    for (let i = 0; i < this.matrixSymbols.length; i++) {
+      const col = i % cols; 
+      const row = Math.floor(i / cols);
+      const x = col * symbolSize + symbolSize / 2; 
+      const y = row * symbolSize + symbolSize / 2;
+      
+      // Add slight padding to prevent edge clipping
+      const symbol = this.matrixSymbols[i];
+      ctx.fillText(symbol, x, y);
+    }
+    
     this.symbolsTexture = new THREE.Texture(canvas);
     this.symbolsTexture.needsUpdate = true;
+    this.symbolsTexture.generateMipmaps = false;
+    this.symbolsTexture.minFilter = THREE.LinearFilter;
+    this.symbolsTexture.magFilter = THREE.LinearFilter;
+    this.symbolsTexture.wrapS = THREE.ClampToEdgeWrapping;
+    this.symbolsTexture.wrapT = THREE.ClampToEdgeWrapping;
+    
+    // Store the row count for the shader
+    this.symbolTextureRows = rows;
+    
+    // Log texture info for debugging
+    console.log(`Symbol texture created: ${cols}x${rows} grid (${this.matrixSymbols.length} symbols)`);
   }
 
   private setupPlaneArea() {
@@ -608,7 +645,8 @@ export class CreateParticles {
     const particleMaterial = new THREE.ShaderMaterial({
       uniforms: {
         pointTexture: { value: this.particleImg },
-        symbolsTexture: { value: this.symbolsTexture }
+        symbolsTexture: { value: this.symbolsTexture },
+        symbolRows: { value: this.symbolTextureRows } // Add dynamic row count uniform
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
@@ -753,8 +791,13 @@ export class CreateParticles {
               if (Math.random() < this.getSymbolProbability(distortion)) {
                 this.particleStates[i] = 1; 
                 symbolStates.setX(i, 1.0);
-                sizes.setX(i, this.data.particleSize * this.symbolSizesMultipliers[i]);
-                symbolIndicesBuffer.setX(i, Math.floor(Math.random() * this.matrixSymbols.length));
+                
+                // FIXED: Generate random size and symbol index each time a particle becomes a symbol
+                const randomSymbolSize = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
+                const randomSymbolIndex = Math.floor(Math.random() * this.matrixSymbols.length);
+                
+                sizes.setX(i, this.data.particleSize * randomSymbolSize);
+                symbolIndicesBuffer.setX(i, randomSymbolIndex);
                 
                 const symbolColorToRender = this.getVariedSymbolColor();
                 colors.setXYZ(i, symbolColorToRender.r, symbolColorToRender.g, symbolColorToRender.b);
@@ -765,16 +808,21 @@ export class CreateParticles {
         }
 
         if (this.particleStates[i] === 1) { 
-          const newSize = Math.max(this.data.particleSize, sizes.getX(i) - this.fadeOutRates[i]);
-          if (sizes.getX(i) !== newSize) {
+          const currentSize = sizes.getX(i);
+          const newSize = Math.max(this.data.particleSize, currentSize - this.fadeOutRates[i]);
+          if (currentSize !== newSize) {
              sizes.setX(i, newSize);
              attributesNeedUpdate = true;
           }
           // --- MODIFIED Symbol Cooldown ---
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier));
           // --- END MODIFIED ---
-          if (sizes.getX(i) <= this.data.particleSize) {
-            this.particleStates[i] = 0; symbolStates.setX(i, 0.0);
+          
+          // FIXED: Use a small tolerance instead of exact comparison to handle floating point precision
+          const fadeThreshold = this.data.particleSize + 0.01; // Small tolerance for floating point comparison
+          if (newSize <= fadeThreshold) {
+            this.particleStates[i] = 0; 
+            symbolStates.setX(i, 0.0);
             sizes.setX(i, this.data.particleSize); 
             attributesNeedUpdate = true;
           }
@@ -845,11 +893,13 @@ export class CreateParticles {
       sizes.setX(i, this.data.particleSize); 
       symbolStates.setX(i, 0.0); 
       
+      // Generate fresh random symbol indices
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
       symbolIndicesBuffer.setX(i, this.symbolIndicesAttributeValues[i]);
 
+      // Generate fresh random fade out rates
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
-      this.symbolSizesMultipliers[i] = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
+      // Don't pre-calculate symbol sizes anymore - they're generated when particles become symbols
     }
     colors.needsUpdate = true; sizes.needsUpdate = true; 
     symbolStates.needsUpdate = true; symbolIndicesBuffer.needsUpdate = true;
