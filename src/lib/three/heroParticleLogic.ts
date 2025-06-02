@@ -185,7 +185,6 @@ export class Environment {
     
     this.container.appendChild(this.renderer.domElement);
   }
-
   public onWindowResize() {
     if (this.camera && this.renderer && this.container) {
       const newWidth = this.container.clientWidth;
@@ -197,6 +196,13 @@ export class Environment {
       
       if (this.bloomEffect) {
         this.bloomEffect.setSize(newWidth, newHeight);
+      }
+      
+      // Check for screen size changes and regenerate particles if needed
+      if (this.createParticles) {
+        if (this.createParticles.checkScreenSizeChange()) {
+          this.createParticles.regenerateParticles();
+        }
       }
     }
   }
@@ -255,9 +261,11 @@ interface ParticleData {
   // --- NEW Cooldown Parameters ---
   particleCooldownDurationMin: number;
   particleCooldownDurationMax: number;
-  symbolCooldownSpeedMultiplier: number;
-  // --- END NEW Cooldown Parameters ---
+  symbolCooldownSpeedMultiplier: number;  // --- END NEW Cooldown Parameters ---
 }
+
+// Screen size categories for responsive design
+type ScreenSizeType = 'mobile' | 'tablet' | 'laptop' | 'desktop' | 'large' | 'ultrawide';
 
 export class CreateParticles {
   private scene: THREE.Scene;
@@ -296,9 +304,77 @@ export class CreateParticles {
   private boundOnTouchMove: (event: TouchEvent) => void;
   private boundOnTouchEnd: (event: TouchEvent) => void;
 
+  // Responsive design related properties
+  private currentScreenSizeType: ScreenSizeType = 'desktop';
+  private lastKnownWidth: number = 0;
+  private lastKnownHeight: number = 0;
+  private needsParticleRegeneration: boolean = false;
+
   private readonly SYMBOL_HUE_SHIFT_RANGE = 0.08; 
   private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.075; 
   private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.40; 
+
+  // Screen size breakpoints
+  private readonly SCREEN_SIZES = {
+    mobile: { maxWidth: 640 },
+    tablet: { minWidth: 641, maxWidth: 1024 },
+    laptop: { minWidth: 1025, maxWidth: 1440 },
+    desktop: { minWidth: 1441, maxWidth: 1920 },
+    large: { minWidth: 1921, maxWidth: 2560 },
+    ultrawide: { minWidth: 2561 }
+  };
+
+  // Responsive particle parameters for different screen sizes
+  private readonly RESPONSIVE_PARAMS: Record<ScreenSizeType, Partial<ParticleData>> = {
+    mobile: {
+      amount: 1200,
+      particleSize: 1.0,
+      textSize: 12,
+      minSymbolSize: 5,
+      maxSymbolSize: 8,
+      area: 150
+    },
+    tablet: {
+      amount: 1800,
+      particleSize: 1.1,
+      textSize: 14,
+      minSymbolSize: 6,
+      maxSymbolSize: 10,
+      area: 200
+    },
+    laptop: {
+      amount: 2200,
+      particleSize: 1.2,
+      textSize: 15,
+      minSymbolSize: 6.5,
+      maxSymbolSize: 11,
+      area: 230
+    },
+    desktop: {
+      amount: 2300,
+      particleSize: 1.4,
+      textSize: 16,
+      minSymbolSize: 7,
+      maxSymbolSize: 12,
+      area: 250
+    },
+    large: {
+      amount: 2700,
+      particleSize: 1.55,
+      textSize: 18,
+      minSymbolSize: 8,
+      maxSymbolSize: 14,
+      area: 280
+    },
+    ultrawide: {
+      amount: 2900,
+      particleSize: 1.6,
+      textSize: 20,
+      minSymbolSize: 9,
+      maxSymbolSize: 16,
+      area: 300
+    }
+  };
 
   constructor(scene: THREE.Scene, font: Font, particleImg: THREE.Texture, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, hostContainer: HTMLElement) {
     this.scene = scene;
@@ -331,6 +407,7 @@ export class CreateParticles {
 
     this.bloomSymbolColor = new THREE.Color(0.0, 0.95, 0.05); 
 
+    // Base configuration (will be adjusted for screen size)
     this.data = { 
       text: "Hi, I'm\nMiká",
       amount: 2700,
@@ -339,7 +416,6 @@ export class CreateParticles {
       area: 250, 
       ease: .05, 
       distortionThreshold: 12,
-      // maxCooldownTime: 180, // REMOVED
       minFadeOutRate: 0.09,
       maxFadeOutRate: 0.12,
       minSymbolSize: 7,
@@ -350,10 +426,29 @@ export class CreateParticles {
       symbolMinProb: 0.001,
       symbolMaxProb: 0.15,
       symbolHeatRequirement: 0.4,
-      particleCooldownDurationMin: 200,  // e.g., 1.5 seconds at 60fps
-      particleCooldownDurationMax: 340, // e.g., 3 seconds at 60fps
+      particleCooldownDurationMin: 200, 
+      particleCooldownDurationMax: 340,
       symbolCooldownSpeedMultiplier: 3.1,
     };
+    
+    // Track the container dimensions to detect significant changes
+    this.lastKnownWidth = this.hostContainer.clientWidth;
+    this.lastKnownHeight = this.hostContainer.clientHeight;
+    
+    // Determine initial screen size and apply responsive settings
+    this.currentScreenSizeType = this.getScreenSizeType();
+    this.applyResponsiveParameters(this.currentScreenSizeType);
+    
+    // Log the detected screen size and particle configuration
+    console.log(`🖥️ Hero Particle Effect - Screen Size Detection:`);
+    console.log(`   Screen dimensions: ${this.lastKnownWidth}x${this.lastKnownHeight}px`);
+    console.log(`   Detected screen type: ${this.currentScreenSizeType.toUpperCase()}`);
+    console.log(`   Particle configuration:`);
+    console.log(`     • Particle count: ${this.data.amount}`);
+    console.log(`     • Particle size: ${this.data.particleSize}`);
+    console.log(`     • Text size: ${this.data.textSize}px`);
+    console.log(`     • Symbol size range: ${this.data.minSymbolSize} - ${this.data.maxSymbolSize}`);
+    console.log(`     • Effect area: ${this.data.area}`);
     
     this.boundOnMouseDown = this.onMouseDown.bind(this);
     this.boundOnMouseMove = this.onMouseMove.bind(this);
@@ -768,6 +863,85 @@ export class CreateParticles {
   }
   private visibleWidthAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number {
     return this.visibleHeightAtZDepth(depth, camera) * camera.aspect;
+  }
+
+  // Responsive design methods
+  private getScreenSizeType(): ScreenSizeType {
+    const width = this.hostContainer.clientWidth;
+    
+    if (width <= this.SCREEN_SIZES.mobile.maxWidth) {
+      return 'mobile';
+    } else if (width >= this.SCREEN_SIZES.tablet.minWidth && width <= this.SCREEN_SIZES.tablet.maxWidth) {
+      return 'tablet';
+    } else if (width >= this.SCREEN_SIZES.laptop.minWidth && width <= this.SCREEN_SIZES.laptop.maxWidth) {
+      return 'laptop';
+    } else if (width >= this.SCREEN_SIZES.desktop.minWidth && width <= this.SCREEN_SIZES.desktop.maxWidth) {
+      return 'desktop';
+    } else if (width >= this.SCREEN_SIZES.large.minWidth && width <= this.SCREEN_SIZES.large.maxWidth) {
+      return 'large';
+    } else {
+      return 'ultrawide';
+    }
+  }
+  private applyResponsiveParameters(screenType: ScreenSizeType): void {
+    const params = this.RESPONSIVE_PARAMS[screenType];
+    
+    // Apply the responsive parameters to the data object
+    if (params.amount !== undefined) this.data.amount = params.amount;
+    if (params.particleSize !== undefined) this.data.particleSize = params.particleSize;
+    if (params.textSize !== undefined) this.data.textSize = params.textSize;
+    if (params.minSymbolSize !== undefined) this.data.minSymbolSize = params.minSymbolSize;
+    if (params.maxSymbolSize !== undefined) this.data.maxSymbolSize = params.maxSymbolSize;
+    if (params.area !== undefined) this.data.area = params.area;
+  }
+
+  public checkScreenSizeChange(): boolean {
+    const currentWidth = this.hostContainer.clientWidth;
+    const currentHeight = this.hostContainer.clientHeight;
+    
+    // Check if dimensions have changed significantly (more than 10% or 100px)
+    const widthChange = Math.abs(currentWidth - this.lastKnownWidth);
+    const heightChange = Math.abs(currentHeight - this.lastKnownHeight);
+    const significantChange = widthChange > 100 || heightChange > 100 || 
+                             widthChange / this.lastKnownWidth > 0.1 || 
+                             heightChange / this.lastKnownHeight > 0.1;
+    
+    if (significantChange) {
+      const newScreenType = this.getScreenSizeType();
+      
+      if (newScreenType !== this.currentScreenSizeType) {
+        console.log(`🖥️ Screen size change detected: ${this.currentScreenSizeType} → ${newScreenType}`);
+        this.currentScreenSizeType = newScreenType;
+        this.applyResponsiveParameters(newScreenType);
+        this.lastKnownWidth = currentWidth;
+        this.lastKnownHeight = currentHeight;
+        this.needsParticleRegeneration = true;
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  public regenerateParticles(): void {
+    if (!this.needsParticleRegeneration) return;
+    
+    console.log(`🔄 Regenerating particles for ${this.currentScreenSizeType} screen size:`);
+    console.log(`   New particle count: ${this.data.amount}`);
+    console.log(`   New particle size: ${this.data.particleSize}`);
+    
+    // Remove existing particles
+    if (this.particles) {
+      this.scene.remove(this.particles);
+      this.particles.geometry.dispose();
+      const material = this.particles.material as THREE.Material;
+      if (material) material.dispose();
+    }
+    
+    // Recreate particles with new parameters
+    this.createText();
+    
+    this.needsParticleRegeneration = false;
   }
   
   public dispose() {
