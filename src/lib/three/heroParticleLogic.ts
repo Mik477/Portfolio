@@ -310,9 +310,10 @@ export class CreateParticles {
   private lastKnownHeight: number = 0;
   private needsParticleRegeneration: boolean = false;
 
-  private readonly SYMBOL_HUE_SHIFT_RANGE = 0.08; 
-  private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.075; 
-  private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.40; 
+  // These constants control the symbol color variation
+  private readonly SYMBOL_HUE_SHIFT_RANGE = 0.03;           // Controls hue variation (green tint shifts)
+  private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.08;  // Controls brightness variation
+  private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.45;      // Minimum brightness to prevent too-dark symbols
 
   // Screen size breakpoints
   private readonly SCREEN_SIZES = {
@@ -394,7 +395,7 @@ export class CreateParticles {
       '日', '〇', 'ﾊ', 'ﾐ', 'ﾋ', 'ｰ', 'ｳ', 'ｼ', 'ﾅ', 'ﾓ', 'ﾆ', 'ｻ', 'ﾜ',
       'ﾂ', 'ｵ', 'ﾘ', 'ｱ', 'ﾎ', 'ﾃ', 'ﾏ', 'ｹ', 'ﾒ', 'ｴ', 'ｶ', 'ｷ', 'ﾑ', 
       'ﾕ', 'ﾗ', 'ｾ', 'ﾈ', 'ｦ', 'ｲ', 'ｸ', 'ｺ', 'ｿ', 'ﾀ', 'ﾁ', 'ﾄ', 'ﾉ', 'ﾌ', 'ﾍ', 'ﾏ', 'ﾔ', 'ﾖ', 'ﾙ', 'ﾚ', 'ﾛ',
-      '∆','δ', 'ε', 'ζ', 'η', 'θ','∀', '∃', '∄','∅','ﾊ', 'ﾍ', 'ﾎ', 'ﾞ', 'ﾟ', 'ｧ', 'ｨ', 'ｩ', 'ｪ', 'ｫ', 'ｬ', 'ｭ', 'ｮ', 'ｯ','Д'
+      '∆','δ', 'ε', 'ζ', 'η', 'θ', '∃', '∄','∅','ﾊ', 'ﾍ', 'ﾎ', 'ﾞ', 'ﾟ', 'ｧ', 'ｨ', 'ｩ', 'ｪ', 'ｫ', 'ｬ', 'ｭ', 'ｮ', 'ｯ','Д'
     ];
     
     this.matrixColors = {
@@ -707,17 +708,20 @@ export class CreateParticles {
   }
 
   private getVariedSymbolColor(): THREE.Color {
-    const variedColor = this.bloomSymbolColor.clone(); 
+    const variedColor = this.bloomSymbolColor.clone(); // Base color: (0.0, 0.95, 0.05)
     const hsl = { h: 0, s: 0, l: 0 };
     variedColor.getHSL(hsl); 
 
+    // HUE VARIATION: Shifts the green tint slightly
     const hueOffset = (Math.random() - 0.5) * this.SYMBOL_HUE_SHIFT_RANGE;
     hsl.h += hueOffset;
     hsl.h = (hsl.h + 1.0) % 1.0; 
 
+    // LUMINANCE VARIATION: Makes some symbols brighter/dimmer
     const luminanceReduction = Math.random() * this.SYMBOL_LUMINANCE_REDUCTION_MAX;
     hsl.l -= luminanceReduction;
     
+    // Ensure minimum brightness
     hsl.l = Math.max(this.SYMBOL_MIN_LUMINANCE_TARGET, hsl.l);
     hsl.l = Math.min(1.0, hsl.l);
 

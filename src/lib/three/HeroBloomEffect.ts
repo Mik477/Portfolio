@@ -17,10 +17,10 @@ export class HeroBloomEffect {
 
     // Bloom Parameters (tweak these to control the glow)
     private bloomParams = {
-        threshold: 0.5,   // How bright a pixel needs to be to start blooming.
+        threshold: 0.4,   // How bright a pixel needs to be to start blooming.
                            // Adjusted because our bright symbols are around (0, 0.95, 0.05), luminance ~0.68.
-        strength: 0.2,     // Intensity of the bloom.
-        radius: 0.3,      // Radius/spread of the bloom. Smaller values keep it tighter.
+        strength: 0.15,     // Intensity of the bloom.
+        radius: 0.1,      // Radius/spread of the bloom. Smaller values keep it tighter.
     };
 
     constructor(
