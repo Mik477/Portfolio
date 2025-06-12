@@ -12,7 +12,7 @@ export interface PreloadTask {
 }
 
 // Configuration
-export const minimumLoadingDuration = 3000; // Minimum time to show loading screen (ms)
+export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
 
 const tasks = writable<Record<string, PreloadTask>>({});
 

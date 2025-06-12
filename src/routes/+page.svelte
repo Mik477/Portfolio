@@ -2,15 +2,23 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable, get } from 'svelte/store';
+  import { goto } from '$app/navigation';
   import { siteConfig } from '$lib/data/siteConfig';
-  import { projects, type Project } from '$lib/data/projectsData';
+  import { projects, type Project, type ProjectCard } from '$lib/data/projectsData';
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
   import type { SvelteComponent } from 'svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
+  import ParallaxCard from '$lib/components/ParallaxCard.svelte';
   import { overallLoadingState, initialSiteLoadComplete, loadingProgress, minimumLoadingDuration } from '$lib/stores/preloadingStore';
+  import { transitionStore } from '$lib/stores/transitionStore';
 
-  import gsap from 'gsap';
+  // FIX: Changed default import to named import for GSAP
+  import { gsap } from 'gsap';
+  import { Flip } from 'gsap/Flip';
+
+  // This should now work correctly
+  gsap.registerPlugin(Flip);
 
   // --- Component Instance Type for HeroParticleEffect ---
   interface HeroParticleEffectInstance extends SvelteComponent {
@@ -25,7 +33,6 @@
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
 
-  // New store for controlling initial reveal animation
   const isInitialReveal = writable(true);
   const particleEffectReady = writable(false);
 
@@ -54,16 +61,29 @@
   const contentAnimationStartOffset = -0.3;
   const projectBgZoomStartOffset = 0.1;
 
-  // Timing for initial reveal animation
-  const initialRevealDelay = 300; // Delay after loading screen starts fading
-  const particleFadeInDuration = 1.5; // Duration for particles to fade in
+  const initialRevealDelay = 300;
+  const particleFadeInDuration = 1.5;
 
   let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
   let contactSectionIndex: number = -1;
 
-  // Track if we've started the initial reveal sequence
   let hasStartedInitialReveal = false;
+
+  function handleCardClick(project: Project, card: ProjectCard) {
+    if (get(isAnimating)) return;
+
+    const cardBgElement = document.getElementById(`card-bg-${card.id}`);
+    if (!cardBgElement) {
+      console.error(`Flip target 'card-bg-${card.id}' not found!`);
+      goto(`/projects/${project.slug}${card.aspectLink}`);
+      return;
+    }
+
+    const state = Flip.getState(cardBgElement);
+    transitionStore.set({ fromState: state, cardId: card.id });
+    goto(`/projects/${project.slug}${card.aspectLink}`);
+  }
 
   onMount((): (() => void) | void => {
     const setupPromise = async () => {
@@ -86,7 +106,14 @@
 
         if (currentSectionType === 'project') {
           const headlineEl = sectionEl.querySelector('h2');
+          const summaryEl = sectionEl.querySelector('.project-summary');
+          const cardsContainer = sectionEl.querySelector('.project-cards-container');
+          const readMoreBtn = sectionEl.querySelector('.read-more-btn');
+
           if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
+          if (summaryEl) contentTl.fromTo(summaryEl, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
+          if (cardsContainer) contentTl.fromTo(cardsContainer, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.2");
+          if (readMoreBtn) contentTl.fromTo(readMoreBtn, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
         
         } else if (currentSectionType === 'about') {
           const h2El = sectionEl.querySelector('.about-text-block h2');
@@ -96,11 +123,7 @@
           if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
           if (imageEl) { 
-            contentTl.fromTo(imageEl, 
-              { autoAlpha: 0, scale: 1.1 }, 
-              { autoAlpha: 1, scale: 1, duration: 1.2, ease: 'power2.out' }, 
-              "start+=0.1"
-            );
+            contentTl.fromTo(imageEl, { autoAlpha: 0, scale: 1.1 }, { autoAlpha: 1, scale: 1, duration: 1.2, ease: 'power2.out' }, "start+=0.1");
           }
         
         } else if (currentSectionType === 'contact') {
@@ -136,12 +159,10 @@
         }
       });
 
-      // Don't start any animations until loading is complete
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
     };
     
-    // Listen for when particle effect is ready
     particleEffectReady.subscribe(ready => {
       if (ready && get(initialSiteLoadComplete) && !hasStartedInitialReveal) {
         startInitialReveal();
@@ -150,14 +171,12 @@
     
     unsubOverallLoadingState = overallLoadingState.subscribe(status => {
       if (status === 'loaded' && !get(initialSiteLoadComplete)) {
-        // Ensure minimum loading duration has passed
         setTimeout(() => {
           initialSiteLoadComplete.set(true);
-          // Check if we can start the reveal
           if (get(particleEffectReady) && !hasStartedInitialReveal) {
             startInitialReveal();
           }
-        }, 100); // Small delay to ensure loading screen gets the signal first
+        }, 100);
       }
     });
     
@@ -184,51 +203,32 @@
     if (hasStartedInitialReveal) return;
     hasStartedInitialReveal = true;
     
-    console.log("Starting initial reveal sequence");
-    
-    // Wait for loading screen to start fading, then begin particle fade-in
     setTimeout(() => {
-      // Trigger particle effect fade-in
       if (heroParticleEffectInstance && get(currentSectionIndex) === HERO_LOGICAL_INDEX) {
-        // The particle effect should already be initialized and ready
-        // Just need to ensure it's in the right state
         heroParticleEffectInstance.onTransitionToHeroComplete();
       }
-      
-      // Enable interactions after fade-in completes
       setTimeout(() => {
         isInitialReveal.set(false);
-        console.log("Initial reveal complete");
       }, particleFadeInDuration * 1000);
-      
     }, initialRevealDelay);
   }
 
   function navigateToSection(newIndex: number) {
-    // Prevent navigation during initial reveal
     if (get(isInitialReveal)) return;
-    
     const oldIndex = get(currentSectionIndex);
 
-    if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) {
-      return;
-    }
+    if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return;
+    
     isAnimating.set(true);
     isTransitioning.set(true);
 
-    console.log(`Navigate: from ${oldIndex} to ${newIndex}`);
-
-    // --- Call HeroParticleEffect methods based on transition ---
     if (heroParticleEffectInstance) {
       if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) {
-        console.log("+page: Calling onTransitionToHeroStart");
         heroParticleEffectInstance.onTransitionToHeroStart();
       } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) {
-        console.log("+page: Calling onTransitionFromHeroStart");
         heroParticleEffectInstance.onTransitionFromHeroStart();
       }
     }
-    // --- End HeroParticleEffect method calls ---
 
     const currentSectionEl = sectionElements[oldIndex];
     const targetSectionEl = sectionElements[newIndex];
@@ -241,48 +241,27 @@
       onComplete: () => {
         currentSectionIndex.set(newIndex);
         isTransitioning.set(false);
-
-        // --- Call HeroParticleEffect completion method ---
         if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) {
-            console.log("+page: Calling onTransitionToHeroComplete");
             heroParticleEffectInstance.onTransitionToHeroComplete();
         }
-        // --- End HeroParticleEffect completion method call ---
       }
     });
 
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
 
-    masterTransitionTl.to(currentSectionEl, {
-      yPercent: -direction * 100,
-      autoAlpha: 0,
-      duration: transitionDuration,
-      ease: 'expo.out'
-    }, "slide");
-
-    masterTransitionTl.to(targetSectionEl, {
-      yPercent: 0,
-      duration: transitionDuration,
-      ease: 'expo.out'
-    }, "slide");
+    masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
+    masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
 
     if (newIndex !== HERO_LOGICAL_INDEX) {
-        masterTransitionTl.call(() => {
-            sectionContentTimelines[newIndex]?.restart();
-        }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
+        masterTransitionTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
     }
 
     const targetBgZoom = sectionBackgroundZooms[newIndex];
     if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
-      masterTransitionTl.call(() => {
-        targetBgZoom.restart();
-      }, [], `slide+=${projectBgZoomStartOffset}`);
+      masterTransitionTl.call(() => { targetBgZoom.restart(); }, [], `slide+=${projectBgZoomStartOffset}`);
     }
 
-    const scrollLockReleaseTime = Math.max(transitionDuration, minSectionDisplayDuration);
-    gsap.delayedCall(scrollLockReleaseTime, () => {
-      isAnimating.set(false);
-    });
+    gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { isAnimating.set(false); });
   }
 
   let lastScrollTime = 0;
@@ -290,41 +269,29 @@
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
-    if (get(isInitialReveal)) return; // Prevent during initial reveal
-    
+    if (get(isInitialReveal)) return;
     const currentTime = Date.now();
-    if (currentTime - lastScrollTime < scrollDebounce) return; 
-    if (get(isAnimating)) return;
-    
+    if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; 
     lastScrollTime = currentTime;
     navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1));
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    if (get(isInitialReveal)) {
-      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) {
-        event.preventDefault();
-      }
-      return; // Prevent during initial reveal
+    if (get(isInitialReveal) || get(isAnimating)) {
+      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
+      return;
     }
-    
     const currentTime = Date.now();
     if (currentTime - lastScrollTime < scrollDebounce) {
         if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
         return;
     }
-    if (get(isAnimating)) {
-      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
-      return;
-    }
     
     let newIndex = get(currentSectionIndex);
     let shouldScroll = false;
     switch (event.key) {
-        case 'ArrowDown': case 'PageDown': case ' ':
-            newIndex = get(currentSectionIndex) + 1; shouldScroll = true; break;
-        case 'ArrowUp': case 'PageUp':
-            newIndex = get(currentSectionIndex) - 1; shouldScroll = true; break;
+        case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break;
+        case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break;
         case 'Home': newIndex = 0; shouldScroll = true; break;
         case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break;
     }
@@ -340,7 +307,6 @@
     return allSectionsData.find(s => s.id === id)?.data;
   }
 
-  // Notify when particle effect is ready
   function onParticleEffectReady() {
     particleEffectReady.set(true);
   }
@@ -349,38 +315,24 @@
 <svelte:head>
   <title>{siteConfig.title}</title>
   <meta name="description" content={siteConfig.description} />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
 </svelte:head>
 
 <LoadingScreen /> 
 
-<div 
-  class="particle-effect-layer" 
-  class:initial-state={$isInitialReveal}
-  style="pointer-events: {particleLayerPointerEvents};"
->
-  <HeroParticleEffect 
-    bind:this={heroParticleEffectInstance}
-    activeSectionIndex={$currentSectionIndex} 
-    isTransitioning={$isTransitioning}
-    transitionDuration={transitionDuration}
-    isInitialLoad={$isInitialReveal}
-    on:ready={onParticleEffectReady}
-  />
+<div class="particle-effect-layer" class:initial-state={$isInitialReveal} style="pointer-events: {particleLayerPointerEvents};">
+  <HeroParticleEffect bind:this={heroParticleEffectInstance} activeSectionIndex={$currentSectionIndex} isTransitioning={$isTransitioning} {transitionDuration} isInitialLoad={$isInitialReveal} on:ready={onParticleEffectReady} />
 </div>
 
 <main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
-  <section id="hero" class="full-screen-section hero-section">
-    <!-- Hero section is empty - only shows particle effect -->
-  </section>
+  <section id="hero" class="full-screen-section hero-section"></section>
 
   <section id="about" class="full-screen-section about-section">
     <div class="about-background-layer">
       {#if siteConfig.aboutSection.imageUrl}
-        <img
-          src={siteConfig.aboutSection.imageUrl}
-          alt="Visual backdrop for the About Me section"
-          class="about-background-image"
-        />
+        <img src={siteConfig.aboutSection.imageUrl} alt="Visual backdrop for the About Me section" class="about-background-image" />
       {/if}
     </div>
     <div class="about-content-wrapper">
@@ -388,11 +340,7 @@
         <h2>{siteConfig.aboutSection.title}</h2>
         <p>{siteConfig.aboutSection.introduction}</p>
         {#if contactSectionIndex !== -1}
-          <KeyboardButtons
-            socialLinks={siteConfig.aboutSection.socialLinks}
-            {contactSectionIndex}
-            {navigateToSection}
-          />
+          <KeyboardButtons socialLinks={siteConfig.aboutSection.socialLinks} {contactSectionIndex} {navigateToSection} />
         {/if}
       </div>
     </div>
@@ -405,21 +353,22 @@
       <div class="content-overlay">
         <div class="project-content">
           <h2>{project.headline}</h2>
-          <p>{project.summary}</p>
+          <p class="project-summary">{project.summary}</p>
+          
           <div class="project-cards-container">
             {#each project.cards as card (card.id)}
-              <div class="project-card">
-                <img src={card.image} alt={card.title} />
-                <h3>{card.title}</h3>
-                <p>{card.description || ''}</p>
-              </div>
+              <button type="button" class="card-click-wrapper" on:click={() => handleCardClick(project, card)}>
+                <ParallaxCard cardData={card} width="220px" height="290px" />
+              </button>
             {/each}
           </div>
+          
           {#if project.readMoreLinkText}
-            <button on:click={() => console.log('Navigate to project:', project.slug)}>
+            <button class="read-more-btn" on:click={() => goto(`/projects/${project.slug}`)}>
                 {project.readMoreLinkText}
             </button>
           {/if}
+
         </div>
       </div>
     </section>
@@ -442,297 +391,76 @@
 </main>
 
 <style>
-  :global(body) {
-    background-color: rgb(9 9 11);
-    color: rgb(245 245 247);
-  }
-
-  .particle-effect-layer {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    z-index: 0;
-    background-color: rgb(9 9 11);
-    transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1);
-  }
+  :global(body) { background-color: rgb(9 9 11); color: rgb(245 245 247); }
+  .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
+  .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
+  .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
+  .full-screen-section { height: 100%; width: 100%; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; box-sizing: border-box; background-color: rgb(9 9 11); }
+  .hero-section { background-color: transparent; z-index: 2; pointer-events: none; }
   
-  /* Initial state with subtle green tint matching loading screen */
-  .particle-effect-layer.initial-state {
-    background-color: rgb(5 8 5); /* Subtle green-black matching loading screen */
-  }
+  .about-section { padding: 0; text-align: left; background-color: transparent; z-index: 2; position: relative; overflow: hidden; }
+  .about-background-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+  .about-background-image { width: 100%; height: 100%; object-fit: cover; object-position: 80% center; opacity: 0; }
+  .about-content-wrapper { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; justify-content: flex-start; align-items: center; padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem); box-sizing: border-box; }
+  .about-text-block { max-width: 580px; }
+  .about-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; }
+  .about-text-block p { font-size: clamp(1rem, 2.2vw, 1.15rem); line-height: 1.8; margin-bottom: 2.5rem; color: rgb(212 212 216); opacity: 0; }
   
-  .portfolio-container {
-    position: relative;
-    width: 100%;
-    height: 100vh;
-    overflow: hidden;
-    z-index: 1;
-  }
-
-  .full-screen-section {
-    height: 100%; 
-    width: 100%;
-    position: absolute;
-    top: 0;
-    left: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    text-align: center;
-    padding: 2rem;
-    box-sizing: border-box;
-    background-color: rgb(9 9 11); 
-  }
+  .project-section { color: rgb(245 245 247); z-index: 2; background-color: transparent; }
+  .project-section .content-overlay { background-color: rgba(9 9 11 / 0.85); backdrop-filter: blur(8px); padding: 2rem 3rem; border-radius: 16px; width: 90%; max-width: 1100px; z-index: 1; position: relative; border: 1px solid rgba(255 255 255 / 0.1); }
+  .project-section h2 { opacity: 0; font-size: 2.5rem; font-weight: 300; margin-bottom: 1rem; letter-spacing: -0.02em; }
+  .project-section p.project-summary { font-size: 1.15rem; color: rgb(212 212 216); line-height: 1.7; margin-bottom: 2rem; max-width: 800px; margin-left: auto; margin-right: auto; opacity: 0; }
   
-  .hero-section {
-    background-color: transparent;
-    z-index: 2;
-    pointer-events: none;
-  }
+  .project-cards-container { display: flex; justify-content: center; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem; flex-wrap: wrap; opacity: 0; }
   
-  .about-section {
-    padding: 0; 
-    text-align: left; 
-    background-color: transparent; 
-    z-index: 2;
-    position: relative; 
-    overflow: hidden; 
+  .card-click-wrapper {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    border-radius: 10px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
   }
-
-  .about-background-layer {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 0; 
-  }
-
-  .about-background-image {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    object-position: 80% center; 
-    opacity: 0;
-  }
-
-  .about-content-wrapper {
-    position: relative; 
-    z-index: 1;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    justify-content: flex-start; 
-    align-items: center; 
-    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); 
-    padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem);
-    box-sizing: border-box;
-  }
-
-  .about-text-block {
-    max-width: 580px; 
-  }
-
-  .about-text-block h2 {
-    font-size: clamp(2.2rem, 4.5vw, 3rem); 
-    margin-bottom: 1.5rem;
-    font-weight: 300;
-    letter-spacing: -0.02em;
-    color: rgb(245 245 247);
-    opacity: 0;
-  }
-
-  .about-text-block p {
-    font-size: clamp(1rem, 2.2vw, 1.15rem); 
-    line-height: 1.8;
-    margin-bottom: 2.5rem; 
-    color: rgb(212 212 216);
-    opacity: 0;
-  }
-  
-  .project-section { 
-    color: rgb(245 245 247);
-    z-index: 2;
-    background-color: transparent;
-  }
-  
-  .project-section .content-overlay { 
-    background-color: rgba(9 9 11 / 0.85);
-    backdrop-filter: blur(8px);
-    padding: 3rem; 
-    border-radius: 16px; 
-    width: 90%; 
-    max-width: 1000px; 
-    z-index: 1; 
-    position: relative;
-    border: 1px solid rgba(255 255 255 / 0.1);
-  }
-  
-  .project-section h2 { 
-    opacity: 0;
-    font-size: 2.5rem;
-    font-weight: 300;
-    margin-bottom: 1rem;
-    letter-spacing: -0.02em;
-  }
-  
-  .project-section > .content-overlay > .project-content > p {
-    font-size: 1.15rem;
-    color: rgb(212 212 216);
-    line-height: 1.7;
-    margin-bottom: 2rem;
-  }
-  
-  .project-cards-container { 
-    display: flex; 
-    justify-content: center; 
-    gap: 1.5rem; 
-    margin-top: 2rem; 
-    margin-bottom: 2rem; 
-    flex-wrap: wrap; 
-  }
-  
-  .project-card { 
-    background-color: rgba(255 255 255 / 0.05);
-    backdrop-filter: blur(4px);
-    border: 1px solid rgba(255 255 255 / 0.1);
-    padding: 1.25rem; 
-    border-radius: 12px; 
-    width: 280px; 
-    text-align: left; 
-    transition: all 0.3s ease;
-  }
-  
-  .project-card:hover { 
+  .card-click-wrapper:hover {
     transform: translateY(-5px);
-    background-color: rgba(255 255 255 / 0.08);
-    border-color: rgba(255 255 255 / 0.2);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
   }
-  
-  .project-card img { 
-    width: 100%; 
-    height: 160px; 
-    object-fit: cover; 
-    border-radius: 8px; 
-    margin-bottom: 1rem;
-  }
-  
-  .project-card h3 { 
-    font-size: 1.3rem; 
-    margin-bottom: 0.5rem;
-    font-weight: 400;
-    color: rgb(245 245 247);
-  }
-  
-  .project-card p { 
-    font-size: 0.95rem; 
-    color: rgb(163 163 170);
-    line-height: 1.6;
-  }
-  
-  .project-section button { 
-    padding: 0.875rem 2rem; 
-    background-color: rgb(99 102 241);
-    color: white; 
-    border: none; 
-    border-radius: 8px; 
-    cursor: pointer; 
-    font-size: 1.05rem; 
-    font-weight: 500;
-    transition: all 0.3s ease;
-    margin-top: 1rem;
-  }
-  
-  .project-section button:hover { 
-    background-color: rgb(79 70 229);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 20px rgba(99 102 241 / 0.4);
+  .card-click-wrapper:focus-visible {
+    outline: 2px solid rgb(99 102 241);
+    outline-offset: 4px;
   }
 
-  .contact-section { 
-    background-color: rgb(24 24 27);
-    color: rgb(245 245 247);
-    z-index: 2;
-  }
-  .content-center { 
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 2rem;
-  }
-  .contact-section h2 {
-    font-size: 2.5rem;
-    margin-bottom: 2rem;
-    font-weight: 300;
-    letter-spacing: -0.02em;
+  .project-section button.read-more-btn { 
     opacity: 0;
+    padding: 0.875rem 2rem; background-color: rgb(99 102 241); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: 500; transition: all 0.3s ease; margin-top: 1rem;
   }
+  .project-section button.read-more-btn:hover { background-color: rgb(79 70 229); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(99 102 241 / 0.4); }
+
+  .contact-section { background-color: rgb(24 24 27); color: rgb(245 245 247); z-index: 2; }
+  .content-center { max-width: 800px; margin: 0 auto; padding: 2rem; }
+  .contact-section h2 { font-size: 2.5rem; margin-bottom: 2rem; font-weight: 300; letter-spacing: -0.02em; opacity: 0; }
+  .contact-section p { font-size: 1.15rem; line-height: 1.8; margin-bottom: 1.5rem; color: rgb(212 212 216); opacity: 0; }
+  .contact-section a { color: rgb(99 102 241); text-decoration: none; font-weight: 500; transition: color 0.3s ease; }
+  .contact-section a:hover { color: rgb(129 140 248); text-decoration: underline; }
+  .additional-links { margin-top: 2rem; display: flex; gap: 2rem; justify-content: center; opacity: 0; }
   
-  .contact-section p {
-    font-size: 1.15rem;
-    line-height: 1.8;
-    margin-bottom: 1.5rem;
-    color: rgb(212 212 216);
-    opacity: 0;
+  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  
+  @media (max-width: 1024px) {
+    .project-cards-container {
+        gap: 0.5rem;
+    }
   }
-  
-  .contact-section a { 
-    color: rgb(99 102 241);
-    text-decoration: none;
-    font-weight: 500;
-    transition: color 0.3s ease;
-  }
-  
-  .contact-section a:hover {
-    color: rgb(129 140 248);
-    text-decoration: underline;
-  }
-  
-  .additional-links {
-    margin-top: 2rem;
-    display: flex;
-    gap: 2rem;
-    justify-content: center;
-    opacity: 0;
-  }
-  
-  * {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-  
   @media (max-width: 768px) { 
     .project-cards-container {
       flex-direction: column;
       align-items: center;
+      gap: 1.5rem;
     }
-    .project-card {
-      width: 100%;
-      max-width: 320px;
-    }
-
-    .about-section {
-      padding: 2rem; 
-    }
-
-    .about-content-wrapper {
-      justify-content: center; 
-      text-align: center; 
-      padding: 1rem; 
-    }
-    
-    .about-text-block {
-      max-width: 100%; 
-    }
-    .about-text-block h2, .about-text-block p {
-      text-align: center; 
-    }
-
-    .about-background-layer {
-      display: none; 
-    }
+    .about-section { padding: 2rem; }
+    .about-content-wrapper { justify-content: center; text-align: center; padding: 1rem; }
+    .about-text-block { max-width: 100%; }
+    .about-text-block h2, .about-text-block p { text-align: center; }
+    .about-background-layer { display: none; }
   }
 </style>
