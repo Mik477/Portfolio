@@ -119,21 +119,21 @@ export const projects: Project[] = [
       {
         id: 'p2-data-sourcing',
         title: 'Data Sourcing & ETL',
-        image: '/images/projects/project-two/card-data.jpg',
+        image: '/images/projects/project-one/card-data.jpg',
         description: 'Gathering and preparing data.',
         aspectLink: '#data-sourcing'
       },
       {
         id: 'p2-dashboard-design',
         title: 'Dashboard Design (UX/UI)',
-        image: '/images/projects/project-two/card-design.jpg',
+        image: '/images/projects/project-one/card-data.jpg',
         description: 'User-centric design.',
         aspectLink: '#dashboard-design'
       },
       {
         id: 'p2-key-insights',
         title: 'Key Insights & Features',
-        image: '/images/projects/project-two/card-insights.jpg',
+        image: '/images/projects/project-one/card-data.jpg',
         description: 'Impactful visualizations.',
         aspectLink: '#key-insights'
       }

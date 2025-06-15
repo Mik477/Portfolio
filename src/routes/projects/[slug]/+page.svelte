@@ -1,14 +1,21 @@
 <!-- src/routes/projects/[slug]/+page.svelte -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { get } from 'svelte/store'; // Import get for one-time store access
-  import { page } from '$app/stores'; // FIX: Import the page store
+  import { get, writable } from 'svelte/store'; // MODIFIED: Import writable
+  import { page } from '$app/stores';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
+  // NEW: Import the preloading store and helpers
+  import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
 
   export let data;
-  // FIX: The `hash` is no longer in `data`. We will get it from the `$page` store.
   const { project } = data;
+
+  // NEW: Create a unique task ID for this project's assets
+  const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
+
+  // NEW: A writable store to track when content for this specific page is ready.
+  const isContentLoaded = writable(false);
 
   const allSubSections = [
     { 
@@ -30,13 +37,62 @@
   const scrollDebounce = 200;
   const transitionDuration = 1.1;
 
+  // NEW: A helper function to preload an array of images.
+  async function preloadProjectImages(imageUrls: string[]): Promise<void> {
+    // Register the task with the global preloading store
+    startLoadingTask(PROJECT_ASSETS_TASK_ID, 2); // Give it a higher priority
+
+    const imagePromises = imageUrls.map(src => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+        img.src = src;
+      });
+    });
+
+    try {
+      await Promise.all(imagePromises);
+      // Once all images are loaded, update the task status to 'loaded'
+      preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
+      console.log(`All assets for project '${project.slug}' preloaded successfully.`);
+    } catch (error) {
+      console.error(error);
+      preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
+    }
+  }
+
   onMount(() => {
-    const init = async () => {
+    // NEW: Trigger the asset preloading process as soon as the component mounts.
+    const assetUrls = allSubSections
+      .filter(s => s.background.type === 'image')
+      .map(s => s.background.value);
+      
+    preloadProjectImages(assetUrls).then(() => {
+      // Once preloading is complete (success or fail), mark content as ready to be shown.
+      isContentLoaded.set(true);
+    });
+
+    return () => {
+      // Cleanup logic remains the same
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      sectionContentTimelines.forEach(timeline => { timeline?.kill(); });
+      sectionBackgroundZooms.forEach(tween => { tween?.kill(); });
+    };
+  });
+
+  // NEW: We wrap the entire animation setup in a reactive block.
+  // This ensures it only runs *after* `isContentLoaded` becomes true.
+  $: if ($isContentLoaded) {
+    setupAnimations();
+  }
+
+  async function setupAnimations() {
       await tick();
 
       sectionElements = allSubSections.map(section => document.getElementById(section.id) as HTMLElement);
       
-      // FIX: Read the hash from the `$page` store on the client side.
       const urlHash = get(page).url.hash;
       const cleanHash = urlHash.startsWith('#') ? urlHash.substring(1) : null;
       
@@ -50,11 +106,24 @@
       currentSectionIndex = initialIndex;
 
       sectionElements.forEach((sectionEl, index) => {
+        // MODIFIED: Enhanced animation timeline for a smoother reveal.
         const contentTl = gsap.timeline({ paused: true });
+        const contentOverlay = sectionEl.querySelector('.subpage-content-overlay');
         const h2El = sectionEl.querySelector('h2');
         const pEl = sectionEl.querySelector('p');
-        if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
-        if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
+
+        if (contentOverlay) {
+          // 1. Animate the container card first
+          contentTl.fromTo(contentOverlay, { autoAlpha: 0, scale: 0.95 }, { autoAlpha: 1, scale: 1, duration: 0.7, ease: 'power2.out' }, "start");
+        }
+        if (h2El) {
+          // 2. Fade in the heading shortly after
+          contentTl.fromTo(h2El, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start+=0.2");
+        }
+        if (pEl) {
+          // 3. Fade in the paragraph last
+          contentTl.fromTo(pEl, { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.35");
+        }
         sectionContentTimelines[index] = contentTl;
         
         const bgTarget = sectionEl.querySelector('.subpage-background-image') as HTMLElement;
@@ -75,17 +144,7 @@
 
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
-    };
-
-    init();
-
-    return () => {
-      window.removeEventListener('wheel', handleWheel);
-      window.removeEventListener('keydown', handleKeyDown);
-      sectionContentTimelines.forEach(timeline => { timeline?.kill(); });
-      sectionBackgroundZooms.forEach(tween => { tween?.kill(); });
-    };
-  });
+  }
 
   function navigateToSection(newIndex: number) {
     const oldIndex = currentSectionIndex;
@@ -139,7 +198,8 @@
   <meta name="description" content={project.summary} />
 </svelte:head>
 
-<div class="subpage-container">
+<!-- MODIFIED: Add a class binding to fade the container in when content is ready -->
+<div class="subpage-container" class:loaded={$isContentLoaded}>
   {#each allSubSections as section, i (section.id)}
     <section id={section.id} class="subpage-fullscreen-section">
       <div 
@@ -156,7 +216,6 @@
 </div>
 
 <style>
-  /* Styles remain the same */
   .subpage-container {
     position: fixed;
     top: 0;
@@ -165,6 +224,14 @@
     height: 100vh;
     background-color: #000;
     overflow: hidden;
+    /* NEW: Start transparent and fade in */
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+  }
+  
+  /* NEW: Fade in the container when the `loaded` class is applied */
+  .subpage-container.loaded {
+    opacity: 1;
   }
 
   .subpage-fullscreen-section {
@@ -190,7 +257,7 @@
     background-size: cover;
     background-position: center;
     z-index: 0;
-    transform: scale(1); /* Initial scale for zoom animation */
+    transform: scale(1);
   }
 
   .subpage-content-overlay {
@@ -203,6 +270,8 @@
     backdrop-filter: blur(10px);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
+    /* NEW: Start with opacity 0, GSAP will control it */
+    opacity: 0;
   }
 
   .subpage-content-overlay h2 {
@@ -211,7 +280,8 @@
     font-family: 'Playfair Display', serif;
     margin-bottom: 1.5rem;
     text-shadow: 0 2px 20px rgba(0,0,0,0.5);
-    opacity: 0; /* Animated by GSAP */
+    /* NEW: Start with opacity 0, GSAP will control it */
+    opacity: 0;
   }
 
   .subpage-content-overlay p {
@@ -220,6 +290,7 @@
     max-width: 700px;
     margin: 0 auto;
     color: #e2e8f0;
-    opacity: 0; /* Animated by GSAP */
+    /* NEW: Start with opacity 0, GSAP will control it */
+    opacity: 0;
   }
 </style>

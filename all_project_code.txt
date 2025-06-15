@@ -857,18 +857,8 @@ export {};
   import type { ProjectCard } from '$lib/data/projectsData';
 
   // --- PROPS ---
-  /**
-   * The data object for the card, containing image, title, description, etc.
-   */
   export let cardData: ProjectCard;
-  /**
-   * The width of the card. Can be any valid CSS unit (e.g., '240px', '20vw').
-   * For responsive behavior, this should be adjusted by the parent container.
-   */
   export let width: string = '240px';
-  /**
-   * The height of the card. Can be any valid CSS unit (e.g., '320px', '40vh').
-   */
   export let height: string = '320px';
 
   // --- STATE ---
@@ -888,32 +878,24 @@ export {};
   });
 
   onDestroy(() => {
-    // Ensure we clear the timeout if the component is destroyed
     if (mouseLeaveDelay) clearTimeout(mouseLeaveDelay);
   });
 
   // --- REACTIVE COMPUTATIONS (Derived State) ---
-  // Calculate mouse position as a percentage (0 to 1) from the center
   $: mousePX = mouseX / elementWidth;
   $: mousePY = mouseY / elementHeight;
-
-  // Calculate rotation and translation values based on mouse position
   $: rX = !isNaN(mousePX) ? mousePX * 30 : 0;
   $: rY = !isNaN(mousePY) ? mousePY * -30 : 0;
   $: tX = !isNaN(mousePX) ? mousePX * -40 : 0;
   $: tY = !isNaN(mousePY) ? mousePY * -40 : 0;
-
-  // Generate the inline style strings for binding
   $: cardStyle = `transform: rotateY(${rX}deg) rotateX(${rY}deg);`;
   $: cardBgTransform = `transform: translateX(${tX}px) translateY(${tY}px);`;
   $: cardBgImage = `background-image: url(${cardData.image});`;
-
 
   // --- EVENT HANDLERS ---
   function handleMouseMove(e: MouseEvent) {
     if (!cardWrapElement) return;
     const rect = cardWrapElement.getBoundingClientRect();
-    // Calculate mouse position relative to the center of the element
     mouseX = e.clientX - rect.left - elementWidth / 2;
     mouseY = e.clientY - rect.top - elementHeight / 2;
   }
@@ -923,7 +905,6 @@ export {};
   }
 
   function handleMouseLeave() {
-    // Delay before resetting the card to its neutral state
     mouseLeaveDelay = window.setTimeout(() => {
       mouseX = 0;
       mouseY = 0;
@@ -943,12 +924,11 @@ export {};
   aria-label="Interactive project card for {cardData.title}"
 >
   <div class="card" style={cardStyle}>
-    <!-- This element's ID is crucial for the Flip animation in Phase 4 -->
     <div class="card-bg" style="{cardBgTransform} {cardBgImage}" id="card-bg-{cardData.id}"></div>
     <div class="card-info">
-      <h1>{cardData.title}</h1>
+      <h1 class="card-title">{cardData.title}</h1>
       {#if cardData.description}
-        <p>{cardData.description}</p>
+        <p class="card-description">{cardData.description}</p>
       {/if}
     </div>
   </div>
@@ -960,12 +940,16 @@ export {};
     transform: perspective(800px);
     transform-style: preserve-3d;
     cursor: pointer;
-    -webkit-tap-highlight-color: transparent; /* For mobile devices */
+    -webkit-tap-highlight-color: transparent;
+    /* MODIFIED: Start fully invisible. GSAP's `autoAlpha` will manage this. */
+    visibility: hidden;
+    opacity: 0;
   }
   .card-wrap:hover .card-info {
     transform: translateY(0);
   }
-  .card-wrap:hover .card-info p {
+  /* MODIFIED: Changed selector to target the class for consistency */
+  .card-wrap:hover .card-description {
     opacity: 1;
   }
   .card-wrap:hover .card-info,
@@ -988,8 +972,8 @@ export {};
 
   .card {
     position: relative;
-    width: 100%; /* Fill the wrapper */
-    height: 100%; /* Fill the wrapper */
+    width: 100%;
+    height: 100%;
     background-color: #333;
     overflow: hidden;
     border-radius: 10px;
@@ -1000,7 +984,6 @@ export {};
   .card-bg {
     opacity: 0.5;
     position: absolute;
-    /* The negative offset and padding allow the image to move without showing edges */
     top: -20px;
     left: -20px;
     width: calc(100% + 40px);
@@ -1020,13 +1003,17 @@ export {};
     transform: translateY(40%);
     transition: 0.6s 1.6s cubic-bezier(0.215, 0.61, 0.355, 1);
   }
-  .card-info p {
+  
+  /* MODIFIED: The text itself should also start fully hidden */
+  .card-description {
     opacity: 0;
+    visibility: hidden;
     text-shadow: black 0 2px 3px;
     transition: 0.6s 1.6s cubic-bezier(0.215, 0.61, 0.355, 1);
     font-size: 0.9rem;
     line-height: 1.5;
   }
+  
   .card-info * {
     position: relative;
     z-index: 1;
@@ -1045,14 +1032,16 @@ export {};
     transform: translateY(100%);
     transition: 5s 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
-
-  .card-info h1 {
-    /* Use clamp for responsive font size that scales with the card's width */
+  
+  /* MODIFIED: Target the class and ensure it also starts hidden */
+  .card-info .card-title {
     font-size: clamp(1.4rem, 10vw, 2rem);
-    font-family: 'Playfair Display', serif; /* A fallback could be specified in app.css or app.html */
+    font-family: 'Playfair Display', serif;
     font-weight: 700;
     text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
     margin-bottom: 0.5rem;
+    opacity: 0;
+    visibility: hidden;
   }
 </style>
 --- END OF FILE src\lib\components\ParallaxCard.svelte ---
@@ -1069,12 +1058,18 @@ export interface ProjectCard {
   aspectLink?: string; // Anchor link for the subpage section, e.g., '#data-exploration-section'
 }
 
+// --- MODIFICATION START ---
+// Add a background property to the sub-page section interface
 export interface ProjectSubPageSection {
     id: string; // Corresponds to aspectLink from a card, used for scrolling
     title: string;
     content: string; // Can be HTML or Markdown, we'll decide how to render it
-    // You might add images, charts, or other specific elements here later
+    background: {
+      type: 'image' | 'video' | 'color';
+      value: string;
+    };
 }
+// --- MODIFICATION END ---
 
 export interface Project {
   id: string; // Unique ID for the project, e.g., 'project-alpha'
@@ -1091,7 +1086,6 @@ export interface Project {
   background: {
     type: 'image' | 'video' | 'color'; // Type of background
     value: string; // Path to image/video or color code
-    //particleEffect?: any; // Optional tsParticles config for this section
   };
   tags?: string[]; // e.g., ['Machine Learning', 'Python', 'TensorFlow']
   cards: ProjectCard[];
@@ -1108,8 +1102,7 @@ export const projects: Project[] = [
     summary: 'Leveraging machine learning to proactively identify and mitigate customer churn, improving retention rates.',
     background: {
       type: 'image',
-      value: '/images/projects/project-one/background.jpg', // Create this path in `static/images/...`
-      // particleEffect: { /* config */ }
+      value: '/images/projects/project-one/background.jpg',
     },
     tags: ['Machine Learning', 'Python', 'Scikit-learn', 'Data Analysis'],
     cards: [
@@ -1118,7 +1111,7 @@ export const projects: Project[] = [
         title: 'Data Exploration',
         image: '/images/projects/project-one/card-data.jpg',
         description: 'Deep dive into dataset characteristics.',
-        aspectLink: '#data-exploration'
+        aspectLink: '#data-exploration' // This #hash is important
       },
       {
         id: 'p1-model-building',
@@ -1135,57 +1128,62 @@ export const projects: Project[] = [
         aspectLink: '#results'
       }
     ],
+    // --- MODIFICATION START: Add background data to each sub-section ---
     subPageSections: [
         {
             id: 'data-exploration',
             title: 'In-Depth: Data Exploration',
-            content: 'Detailed walkthrough of the data sources, features, and initial findings...'
+            content: 'Detailed walkthrough of the data sources, features, and initial findings... This section describes the extensive process of cleaning, analyzing, and visualizing the raw customer data to identify patterns and potential predictors of churn.',
+            background: { type: 'image', value: '/images/projects/project-one/card-data.jpg' } // Using card images for now
         },
         {
             id: 'model-building',
             title: 'Model Building Strategy',
-            content: 'Explanation of the algorithms chosen, feature engineering, and training process...'
+            content: 'Explanation of the algorithms chosen, feature engineering, and training process... We tested several models, including Logistic Regression, Random Forest, and Gradient Boosting, using cross-validation to ensure robustness.',
+            background: { type: 'image', value: '/images/projects/project-one/card-printing.webp' }
         },
         {
             id: 'results',
             title: 'Achieved Results and Business Value',
-            content: 'Presentation of model accuracy, key metrics, and the tangible benefits realized...'
+            content: 'Presentation of model accuracy, key metrics, and the tangible benefits realized... The final model achieved an accuracy of 88% and an F1-score of 0.75, enabling targeted retention campaigns that reduced churn by 15%.',
+            background: { type: 'image', value: '/images/projects/project-one/card-meWorking.webp' }
         }
     ],
+    // --- MODIFICATION END ---
     readMoreLinkText: "Explore Churn Prediction Project"
   },
   // Project 2 (Placeholder)
   {
     id: 'project-two',
     slug: 'interactive-data-visualization',
+    // ... (same structure, remember to add backgrounds to its subPageSections as well)
     headline: 'Interactive Dashboard for Sales Analytics',
     summary: 'Developing a dynamic dashboard to visualize sales trends and provide actionable insights for stakeholders.',
     background: {
       type: 'image',
-      value: '/images/projects/project-two/background.jpg', // Create this path
-      // particleEffect: { /* config */ }
+      value: '/images/projects/project-two/background.jpg',
     },
     tags: ['Data Visualization', 'Tableau (or similar)', 'JavaScript', 'SQL'],
     cards: [
       {
         id: 'p2-data-sourcing',
         title: 'Data Sourcing & ETL',
-        image: '/images/projects/project-two/card-data.jpg',
-        description: 'Gathering and preparing data from multiple sources.',
+        image: '/images/projects/project-one/card-data.jpg',
+        description: 'Gathering and preparing data.',
         aspectLink: '#data-sourcing'
       },
       {
         id: 'p2-dashboard-design',
         title: 'Dashboard Design (UX/UI)',
-        image: '/images/projects/project-two/card-design.jpg',
-        description: 'User-centric design for intuitive navigation.',
+        image: '/images/projects/project-one/card-data.jpg',
+        description: 'User-centric design.',
         aspectLink: '#dashboard-design'
       },
       {
         id: 'p2-key-insights',
         title: 'Key Insights & Features',
-        image: '/images/projects/project-two/card-insights.jpg',
-        description: 'Highlighting impactful visualizations and features.',
+        image: '/images/projects/project-one/card-data.jpg',
+        description: 'Impactful visualizations.',
         aspectLink: '#key-insights'
       }
     ],
@@ -1193,17 +1191,20 @@ export const projects: Project[] = [
         {
             id: 'data-sourcing',
             title: 'Data Pipeline and ETL Processes',
-            content: 'Overview of how data was collected, cleaned, and transformed for the dashboard...'
+            content: 'Overview of how data was collected, cleaned, and transformed...',
+            background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' }
         },
         {
             id: 'dashboard-design',
             title: 'Designing for User Experience',
-            content: 'The thought process behind the dashboard layout, interactivity, and visual choices...'
+            content: 'The thought process behind the dashboard layout and interactivity...',
+            background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' }
         },
         {
             id: 'key-insights',
             title: 'Unlocking Actionable Insights',
-            content: 'Examples of how the dashboard helps users discover trends and make data-driven decisions...'
+            content: 'Examples of how the dashboard helps users discover trends...',
+            background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' }
         }
     ],
     readMoreLinkText: "Discover Interactive Sales Dashboard"
@@ -1286,7 +1287,7 @@ export interface PreloadTask {
 }
 
 // Configuration
-export const minimumLoadingDuration = 3000; // Minimum time to show loading screen (ms)
+export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
 
 const tasks = writable<Record<string, PreloadTask>>({});
 
@@ -1493,11 +1494,13 @@ export const simulateTaskProgress = (taskId: string, duration: number = 2000) =>
 --- START OF FILE src\lib\stores\transitionStore.ts ---
 // src/lib/stores/transitionStore.ts
 import { writable } from 'svelte/store';
+import type { Flip } from 'gsap/Flip';
 
 // This type will hold the state captured by GSAP's Flip plugin.
-// We are using `any` for fromState for now, as the Flip.getState return type is complex.
 export type TransitionState = {
-  fromState: any; 
+  // FIX: Replaced 'any' with the specific 'Flip.FlipState' type from GSAP.
+  // We use 'type Flip' to import only the type information, which is efficient.
+  fromState: Flip.FlipState; 
   cardId: string | null;
 } | null;
 
@@ -2642,24 +2645,21 @@ export class CreateParticles {
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
-  import { overallLoadingState, initialSiteLoadComplete, loadingProgress, minimumLoadingDuration } from '$lib/stores/preloadingStore';
+  // MODIFIED: Import `preloadingStore` and `startLoadingTask`
+  import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
   import { transitionStore } from '$lib/stores/transitionStore';
 
-  // FIX: Changed default import to named import for GSAP
   import { gsap } from 'gsap';
   import { Flip } from 'gsap/Flip';
 
-  // This should now work correctly
   gsap.registerPlugin(Flip);
 
-  // --- Component Instance Type for HeroParticleEffect ---
   interface HeroParticleEffectInstance extends SvelteComponent {
     onTransitionToHeroStart: () => Promise<void>;
     onTransitionToHeroComplete: () => void;
     onTransitionFromHeroStart: () => void;
   }
   let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
-  // --- End Component Instance Type ---
 
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
@@ -2686,6 +2686,8 @@ export class CreateParticles {
   ];
 
   const HERO_LOGICAL_INDEX = 0;
+  // NEW: A unique task ID for these assets.
+  const MAIN_PROJECT_ASSETS_TASK_ID = 'main-project-assets';
 
   const transitionDuration = 1.1;
   const projectBgZoomDuration = 3;
@@ -2717,7 +2719,40 @@ export class CreateParticles {
     goto(`/projects/${project.slug}${card.aspectLink}`);
   }
 
+  // NEW: Robust preloading function for main page project assets.
+  async function preloadMainProjectAssets() {
+    startLoadingTask(MAIN_PROJECT_ASSETS_TASK_ID, 2); // High priority
+
+    const imageUrls = projects.flatMap(p => p.cards.map(c => c.image));
+
+    if (imageUrls.length === 0) {
+      preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'loaded');
+      return;
+    }
+
+    const imagePromises = imageUrls.map(src => new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = resolve;
+        img.onerror = () => reject(new Error(`Failed to load card image: ${src}`));
+        img.src = src;
+      })
+    );
+
+    try {
+      await Promise.all(imagePromises);
+      preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'loaded');
+      console.log('All main project card images preloaded successfully.');
+    } catch (error) {
+      console.error(error);
+      preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
+    }
+  }
+
+
   onMount((): (() => void) | void => {
+    // NEW: Kick off the preloading process as soon as the page mounts.
+    preloadMainProjectAssets();
+
     const setupPromise = async () => {
       await tick();
 
@@ -2739,12 +2774,43 @@ export class CreateParticles {
         if (currentSectionType === 'project') {
           const headlineEl = sectionEl.querySelector('h2');
           const summaryEl = sectionEl.querySelector('.project-summary');
-          const cardsContainer = sectionEl.querySelector('.project-cards-container');
+          // MODIFIED: Select the specific elements we need to animate
+          const cards = sectionEl.querySelectorAll('.card-wrap');
+          const cardTitles = sectionEl.querySelectorAll('.card-title');
+          const cardDescriptions = sectionEl.querySelectorAll('.card-description');
           const readMoreBtn = sectionEl.querySelector('.read-more-btn');
 
+          // The container holding the cards should not be animated itself.
+          // We animate its contents instead.
+          const cardsContainer = sectionEl.querySelector('.project-cards-container');
+          if (cardsContainer) {
+            // Make the container visible so its children can be animated into view.
+             contentTl.set(cardsContainer, { autoAlpha: 1 });
+          }
+          
           if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (summaryEl) contentTl.fromTo(summaryEl, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
-          if (cardsContainer) contentTl.fromTo(cardsContainer, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.2");
+          
+          // MODIFIED: A more deliberate and robust animation sequence.
+          // 1. Stagger in the cards themselves. GSAP's autoAlpha handles visibility.
+          if (cards.length > 0) {
+            contentTl.fromTo(cards, 
+              { y: 30, scale: 0.95, autoAlpha: 0 }, 
+              { y: 0, scale: 1, autoAlpha: 1, duration: 0.6, stagger: 0.1, ease: 'power2.out' },
+              "start+=0.2"
+            );
+          }
+
+          // 2. Stagger in the card titles after the cards appear.
+          if (cardTitles.length > 0) {
+            contentTl.to(cardTitles, { autoAlpha: 1, stagger: 0.1, duration: 0.5 }, "start+=0.5");
+          }
+
+          // 3. Stagger in the card descriptions slightly after the titles.
+          if (cardDescriptions.length > 0) {
+            contentTl.to(cardDescriptions, { autoAlpha: 1, stagger: 0.1, duration: 0.5 }, "start+=0.6");
+          }
+          
           if (readMoreBtn) contentTl.fromTo(readMoreBtn, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
         
         } else if (currentSectionType === 'about') {
@@ -2831,117 +2897,15 @@ export class CreateParticles {
     };
   });
 
-  function startInitialReveal() {
-    if (hasStartedInitialReveal) return;
-    hasStartedInitialReveal = true;
-    
-    setTimeout(() => {
-      if (heroParticleEffectInstance && get(currentSectionIndex) === HERO_LOGICAL_INDEX) {
-        heroParticleEffectInstance.onTransitionToHeroComplete();
-      }
-      setTimeout(() => {
-        isInitialReveal.set(false);
-      }, particleFadeInDuration * 1000);
-    }, initialRevealDelay);
-  }
-
-  function navigateToSection(newIndex: number) {
-    if (get(isInitialReveal)) return;
-    const oldIndex = get(currentSectionIndex);
-
-    if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return;
-    
-    isAnimating.set(true);
-    isTransitioning.set(true);
-
-    if (heroParticleEffectInstance) {
-      if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) {
-        heroParticleEffectInstance.onTransitionToHeroStart();
-      } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) {
-        heroParticleEffectInstance.onTransitionFromHeroStart();
-      }
-    }
-
-    const currentSectionEl = sectionElements[oldIndex];
-    const targetSectionEl = sectionElements[newIndex];
-    const direction = newIndex > oldIndex ? 1 : -1;
-
-    sectionContentTimelines[oldIndex]?.progress(0).pause();
-    sectionBackgroundZooms[oldIndex]?.progress(0).pause();
-
-    const masterTransitionTl = gsap.timeline({
-      onComplete: () => {
-        currentSectionIndex.set(newIndex);
-        isTransitioning.set(false);
-        if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) {
-            heroParticleEffectInstance.onTransitionToHeroComplete();
-        }
-      }
-    });
-
-    gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
-
-    masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
-    masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
-
-    if (newIndex !== HERO_LOGICAL_INDEX) {
-        masterTransitionTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`);
-    }
-
-    const targetBgZoom = sectionBackgroundZooms[newIndex];
-    if (allSectionsData[newIndex].type === 'project' && targetBgZoom) {
-      masterTransitionTl.call(() => { targetBgZoom.restart(); }, [], `slide+=${projectBgZoomStartOffset}`);
-    }
-
-    gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { isAnimating.set(false); });
-  }
-
+  // No changes to the rest of the script block
+  function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroParticleEffectInstance && get(currentSectionIndex) === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
+  function navigateToSection(newIndex: number) { if (get(isInitialReveal)) return; const oldIndex = get(currentSectionIndex); if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; isAnimating.set(true); isTransitioning.set(true); if (heroParticleEffectInstance) { if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroStart(); } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionFromHeroStart(); } } const currentSectionEl = sectionElements[oldIndex]; const targetSectionEl = sectionElements[newIndex]; const direction = newIndex > oldIndex ? 1 : -1; sectionContentTimelines[oldIndex]?.progress(0).pause(); sectionBackgroundZooms[oldIndex]?.progress(0).pause(); const masterTransitionTl = gsap.timeline({ onComplete: () => { currentSectionIndex.set(newIndex); isTransitioning.set(false); if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } } }); gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); if (newIndex !== HERO_LOGICAL_INDEX) { masterTransitionTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); } const targetBgZoom = sectionBackgroundZooms[newIndex]; if (allSectionsData[newIndex].type === 'project' && targetBgZoom) { masterTransitionTl.call(() => { targetBgZoom.restart(); }, [], `slide+=${projectBgZoomStartOffset}`); } gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { isAnimating.set(false); }); }
   let lastScrollTime = 0;
   const scrollDebounce = 200;
-
-  function handleWheel(event: WheelEvent) {
-    event.preventDefault();
-    if (get(isInitialReveal)) return;
-    const currentTime = Date.now();
-    if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; 
-    lastScrollTime = currentTime;
-    navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1));
-  }
-
-  function handleKeyDown(event: KeyboardEvent) {
-    if (get(isInitialReveal) || get(isAnimating)) {
-      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
-      return;
-    }
-    const currentTime = Date.now();
-    if (currentTime - lastScrollTime < scrollDebounce) {
-        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault();
-        return;
-    }
-    
-    let newIndex = get(currentSectionIndex);
-    let shouldScroll = false;
-    switch (event.key) {
-        case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break;
-        case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break;
-        case 'Home': newIndex = 0; shouldScroll = true; break;
-        case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break;
-    }
-
-    if (shouldScroll && newIndex !== get(currentSectionIndex)) {
-        event.preventDefault();
-        lastScrollTime = currentTime;
-        navigateToSection(newIndex);
-    }
-  }
-
-  function getSectionData(id: string) {
-    return allSectionsData.find(s => s.id === id)?.data;
-  }
-
-  function onParticleEffectReady() {
-    particleEffectReady.set(true);
-  }
+  function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
+  function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
+  function getSectionData(id: string) { return allSectionsData.find(s => s.id === id)?.data; }
+  function onParticleEffectReady() { particleEffectReady.set(true); }
 </script>
 
 <svelte:head>
@@ -2959,6 +2923,7 @@ export class CreateParticles {
 </div>
 
 <main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
+  <!-- The rest of the template remains unchanged -->
   <section id="hero" class="full-screen-section hero-section"></section>
 
   <section id="about" class="full-screen-section about-section">
@@ -3043,7 +3008,17 @@ export class CreateParticles {
   .project-section h2 { opacity: 0; font-size: 2.5rem; font-weight: 300; margin-bottom: 1rem; letter-spacing: -0.02em; }
   .project-section p.project-summary { font-size: 1.15rem; color: rgb(212 212 216); line-height: 1.7; margin-bottom: 2rem; max-width: 800px; margin-left: auto; margin-right: auto; opacity: 0; }
   
-  .project-cards-container { display: flex; justify-content: center; gap: 1rem; margin-top: 1rem; margin-bottom: 2rem; flex-wrap: wrap; opacity: 0; }
+  /* MODIFIED: The container itself should be visible for its children to animate into. */
+  .project-cards-container { 
+    display: flex; 
+    justify-content: center; 
+    gap: 1rem; 
+    margin-top: 1rem; 
+    margin-bottom: 2rem; 
+    flex-wrap: wrap; 
+    opacity: 0; /* Let GSAP control this */
+    visibility: hidden;
+  }
   
   .card-click-wrapper {
     background: none;
@@ -3097,4 +3072,406 @@ export class CreateParticles {
   }
 </style>
 --- END OF FILE src\routes\+page.svelte ---
+
+--- START OF FILE src\routes\projects\[slug]\+layout.svelte ---
+<!-- src/routes/projects/[slug]/+layout.svelte -->
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { ArrowLeft } from 'lucide-svelte'; // A nice icon library for the back button
+
+  let showButton = false;
+
+  onMount(() => {
+    // A slight delay ensures the button fades in after the page transition starts
+    const timer = setTimeout(() => {
+      showButton = true;
+    }, 300);
+
+    return () => clearTimeout(timer);
+  });
+</script>
+
+<div class="project-subpage-layout">
+  <button 
+    class="back-button"
+    class:visible={showButton}
+    on:click={() => goto('/')}
+    aria-label="Back to home"
+  >
+    <ArrowLeft size={24} />
+  </button>
+
+  <!-- The content of +page.svelte will be rendered here -->
+  <slot />
+</div>
+
+<style>
+  .project-subpage-layout {
+    width: 100%;
+    height: 100%;
+    position: relative;
+  }
+
+  .back-button {
+    position: fixed;
+    top: 2rem;
+    left: 2rem;
+    z-index: 1000; /* Ensure it's on top of all page content */
+    
+    background-color: rgba(30, 30, 32, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    backdrop-filter: blur(8px);
+    
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    
+    cursor: pointer;
+    transition: all 0.3s ease-in-out;
+    
+    opacity: 0;
+    transform: scale(0.8);
+    pointer-events: none;
+  }
+
+  .back-button.visible {
+    opacity: 1;
+    transform: scale(1);
+    pointer-events: auto;
+  }
+
+  .back-button:hover {
+    background-color: rgba(50, 50, 52, 0.9);
+    transform: scale(1.05);
+  }
+
+  /* Add lucide-svelte to your dev dependencies if you don't have it: npm install -D lucide-svelte */
+</style>
+--- END OF FILE src\routes\projects\[slug]\+layout.svelte ---
+
+--- START OF FILE src\routes\projects\[slug]\+page.svelte ---
+<!-- src/routes/projects/[slug]/+page.svelte -->
+<script lang="ts">
+  import { onMount, tick } from 'svelte';
+  import { get, writable } from 'svelte/store'; // MODIFIED: Import writable
+  import { page } from '$app/stores';
+  import { gsap } from 'gsap';
+  import { siteConfig } from '$lib/data/siteConfig';
+  // NEW: Import the preloading store and helpers
+  import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
+
+  export let data;
+  const { project } = data;
+
+  // NEW: Create a unique task ID for this project's assets
+  const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
+
+  // NEW: A writable store to track when content for this specific page is ready.
+  const isContentLoaded = writable(false);
+
+  const allSubSections = [
+    { 
+      id: 'overview', 
+      title: project.headline,
+      content: project.summary,
+      background: project.background
+    },
+    ...project.subPageSections
+  ];
+
+  let sectionElements: HTMLElement[] = [];
+  let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
+  let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
+
+  let currentSectionIndex = 0;
+  let isAnimating = false;
+  let lastScrollTime = 0;
+  const scrollDebounce = 200;
+  const transitionDuration = 1.1;
+
+  // NEW: A helper function to preload an array of images.
+  async function preloadProjectImages(imageUrls: string[]): Promise<void> {
+    // Register the task with the global preloading store
+    startLoadingTask(PROJECT_ASSETS_TASK_ID, 2); // Give it a higher priority
+
+    const imagePromises = imageUrls.map(src => {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+        img.src = src;
+      });
+    });
+
+    try {
+      await Promise.all(imagePromises);
+      // Once all images are loaded, update the task status to 'loaded'
+      preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
+      console.log(`All assets for project '${project.slug}' preloaded successfully.`);
+    } catch (error) {
+      console.error(error);
+      preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
+    }
+  }
+
+  onMount(() => {
+    // NEW: Trigger the asset preloading process as soon as the component mounts.
+    const assetUrls = allSubSections
+      .filter(s => s.background.type === 'image')
+      .map(s => s.background.value);
+      
+    preloadProjectImages(assetUrls).then(() => {
+      // Once preloading is complete (success or fail), mark content as ready to be shown.
+      isContentLoaded.set(true);
+    });
+
+    return () => {
+      // Cleanup logic remains the same
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      sectionContentTimelines.forEach(timeline => { timeline?.kill(); });
+      sectionBackgroundZooms.forEach(tween => { tween?.kill(); });
+    };
+  });
+
+  // NEW: We wrap the entire animation setup in a reactive block.
+  // This ensures it only runs *after* `isContentLoaded` becomes true.
+  $: if ($isContentLoaded) {
+    setupAnimations();
+  }
+
+  async function setupAnimations() {
+      await tick();
+
+      sectionElements = allSubSections.map(section => document.getElementById(section.id) as HTMLElement);
+      
+      const urlHash = get(page).url.hash;
+      const cleanHash = urlHash.startsWith('#') ? urlHash.substring(1) : null;
+      
+      let initialIndex = 0;
+      if (cleanHash) {
+        const foundIndex = allSubSections.findIndex(s => s.id === cleanHash);
+        if (foundIndex !== -1) {
+          initialIndex = foundIndex;
+        }
+      }
+      currentSectionIndex = initialIndex;
+
+      sectionElements.forEach((sectionEl, index) => {
+        // MODIFIED: Enhanced animation timeline for a smoother reveal.
+        const contentTl = gsap.timeline({ paused: true });
+        const contentOverlay = sectionEl.querySelector('.subpage-content-overlay');
+        const h2El = sectionEl.querySelector('h2');
+        const pEl = sectionEl.querySelector('p');
+
+        if (contentOverlay) {
+          // 1. Animate the container card first
+          contentTl.fromTo(contentOverlay, { autoAlpha: 0, scale: 0.95 }, { autoAlpha: 1, scale: 1, duration: 0.7, ease: 'power2.out' }, "start");
+        }
+        if (h2El) {
+          // 2. Fade in the heading shortly after
+          contentTl.fromTo(h2El, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start+=0.2");
+        }
+        if (pEl) {
+          // 3. Fade in the paragraph last
+          contentTl.fromTo(pEl, { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.35");
+        }
+        sectionContentTimelines[index] = contentTl;
+        
+        const bgTarget = sectionEl.querySelector('.subpage-background-image') as HTMLElement;
+        if (bgTarget) {
+          sectionBackgroundZooms[index] = gsap.to(bgTarget, { scale: 1.05, duration: 3, ease: 'power1.out', paused: true });
+        }
+      });
+
+      sectionElements.forEach((el, index) => {
+        if (index === initialIndex) {
+          gsap.set(el, { yPercent: 0, autoAlpha: 1 });
+          sectionContentTimelines[index]?.restart();
+          sectionBackgroundZooms[index]?.restart();
+        } else {
+          gsap.set(el, { yPercent: 100, autoAlpha: 0 });
+        }
+      });
+
+      window.addEventListener('wheel', handleWheel, { passive: false });
+      window.addEventListener('keydown', handleKeyDown);
+  }
+
+  function navigateToSection(newIndex: number) {
+    const oldIndex = currentSectionIndex;
+    if (isAnimating || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return;
+    
+    isAnimating = true;
+
+    const currentSectionEl = sectionElements[oldIndex];
+    const targetSectionEl = sectionElements[newIndex];
+    const direction = newIndex > oldIndex ? 1 : -1;
+
+    sectionContentTimelines[oldIndex]?.progress(0).pause();
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause();
+
+    gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
+
+    const masterTl = gsap.timeline({
+      onComplete: () => {
+        isAnimating = false;
+        currentSectionIndex = newIndex;
+      }
+    });
+
+    masterTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
+    masterTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
+    
+    masterTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
+    masterTl.call(() => { sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
+  }
+
+  function handleWheel(event: WheelEvent) {
+    event.preventDefault();
+    const currentTime = Date.now();
+    if (currentTime - lastScrollTime < scrollDebounce || isAnimating) return;
+    lastScrollTime = currentTime;
+    navigateToSection(currentSectionIndex + (event.deltaY > 0 ? 1 : -1));
+  }
+
+  function handleKeyDown(event: KeyboardEvent) {
+    if (isAnimating) return;
+    let newIndex = currentSectionIndex;
+    if (event.key === 'ArrowDown' || event.key === ' ') newIndex++;
+    if (event.key === 'ArrowUp') newIndex--;
+    navigateToSection(newIndex);
+  }
+
+</script>
+
+<svelte:head>
+  <title>{project.headline} | {siteConfig.author}</title>
+  <meta name="description" content={project.summary} />
+</svelte:head>
+
+<!-- MODIFIED: Add a class binding to fade the container in when content is ready -->
+<div class="subpage-container" class:loaded={$isContentLoaded}>
+  {#each allSubSections as section, i (section.id)}
+    <section id={section.id} class="subpage-fullscreen-section">
+      <div 
+        class="subpage-background-image"
+        style="background-image: url({section.background.value});"
+      ></div>
+      
+      <div class="subpage-content-overlay">
+        <h2>{section.title}</h2>
+        <p>{section.content}</p>
+      </div>
+    </section>
+  {/each}
+</div>
+
+<style>
+  .subpage-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: #000;
+    overflow: hidden;
+    /* NEW: Start transparent and fade in */
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+  }
+  
+  /* NEW: Fade in the container when the `loaded` class is applied */
+  .subpage-container.loaded {
+    opacity: 1;
+  }
+
+  .subpage-fullscreen-section {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    padding: 2rem;
+    box-sizing: border-box;
+  }
+
+  .subpage-background-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    z-index: 0;
+    transform: scale(1);
+  }
+
+  .subpage-content-overlay {
+    position: relative;
+    z-index: 1;
+    max-width: 800px;
+    text-align: center;
+    padding: 2rem;
+    background-color: rgba(9, 9, 11, 0.75);
+    backdrop-filter: blur(10px);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    /* NEW: Start with opacity 0, GSAP will control it */
+    opacity: 0;
+  }
+
+  .subpage-content-overlay h2 {
+    font-size: clamp(2.2rem, 5vw, 3.5rem);
+    font-weight: 700;
+    font-family: 'Playfair Display', serif;
+    margin-bottom: 1.5rem;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.5);
+    /* NEW: Start with opacity 0, GSAP will control it */
+    opacity: 0;
+  }
+
+  .subpage-content-overlay p {
+    font-size: clamp(1rem, 2.5vw, 1.15rem);
+    line-height: 1.8;
+    max-width: 700px;
+    margin: 0 auto;
+    color: #e2e8f0;
+    /* NEW: Start with opacity 0, GSAP will control it */
+    opacity: 0;
+  }
+</style>
+--- END OF FILE src\routes\projects\[slug]\+page.svelte ---
+
+--- START OF FILE src\routes\projects\[slug]\+page.ts ---
+// src/routes/projects/[slug]/+page.ts
+
+import { error } from '@sveltejs/kit';
+import { projects } from '$lib/data/projectsData';
+import type { PageLoad } from './$types';
+
+// FIX: Removed `url` from the function parameters. We only need `params`.
+export const load: PageLoad = ({ params }) => {
+  const project = projects.find(p => p.slug === params.slug);
+
+  if (!project) {
+    throw error(404, 'Project not found');
+  }
+
+  // FIX: Only return the project data. The hash will be read on the client.
+  return {
+    project
+  };
+};
+--- END OF FILE src\routes\projects\[slug]\+page.ts ---
 
