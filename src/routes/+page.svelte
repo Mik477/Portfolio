@@ -10,7 +10,6 @@
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
-  // MODIFIED: Import `preloadingStore` and `startLoadingTask`
   import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
   import { transitionStore } from '$lib/stores/transitionStore';
 
@@ -51,7 +50,6 @@
   ];
 
   const HERO_LOGICAL_INDEX = 0;
-  // NEW: A unique task ID for these assets.
   const MAIN_PROJECT_ASSETS_TASK_ID = 'main-project-assets';
 
   const transitionDuration = 1.1;
@@ -84,9 +82,8 @@
     goto(`/projects/${project.slug}${card.aspectLink}`);
   }
 
-  // NEW: Robust preloading function for main page project assets.
   async function preloadMainProjectAssets() {
-    startLoadingTask(MAIN_PROJECT_ASSETS_TASK_ID, 2); // High priority
+    startLoadingTask(MAIN_PROJECT_ASSETS_TASK_ID, 2);
 
     const imageUrls = projects.flatMap(p => p.cards.map(c => c.image));
 
@@ -95,18 +92,25 @@
       return;
     }
 
+    // --- MODIFICATION START: Use Image.decode() for asynchronous decoding ---
     const imagePromises = imageUrls.map(src => new Promise((resolve, reject) => {
         const img = new Image();
+        img.src = src;
+        // img.decode() returns a promise that resolves when the image is decoded and ready to be used.
+        img.decode()
+          .then(resolve)
+          .catch(() => reject(new Error(`Failed to load or decode card image: ${src}`)));
+        // Set up onload/onerror as fallbacks for browsers that might not fully support .decode()
         img.onload = resolve;
         img.onerror = () => reject(new Error(`Failed to load card image: ${src}`));
-        img.src = src;
       })
     );
+    // --- MODIFICATION END ---
 
     try {
       await Promise.all(imagePromises);
       preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'loaded');
-      console.log('All main project card images preloaded successfully.');
+      console.log('All main project card images decoded and ready.');
     } catch (error) {
       console.error(error);
       preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
@@ -115,7 +119,6 @@
 
 
   onMount((): (() => void) | void => {
-    // NEW: Kick off the preloading process as soon as the page mounts.
     preloadMainProjectAssets();
 
     const setupPromise = async () => {
@@ -139,26 +142,21 @@
         if (currentSectionType === 'project') {
           const headlineEl = sectionEl.querySelector('h2');
           const summaryEl = sectionEl.querySelector('.project-summary');
-          // MODIFIED: Select the specific elements we need to animate
           const cards = sectionEl.querySelectorAll('.card-wrap');
           const cardTitles = sectionEl.querySelectorAll('.card-title');
           const cardDescriptions = sectionEl.querySelectorAll('.card-description');
           const readMoreBtn = sectionEl.querySelector('.read-more-btn');
 
-          // The container holding the cards should not be animated itself.
-          // We animate its contents instead.
           const cardsContainer = sectionEl.querySelector('.project-cards-container');
           if (cardsContainer) {
-            // Make the container visible so its children can be animated into view.
              contentTl.set(cardsContainer, { autoAlpha: 1 });
           }
           
           if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (summaryEl) contentTl.fromTo(summaryEl, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
           
-          // MODIFIED: A more deliberate and robust animation sequence.
-          // 1. Stagger in the cards themselves. GSAP's autoAlpha handles visibility.
           if (cards.length > 0) {
+            // This animation brings the cards themselves into view. It takes about 0.6s + stagger.
             contentTl.fromTo(cards, 
               { y: 30, scale: 0.95, autoAlpha: 0 }, 
               { y: 0, scale: 1, autoAlpha: 1, duration: 0.6, stagger: 0.1, ease: 'power2.out' },
@@ -166,14 +164,23 @@
             );
           }
 
-          // 2. Stagger in the card titles after the cards appear.
+          // We wait until the cards are mostly animated in before animating their content.
+          const textAnimationDelay = "start+=0.8";
+
           if (cardTitles.length > 0) {
-            contentTl.to(cardTitles, { autoAlpha: 1, stagger: 0.1, duration: 0.5 }, "start+=0.5");
+            contentTl.fromTo(cardTitles, 
+              { autoAlpha: 0, y: 15 },
+              { autoAlpha: 1, y: 0, stagger: 0.1, duration: 0.5, ease: 'power1.out' }, 
+              textAnimationDelay 
+            );
           }
 
-          // 3. Stagger in the card descriptions slightly after the titles.
           if (cardDescriptions.length > 0) {
-            contentTl.to(cardDescriptions, { autoAlpha: 1, stagger: 0.1, duration: 0.5 }, "start+=0.6");
+            contentTl.fromTo(cardDescriptions,
+              { autoAlpha: 0, y: 10 },
+              { autoAlpha: 1, y: 0, stagger: 0.1, duration: 0.5, ease: 'power1.out' },
+              textAnimationDelay + "+=0.1" // Start descriptions just after titles start.
+            );
           }
           
           if (readMoreBtn) contentTl.fromTo(readMoreBtn, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
@@ -262,7 +269,6 @@
     };
   });
 
-  // No changes to the rest of the script block
   function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroParticleEffectInstance && get(currentSectionIndex) === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
   function navigateToSection(newIndex: number) { if (get(isInitialReveal)) return; const oldIndex = get(currentSectionIndex); if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; isAnimating.set(true); isTransitioning.set(true); if (heroParticleEffectInstance) { if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroStart(); } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionFromHeroStart(); } } const currentSectionEl = sectionElements[oldIndex]; const targetSectionEl = sectionElements[newIndex]; const direction = newIndex > oldIndex ? 1 : -1; sectionContentTimelines[oldIndex]?.progress(0).pause(); sectionBackgroundZooms[oldIndex]?.progress(0).pause(); const masterTransitionTl = gsap.timeline({ onComplete: () => { currentSectionIndex.set(newIndex); isTransitioning.set(false); if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } } }); gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); if (newIndex !== HERO_LOGICAL_INDEX) { masterTransitionTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); } const targetBgZoom = sectionBackgroundZooms[newIndex]; if (allSectionsData[newIndex].type === 'project' && targetBgZoom) { masterTransitionTl.call(() => { targetBgZoom.restart(); }, [], `slide+=${projectBgZoomStartOffset}`); } gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { isAnimating.set(false); }); }
   let lastScrollTime = 0;
@@ -288,7 +294,6 @@
 </div>
 
 <main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
-  <!-- The rest of the template remains unchanged -->
   <section id="hero" class="full-screen-section hero-section"></section>
 
   <section id="about" class="full-screen-section about-section">
@@ -373,7 +378,6 @@
   .project-section h2 { opacity: 0; font-size: 2.5rem; font-weight: 300; margin-bottom: 1rem; letter-spacing: -0.02em; }
   .project-section p.project-summary { font-size: 1.15rem; color: rgb(212 212 216); line-height: 1.7; margin-bottom: 2rem; max-width: 800px; margin-left: auto; margin-right: auto; opacity: 0; }
   
-  /* MODIFIED: The container itself should be visible for its children to animate into. */
   .project-cards-container { 
     display: flex; 
     justify-content: center; 
@@ -381,7 +385,7 @@
     margin-top: 1rem; 
     margin-bottom: 2rem; 
     flex-wrap: wrap; 
-    opacity: 0; /* Let GSAP control this */
+    opacity: 0;
     visibility: hidden;
   }
   

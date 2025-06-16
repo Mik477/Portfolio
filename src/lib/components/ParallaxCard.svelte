@@ -88,14 +88,13 @@
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    /* MODIFIED: Start fully invisible. GSAP's `autoAlpha` will manage this. */
-    visibility: hidden;
     opacity: 0;
+    visibility: hidden;
+    will-change: transform, opacity;
   }
   .card-wrap:hover .card-info {
     transform: translateY(0);
   }
-  /* MODIFIED: Changed selector to target the class for consistency */
   .card-wrap:hover .card-description {
     opacity: 1;
   }
@@ -112,8 +111,9 @@
     transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1), opacity 5s cubic-bezier(0.23, 1, 0.32, 1);
     opacity: 0.8;
   }
+  /* MODIFICATION: This rule now applies the expensive shadow only on hover */
   .card-wrap:hover .card {
-    transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 2s cubic-bezier(0.23, 1, 0.32, 1);
+    transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 2s cubic-bezier(0.23, 1, 0.32, 1);
     box-shadow: rgba(255, 255, 255, 0.2) 0 0 40px 5px, white 0 0 0 1px, rgba(0, 0, 0, 0.66) 0 30px 60px 0, inset #333 0 0 0 5px, inset white 0 0 0 6px;
   }
 
@@ -124,8 +124,9 @@
     background-color: #333;
     overflow: hidden;
     border-radius: 10px;
-    box-shadow: rgba(0, 0, 0, 0.66) 0 30px 60px 0, inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
-    transition: 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
+    /* MODIFICATION: Use a much "cheaper" initial box-shadow to reduce first-paint cost. */
+    box-shadow: inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
+    transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
 
   .card-bg {
@@ -148,17 +149,14 @@
     bottom: 0;
     color: #fff;
     transform: translateY(40%);
-    transition: 0.6s 1.6s cubic-bezier(0.215, 0.61, 0.355, 1);
   }
   
-  /* MODIFIED: The text itself should also start fully hidden */
   .card-description {
     opacity: 0;
-    visibility: hidden;
     text-shadow: black 0 2px 3px;
-    transition: 0.6s 1.6s cubic-bezier(0.215, 0.61, 0.355, 1);
     font-size: 0.9rem;
     line-height: 1.5;
+    will-change: opacity, transform;
   }
   
   .card-info * {
@@ -180,7 +178,6 @@
     transition: 5s 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
   
-  /* MODIFIED: Target the class and ensure it also starts hidden */
   .card-info .card-title {
     font-size: clamp(1.4rem, 10vw, 2rem);
     font-family: 'Playfair Display', serif;
@@ -188,6 +185,6 @@
     text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
     margin-bottom: 0.5rem;
     opacity: 0;
-    visibility: hidden;
+    will-change: opacity, transform;
   }
 </style>
