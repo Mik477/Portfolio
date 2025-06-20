@@ -147,13 +147,10 @@
         } else if (currentSectionType === 'about') {
           const h2El = sectionEl.querySelector('.about-text-block h2');
           const pEl = sectionEl.querySelector('.about-text-block p');
-          const imageEl = sectionEl.querySelector('.about-background-image'); 
 
           if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
-          if (imageEl) { 
-            contentTl.fromTo(imageEl, { autoAlpha: 0, scale: 1.1 }, { autoAlpha: 1, scale: 1, duration: 1.2, ease: 'power2.out' }, "start+=0.1");
-          }
+          // The animation for the background image has been removed.
         
         } else if (currentSectionType === 'contact') {
           const h2El = sectionEl.querySelector('h2');
@@ -367,11 +364,6 @@
   <section id="hero" class="full-screen-section hero-section"></section>
 
   <section id="about" class="full-screen-section about-section">
-    <div class="about-background-layer">
-      {#if siteConfig.aboutSection.imageUrl}
-        <img src={siteConfig.aboutSection.imageUrl} alt="Visual backdrop for the About Me section" class="about-background-image" />
-      {/if}
-    </div>
     <div class="about-content-wrapper">
       <div class="about-text-block">
         <h2>{siteConfig.aboutSection.title}</h2>
@@ -435,9 +427,7 @@
   .full-screen-section { height: 100%; width: 100%; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; box-sizing: border-box; background-color: rgb(9 9 11); }
   .hero-section { background-color: transparent; z-index: 2; pointer-events: none; }
   
-  .about-section { padding: 0; text-align: left; background-color: transparent; z-index: 2; position: relative; overflow: hidden; }
-  .about-background-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
-  .about-background-image { width: 100%; height: 100%; object-fit: cover; object-position: 80% center; opacity: 0; }
+  .about-section { padding: 0; text-align: left; background-color: rgb(9 9 11); z-index: 2; position: relative; overflow: hidden; }
   .about-content-wrapper { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; justify-content: flex-start; align-items: center; padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem); box-sizing: border-box; }
   .about-text-block { max-width: 580px; }
   .about-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; }
@@ -505,6 +495,5 @@
     .about-content-wrapper { justify-content: center; text-align: center; padding: 1rem; }
     .about-text-block { max-width: 100%; }
     .about-text-block h2, .about-text-block p { text-align: center; }
-    .about-background-layer { display: none; }
   }
 </style>
