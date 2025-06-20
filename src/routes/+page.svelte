@@ -92,20 +92,16 @@
       return;
     }
 
-    // --- MODIFICATION START: Use Image.decode() for asynchronous decoding ---
     const imagePromises = imageUrls.map(src => new Promise((resolve, reject) => {
         const img = new Image();
         img.src = src;
-        // img.decode() returns a promise that resolves when the image is decoded and ready to be used.
         img.decode()
           .then(resolve)
           .catch(() => reject(new Error(`Failed to load or decode card image: ${src}`)));
-        // Set up onload/onerror as fallbacks for browsers that might not fully support .decode()
         img.onload = resolve;
         img.onerror = () => reject(new Error(`Failed to load card image: ${src}`));
       })
     );
-    // --- MODIFICATION END ---
 
     try {
       await Promise.all(imagePromises);
@@ -142,47 +138,10 @@
         if (currentSectionType === 'project') {
           const headlineEl = sectionEl.querySelector('h2');
           const summaryEl = sectionEl.querySelector('.project-summary');
-          const cards = sectionEl.querySelectorAll('.card-wrap');
-          const cardTitles = sectionEl.querySelectorAll('.card-title');
-          const cardDescriptions = sectionEl.querySelectorAll('.card-description');
           const readMoreBtn = sectionEl.querySelector('.read-more-btn');
-
-          const cardsContainer = sectionEl.querySelector('.project-cards-container');
-          if (cardsContainer) {
-             contentTl.set(cardsContainer, { autoAlpha: 1 });
-          }
           
           if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (summaryEl) contentTl.fromTo(summaryEl, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
-          
-          if (cards.length > 0) {
-            // This animation brings the cards themselves into view. It takes about 0.6s + stagger.
-            contentTl.fromTo(cards, 
-              { y: 30, scale: 0.95, autoAlpha: 0 }, 
-              { y: 0, scale: 1, autoAlpha: 1, duration: 0.6, stagger: 0.1, ease: 'power2.out' },
-              "start+=0.2"
-            );
-          }
-
-          // We wait until the cards are mostly animated in before animating their content.
-          const textAnimationDelay = "start+=0.8";
-
-          if (cardTitles.length > 0) {
-            contentTl.fromTo(cardTitles, 
-              { autoAlpha: 0, y: 15 },
-              { autoAlpha: 1, y: 0, stagger: 0.1, duration: 0.5, ease: 'power1.out' }, 
-              textAnimationDelay 
-            );
-          }
-
-          if (cardDescriptions.length > 0) {
-            contentTl.fromTo(cardDescriptions,
-              { autoAlpha: 0, y: 10 },
-              { autoAlpha: 1, y: 0, stagger: 0.1, duration: 0.5, ease: 'power1.out' },
-              textAnimationDelay + "+=0.1" // Start descriptions just after titles start.
-            );
-          }
-          
           if (readMoreBtn) contentTl.fromTo(readMoreBtn, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
         
         } else if (currentSectionType === 'about') {
@@ -270,7 +229,118 @@
   });
 
   function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroParticleEffectInstance && get(currentSectionIndex) === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
-  function navigateToSection(newIndex: number) { if (get(isInitialReveal)) return; const oldIndex = get(currentSectionIndex); if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; isAnimating.set(true); isTransitioning.set(true); if (heroParticleEffectInstance) { if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroStart(); } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionFromHeroStart(); } } const currentSectionEl = sectionElements[oldIndex]; const targetSectionEl = sectionElements[newIndex]; const direction = newIndex > oldIndex ? 1 : -1; sectionContentTimelines[oldIndex]?.progress(0).pause(); sectionBackgroundZooms[oldIndex]?.progress(0).pause(); const masterTransitionTl = gsap.timeline({ onComplete: () => { currentSectionIndex.set(newIndex); isTransitioning.set(false); if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } } }); gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); if (newIndex !== HERO_LOGICAL_INDEX) { masterTransitionTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); } const targetBgZoom = sectionBackgroundZooms[newIndex]; if (allSectionsData[newIndex].type === 'project' && targetBgZoom) { masterTransitionTl.call(() => { targetBgZoom.restart(); }, [], `slide+=${projectBgZoomStartOffset}`); } gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { isAnimating.set(false); }); }
+  
+  function navigateToSection(newIndex: number) { 
+    if (get(isInitialReveal)) return; 
+    const oldIndex = get(currentSectionIndex); 
+    if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
+    
+    isAnimating.set(true); 
+    isTransitioning.set(true); 
+
+    if (heroParticleEffectInstance) { 
+      if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) { 
+        heroParticleEffectInstance.onTransitionToHeroStart(); 
+      } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) { 
+        heroParticleEffectInstance.onTransitionFromHeroStart(); 
+      } 
+    } 
+
+    const currentSectionEl = sectionElements[oldIndex]; 
+    const targetSectionEl = sectionElements[newIndex]; 
+    const direction = newIndex > oldIndex ? 1 : -1; 
+    
+    sectionContentTimelines[oldIndex]?.progress(0).pause(); 
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
+
+    const oldCardWraps = currentSectionEl.querySelectorAll('.card-wrap');
+    if (oldCardWraps.length > 0) {
+      gsap.set(oldCardWraps, { autoAlpha: 0 });
+      gsap.set(currentSectionEl.querySelectorAll('.card-wrap .card'), { '--shadow-opacity': 0 });
+    }
+
+    const masterTransitionTl = gsap.timeline({ 
+      onComplete: () => { 
+        currentSectionIndex.set(newIndex); 
+        isTransitioning.set(false); 
+        
+        if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) { 
+          heroParticleEffectInstance.onTransitionToHeroComplete(); 
+        }
+
+        const newSectionType = allSectionsData[newIndex].type;
+        if (newSectionType === 'project') {
+          const cardWraps = targetSectionEl.querySelectorAll('.card-wrap');
+          const cardTitles = targetSectionEl.querySelectorAll('.card-title');
+          const cardDescriptions = targetSectionEl.querySelectorAll('.card-description');
+          const cards = targetSectionEl.querySelectorAll('.card-wrap .card');
+
+          // --- MODIFICATION START: Dramatic card and text animations ---
+          // 1. Stage the cards (invisible and slightly scaled down)
+          gsap.set(cardWraps, { autoAlpha: 0, scale: 0.97 });
+          // Stage the text (invisible and slightly down)
+          gsap.set(cardTitles, { autoAlpha: 0, y: 20 });
+          gsap.set(cardDescriptions, { autoAlpha: 0, y: 20 });
+          // Ensure shadow is off
+          gsap.set(cards, { '--shadow-opacity': 0 });
+
+          // 2. Animate the cards with a longer, more dramatic fade-and-scale effect.
+          gsap.to(cardWraps, { 
+            autoAlpha: 1,
+            scale: 1,
+            duration: 1.2,
+            stagger: 0.2,
+            ease: 'expo.out',
+            delay: 0.1
+          });
+          
+          // 3. Animate the text and shadows after the cards have had time to settle.
+          const afterCardSettleDelay = 1.0;
+          gsap.to(cardTitles, { 
+            autoAlpha: 1, 
+            y: 0, 
+            stagger: 0.1, 
+            duration: 0.8, 
+            ease: 'power2.out', 
+            delay: afterCardSettleDelay 
+          });
+          gsap.to(cardDescriptions, { 
+            autoAlpha: 1, 
+            y: 0, 
+            stagger: 0.1, 
+            duration: 0.8, 
+            ease: 'power2.out', 
+            delay: afterCardSettleDelay + 0.1 
+          });
+          gsap.to(cards, { '--shadow-opacity': 0.66, duration: 1.2, ease: 'power2.out', delay: afterCardSettleDelay });
+          // --- MODIFICATION END ---
+        }
+      } 
+    }); 
+    
+    gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
+    
+    masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
+    masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
+    
+    if (newIndex !== HERO_LOGICAL_INDEX) { 
+      masterTransitionTl.call(() => { 
+        sectionContentTimelines[newIndex]?.restart(); 
+      }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); 
+    } 
+    
+    const targetBgZoom = sectionBackgroundZooms[newIndex]; 
+    if (allSectionsData[newIndex].type === 'project' && targetBgZoom) { 
+      masterTransitionTl.call(() => { 
+        targetBgZoom.restart(); 
+      }, [], `slide+=${projectBgZoomStartOffset}`); 
+    } 
+    
+    gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
+      isAnimating.set(false); 
+    }); 
+  }
+
   let lastScrollTime = 0;
   const scrollDebounce = 200;
   function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
@@ -385,8 +455,6 @@
     margin-top: 1rem; 
     margin-bottom: 2rem; 
     flex-wrap: wrap; 
-    opacity: 0;
-    visibility: hidden;
   }
   
   .card-click-wrapper {

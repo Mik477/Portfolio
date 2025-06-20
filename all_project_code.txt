@@ -384,13 +384,12 @@ export {};
 
 <div class="keyboard-buttons-wrapper">
   <div class="keyboard-board">
-    <!-- GitHub Button -->
+    <!-- MODIFICATION: Removed data-key attribute -->
     {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
     <div class="key-position">
       <a
         aria-label="Github"
         class="key"
-        data-key="Github"
         target="_blank"
         rel="noopener noreferrer"
         href={getLink('GitHub')}
@@ -404,13 +403,12 @@ export {};
       </a>
     </div>
     {/if}
-    <!-- LinkedIn Button -->
+    <!-- MODIFICATION: Removed data-key attribute -->
     {#if socialLinks.find(l => l.name.toLowerCase() === 'linkedin')}
     <div class="key-position">
       <a
         aria-label="LinkedIn"
         class="key"
-        data-key="LinkedIn"
         target="_blank"
         rel="noopener noreferrer"
         href={getLink('LinkedIn')}
@@ -421,13 +419,12 @@ export {};
       </a>
     </div>
     {/if}
-    <!-- Email Button -->
+    <!-- MODIFICATION: Removed data-key attribute -->
     {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
     <div class="key-position">
       <a
         aria-label="Email"
         class="key"
-        data-key="Email"
         target="_blank" 
         rel="noopener noreferrer" 
         href={getLink('Email')}
@@ -452,27 +449,45 @@ export {};
 
 <style>
   .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
-  .keyboard-buttons-wrapper { display: flex; align-items: flex-start; text-align: center; opacity: 0.025; animation: fade-in-bottom 0.45s cubic-bezier(0.39, 0.575, 0.565, 1) forwards; animation-delay: 0.6s; margin-top: 2.5rem; gap: calc(var(--keyboard-key-base-size) * 0.1); }
+  
+  .keyboard-buttons-wrapper { 
+    display: flex; 
+    align-items: flex-start; 
+    text-align: center; 
+    opacity: 0.025; 
+    animation: fade-in-bottom 0.45s cubic-bezier(0.39, 0.575, 0.565, 1) forwards; 
+    animation-delay: 0.6s; 
+    margin-top: 2.5rem; 
+    gap: calc(var(--keyboard-key-base-size) * 0.1); 
+    
+    perspective: 800px;
+    transform-style: preserve-3d;
+  }
+
   .keyboard-board { display: flex; align-items: center; justify-content: center; gap: calc(var(--keyboard-key-base-size) * 0.15); }
   .key.call-to-action { width: 140px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   .call-to-action-content { position: relative; }
   .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; margin-left: 15%; margin-right: 15%; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
   .key.call-to-action:hover .call-to-action-content:after { width: 70%; }
-  .key-position { transform: rotate(0deg) rotateY(0.05turn) rotateX(-0.1turn); }
+  
+  /* MODIFICATION START: Reduced the rotation values for a more subtle effect */
+  .key-position { transform: rotate(0deg) rotateY(0.025turn) rotateX(-0.05turn); }
+  /* MODIFICATION END */
+
   .key-position.flex { display: flex; align-items: center; justify-content: center; }
   .key { position: relative; width: var(--keyboard-key-base-size); height: var(--keyboard-key-base-size); font-size: calc(var(--keyboard-key-base-size) / 2.2); border: 0.1rem solid var(--keyboard-background-3); border-radius: calc(var(--keyboard-key-base-size) * 0.2); background: var(--keyboard-background-2); color: var(--keyboard-contrast); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); transition: 0.2s ease; display: flex; align-items: center; justify-content: center; text-decoration: none; }
   .key p { color: var(--keyboard-contrast); margin: 0; padding: 0; }
   .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.5rem 0.5rem 0 0 var(--keyboard-background-3); }
   .key:active { cursor: grabbing; transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
-  /* FIX: Removed unused .key.isDown selector */
-  [data-key] { position: relative; z-index: 2; cursor: pointer; }
-  [data-key]:before, [data-key]:after { visibility: hidden; opacity: 0; pointer-events: none; transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out; }
-  [data-key]:before { position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); margin-bottom: 5px; padding: 6px 12px; border-radius: 3px; background-color: #333; color: #fff; content: attr(data-key); text-align: center; font-size: 14px; line-height: 1.2; white-space: nowrap; z-index: 10; }
-  [data-key]:after { position: absolute; bottom: 110%; left: 50%; margin-left: -5px; margin-bottom: 0px; width: 0; border-top: 5px solid #333; border-right: 5px solid transparent; border-left: 5px solid transparent; content: " "; font-size: 0; line-height: 0; z-index: 10; }
-  [data-key]:hover:before, [data-key]:hover:after { visibility: visible; opacity: 1; }
+  
+  /* MODIFICATION START: Removed all CSS rules related to the [data-key] tooltip */
+  /* The entire block for [data-key], [data-key]:before, [data-key]:after has been deleted. */
+  /* MODIFICATION END */
+  
   @media (max-width: 768px) { .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; } }
   @media (max-width: 640px) { .keyboard-buttons-wrapper { flex-direction: column; align-items: center; gap: 1rem; } .keyboard-board { gap: calc(var(--keyboard-key-base-size) * 0.1); } .key.call-to-action { width: 120px; font-size: 12px; } }
 </style>
+
 --- END OF FILE src\lib\components\KeyboardButtons.svelte ---
 
 --- START OF FILE src\lib\components\LoadingScreen.svelte ---
@@ -941,14 +956,13 @@ export {};
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    /* MODIFIED: Start fully invisible. GSAP's `autoAlpha` will manage this. */
-    visibility: hidden;
     opacity: 0;
+    visibility: hidden;
+    will-change: transform, opacity;
   }
   .card-wrap:hover .card-info {
     transform: translateY(0);
   }
-  /* MODIFIED: Changed selector to target the class for consistency */
   .card-wrap:hover .card-description {
     opacity: 1;
   }
@@ -965,8 +979,9 @@ export {};
     transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1), opacity 5s cubic-bezier(0.23, 1, 0.32, 1);
     opacity: 0.8;
   }
+  /* MODIFICATION: This rule now applies the expensive shadow only on hover */
   .card-wrap:hover .card {
-    transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 2s cubic-bezier(0.23, 1, 0.32, 1);
+    transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 2s cubic-bezier(0.23, 1, 0.32, 1);
     box-shadow: rgba(255, 255, 255, 0.2) 0 0 40px 5px, white 0 0 0 1px, rgba(0, 0, 0, 0.66) 0 30px 60px 0, inset #333 0 0 0 5px, inset white 0 0 0 6px;
   }
 
@@ -977,8 +992,9 @@ export {};
     background-color: #333;
     overflow: hidden;
     border-radius: 10px;
-    box-shadow: rgba(0, 0, 0, 0.66) 0 30px 60px 0, inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
-    transition: 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
+    /* MODIFICATION: Use a much "cheaper" initial box-shadow to reduce first-paint cost. */
+    box-shadow: inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
+    transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
 
   .card-bg {
@@ -1001,17 +1017,14 @@ export {};
     bottom: 0;
     color: #fff;
     transform: translateY(40%);
-    transition: 0.6s 1.6s cubic-bezier(0.215, 0.61, 0.355, 1);
   }
   
-  /* MODIFIED: The text itself should also start fully hidden */
   .card-description {
     opacity: 0;
-    visibility: hidden;
     text-shadow: black 0 2px 3px;
-    transition: 0.6s 1.6s cubic-bezier(0.215, 0.61, 0.355, 1);
     font-size: 0.9rem;
     line-height: 1.5;
+    will-change: opacity, transform;
   }
   
   .card-info * {
@@ -1033,7 +1046,6 @@ export {};
     transition: 5s 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
   
-  /* MODIFIED: Target the class and ensure it also starts hidden */
   .card-info .card-title {
     font-size: clamp(1.4rem, 10vw, 2rem);
     font-family: 'Playfair Display', serif;
@@ -1041,7 +1053,7 @@ export {};
     text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
     margin-bottom: 0.5rem;
     opacity: 0;
-    visibility: hidden;
+    will-change: opacity, transform;
   }
 </style>
 --- END OF FILE src\lib\components\ParallaxCard.svelte ---
@@ -2645,7 +2657,6 @@ export class CreateParticles {
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
-  // MODIFIED: Import `preloadingStore` and `startLoadingTask`
   import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
   import { transitionStore } from '$lib/stores/transitionStore';
 
@@ -2686,7 +2697,6 @@ export class CreateParticles {
   ];
 
   const HERO_LOGICAL_INDEX = 0;
-  // NEW: A unique task ID for these assets.
   const MAIN_PROJECT_ASSETS_TASK_ID = 'main-project-assets';
 
   const transitionDuration = 1.1;
@@ -2719,9 +2729,8 @@ export class CreateParticles {
     goto(`/projects/${project.slug}${card.aspectLink}`);
   }
 
-  // NEW: Robust preloading function for main page project assets.
   async function preloadMainProjectAssets() {
-    startLoadingTask(MAIN_PROJECT_ASSETS_TASK_ID, 2); // High priority
+    startLoadingTask(MAIN_PROJECT_ASSETS_TASK_ID, 2);
 
     const imageUrls = projects.flatMap(p => p.cards.map(c => c.image));
 
@@ -2732,16 +2741,19 @@ export class CreateParticles {
 
     const imagePromises = imageUrls.map(src => new Promise((resolve, reject) => {
         const img = new Image();
+        img.src = src;
+        img.decode()
+          .then(resolve)
+          .catch(() => reject(new Error(`Failed to load or decode card image: ${src}`)));
         img.onload = resolve;
         img.onerror = () => reject(new Error(`Failed to load card image: ${src}`));
-        img.src = src;
       })
     );
 
     try {
       await Promise.all(imagePromises);
       preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'loaded');
-      console.log('All main project card images preloaded successfully.');
+      console.log('All main project card images decoded and ready.');
     } catch (error) {
       console.error(error);
       preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
@@ -2750,7 +2762,6 @@ export class CreateParticles {
 
 
   onMount((): (() => void) | void => {
-    // NEW: Kick off the preloading process as soon as the page mounts.
     preloadMainProjectAssets();
 
     const setupPromise = async () => {
@@ -2774,43 +2785,10 @@ export class CreateParticles {
         if (currentSectionType === 'project') {
           const headlineEl = sectionEl.querySelector('h2');
           const summaryEl = sectionEl.querySelector('.project-summary');
-          // MODIFIED: Select the specific elements we need to animate
-          const cards = sectionEl.querySelectorAll('.card-wrap');
-          const cardTitles = sectionEl.querySelectorAll('.card-title');
-          const cardDescriptions = sectionEl.querySelectorAll('.card-description');
           const readMoreBtn = sectionEl.querySelector('.read-more-btn');
-
-          // The container holding the cards should not be animated itself.
-          // We animate its contents instead.
-          const cardsContainer = sectionEl.querySelector('.project-cards-container');
-          if (cardsContainer) {
-            // Make the container visible so its children can be animated into view.
-             contentTl.set(cardsContainer, { autoAlpha: 1 });
-          }
           
           if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (summaryEl) contentTl.fromTo(summaryEl, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
-          
-          // MODIFIED: A more deliberate and robust animation sequence.
-          // 1. Stagger in the cards themselves. GSAP's autoAlpha handles visibility.
-          if (cards.length > 0) {
-            contentTl.fromTo(cards, 
-              { y: 30, scale: 0.95, autoAlpha: 0 }, 
-              { y: 0, scale: 1, autoAlpha: 1, duration: 0.6, stagger: 0.1, ease: 'power2.out' },
-              "start+=0.2"
-            );
-          }
-
-          // 2. Stagger in the card titles after the cards appear.
-          if (cardTitles.length > 0) {
-            contentTl.to(cardTitles, { autoAlpha: 1, stagger: 0.1, duration: 0.5 }, "start+=0.5");
-          }
-
-          // 3. Stagger in the card descriptions slightly after the titles.
-          if (cardDescriptions.length > 0) {
-            contentTl.to(cardDescriptions, { autoAlpha: 1, stagger: 0.1, duration: 0.5 }, "start+=0.6");
-          }
-          
           if (readMoreBtn) contentTl.fromTo(readMoreBtn, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
         
         } else if (currentSectionType === 'about') {
@@ -2897,9 +2875,119 @@ export class CreateParticles {
     };
   });
 
-  // No changes to the rest of the script block
   function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroParticleEffectInstance && get(currentSectionIndex) === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
-  function navigateToSection(newIndex: number) { if (get(isInitialReveal)) return; const oldIndex = get(currentSectionIndex); if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; isAnimating.set(true); isTransitioning.set(true); if (heroParticleEffectInstance) { if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroStart(); } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionFromHeroStart(); } } const currentSectionEl = sectionElements[oldIndex]; const targetSectionEl = sectionElements[newIndex]; const direction = newIndex > oldIndex ? 1 : -1; sectionContentTimelines[oldIndex]?.progress(0).pause(); sectionBackgroundZooms[oldIndex]?.progress(0).pause(); const masterTransitionTl = gsap.timeline({ onComplete: () => { currentSectionIndex.set(newIndex); isTransitioning.set(false); if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } } }); gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); if (newIndex !== HERO_LOGICAL_INDEX) { masterTransitionTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); } const targetBgZoom = sectionBackgroundZooms[newIndex]; if (allSectionsData[newIndex].type === 'project' && targetBgZoom) { masterTransitionTl.call(() => { targetBgZoom.restart(); }, [], `slide+=${projectBgZoomStartOffset}`); } gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { isAnimating.set(false); }); }
+  
+  function navigateToSection(newIndex: number) { 
+    if (get(isInitialReveal)) return; 
+    const oldIndex = get(currentSectionIndex); 
+    if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
+    
+    isAnimating.set(true); 
+    isTransitioning.set(true); 
+
+    if (heroParticleEffectInstance) { 
+      if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) { 
+        heroParticleEffectInstance.onTransitionToHeroStart(); 
+      } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) { 
+        heroParticleEffectInstance.onTransitionFromHeroStart(); 
+      } 
+    } 
+
+    const currentSectionEl = sectionElements[oldIndex]; 
+    const targetSectionEl = sectionElements[newIndex]; 
+    const direction = newIndex > oldIndex ? 1 : -1; 
+    
+    sectionContentTimelines[oldIndex]?.progress(0).pause(); 
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
+
+    const oldCardWraps = currentSectionEl.querySelectorAll('.card-wrap');
+    if (oldCardWraps.length > 0) {
+      gsap.set(oldCardWraps, { autoAlpha: 0 });
+      gsap.set(currentSectionEl.querySelectorAll('.card-wrap .card'), { '--shadow-opacity': 0 });
+    }
+
+    const masterTransitionTl = gsap.timeline({ 
+      onComplete: () => { 
+        currentSectionIndex.set(newIndex); 
+        isTransitioning.set(false); 
+        
+        if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) { 
+          heroParticleEffectInstance.onTransitionToHeroComplete(); 
+        }
+
+        const newSectionType = allSectionsData[newIndex].type;
+        if (newSectionType === 'project') {
+          const cardWraps = targetSectionEl.querySelectorAll('.card-wrap');
+          const cardTitles = targetSectionEl.querySelectorAll('.card-title');
+          const cardDescriptions = targetSectionEl.querySelectorAll('.card-description');
+          const cards = targetSectionEl.querySelectorAll('.card-wrap .card');
+
+          // --- MODIFICATION START: Dramatic card and text animations ---
+          // 1. Stage the cards (invisible and slightly scaled down)
+          gsap.set(cardWraps, { autoAlpha: 0, scale: 0.97 });
+          // Stage the text (invisible and slightly down)
+          gsap.set(cardTitles, { autoAlpha: 0, y: 20 });
+          gsap.set(cardDescriptions, { autoAlpha: 0, y: 20 });
+          // Ensure shadow is off
+          gsap.set(cards, { '--shadow-opacity': 0 });
+
+          // 2. Animate the cards with a longer, more dramatic fade-and-scale effect.
+          gsap.to(cardWraps, { 
+            autoAlpha: 1,
+            scale: 1,
+            duration: 1.2,
+            stagger: 0.2,
+            ease: 'expo.out',
+            delay: 0.1
+          });
+          
+          // 3. Animate the text and shadows after the cards have had time to settle.
+          const afterCardSettleDelay = 1.0;
+          gsap.to(cardTitles, { 
+            autoAlpha: 1, 
+            y: 0, 
+            stagger: 0.1, 
+            duration: 0.8, 
+            ease: 'power2.out', 
+            delay: afterCardSettleDelay 
+          });
+          gsap.to(cardDescriptions, { 
+            autoAlpha: 1, 
+            y: 0, 
+            stagger: 0.1, 
+            duration: 0.8, 
+            ease: 'power2.out', 
+            delay: afterCardSettleDelay + 0.1 
+          });
+          gsap.to(cards, { '--shadow-opacity': 0.66, duration: 1.2, ease: 'power2.out', delay: afterCardSettleDelay });
+          // --- MODIFICATION END ---
+        }
+      } 
+    }); 
+    
+    gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
+    
+    masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
+    masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
+    
+    if (newIndex !== HERO_LOGICAL_INDEX) { 
+      masterTransitionTl.call(() => { 
+        sectionContentTimelines[newIndex]?.restart(); 
+      }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); 
+    } 
+    
+    const targetBgZoom = sectionBackgroundZooms[newIndex]; 
+    if (allSectionsData[newIndex].type === 'project' && targetBgZoom) { 
+      masterTransitionTl.call(() => { 
+        targetBgZoom.restart(); 
+      }, [], `slide+=${projectBgZoomStartOffset}`); 
+    } 
+    
+    gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
+      isAnimating.set(false); 
+    }); 
+  }
+
   let lastScrollTime = 0;
   const scrollDebounce = 200;
   function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
@@ -2923,7 +3011,6 @@ export class CreateParticles {
 </div>
 
 <main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
-  <!-- The rest of the template remains unchanged -->
   <section id="hero" class="full-screen-section hero-section"></section>
 
   <section id="about" class="full-screen-section about-section">
@@ -3008,7 +3095,6 @@ export class CreateParticles {
   .project-section h2 { opacity: 0; font-size: 2.5rem; font-weight: 300; margin-bottom: 1rem; letter-spacing: -0.02em; }
   .project-section p.project-summary { font-size: 1.15rem; color: rgb(212 212 216); line-height: 1.7; margin-bottom: 2rem; max-width: 800px; margin-left: auto; margin-right: auto; opacity: 0; }
   
-  /* MODIFIED: The container itself should be visible for its children to animate into. */
   .project-cards-container { 
     display: flex; 
     justify-content: center; 
@@ -3016,8 +3102,6 @@ export class CreateParticles {
     margin-top: 1rem; 
     margin-bottom: 2rem; 
     flex-wrap: wrap; 
-    opacity: 0; /* Let GSAP control this */
-    visibility: hidden;
   }
   
   .card-click-wrapper {

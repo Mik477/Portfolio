@@ -22,13 +22,12 @@
 
 <div class="keyboard-buttons-wrapper">
   <div class="keyboard-board">
-    <!-- GitHub Button -->
+    <!-- MODIFICATION: Removed data-key attribute -->
     {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
     <div class="key-position">
       <a
         aria-label="Github"
         class="key"
-        data-key="Github"
         target="_blank"
         rel="noopener noreferrer"
         href={getLink('GitHub')}
@@ -42,13 +41,12 @@
       </a>
     </div>
     {/if}
-    <!-- LinkedIn Button -->
+    <!-- MODIFICATION: Removed data-key attribute -->
     {#if socialLinks.find(l => l.name.toLowerCase() === 'linkedin')}
     <div class="key-position">
       <a
         aria-label="LinkedIn"
         class="key"
-        data-key="LinkedIn"
         target="_blank"
         rel="noopener noreferrer"
         href={getLink('LinkedIn')}
@@ -59,13 +57,12 @@
       </a>
     </div>
     {/if}
-    <!-- Email Button -->
+    <!-- MODIFICATION: Removed data-key attribute -->
     {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
     <div class="key-position">
       <a
         aria-label="Email"
         class="key"
-        data-key="Email"
         target="_blank" 
         rel="noopener noreferrer" 
         href={getLink('Email')}
@@ -90,24 +87,41 @@
 
 <style>
   .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
-  .keyboard-buttons-wrapper { display: flex; align-items: flex-start; text-align: center; opacity: 0.025; animation: fade-in-bottom 0.45s cubic-bezier(0.39, 0.575, 0.565, 1) forwards; animation-delay: 0.6s; margin-top: 2.5rem; gap: calc(var(--keyboard-key-base-size) * 0.1); }
+  
+  .keyboard-buttons-wrapper { 
+    display: flex; 
+    align-items: flex-start; 
+    text-align: center; 
+    opacity: 0.025; 
+    animation: fade-in-bottom 0.45s cubic-bezier(0.39, 0.575, 0.565, 1) forwards; 
+    animation-delay: 0.6s; 
+    margin-top: 2.5rem; 
+    gap: calc(var(--keyboard-key-base-size) * 0.1); 
+    
+    perspective: 800px;
+    transform-style: preserve-3d;
+  }
+
   .keyboard-board { display: flex; align-items: center; justify-content: center; gap: calc(var(--keyboard-key-base-size) * 0.15); }
   .key.call-to-action { width: 140px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   .call-to-action-content { position: relative; }
   .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; margin-left: 15%; margin-right: 15%; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
   .key.call-to-action:hover .call-to-action-content:after { width: 70%; }
-  .key-position { transform: rotate(0deg) rotateY(0.05turn) rotateX(-0.1turn); }
+  
+  /* MODIFICATION START: Reduced the rotation values for a more subtle effect */
+  .key-position { transform: rotate(0deg) rotateY(0.025turn) rotateX(-0.05turn); }
+  /* MODIFICATION END */
+
   .key-position.flex { display: flex; align-items: center; justify-content: center; }
   .key { position: relative; width: var(--keyboard-key-base-size); height: var(--keyboard-key-base-size); font-size: calc(var(--keyboard-key-base-size) / 2.2); border: 0.1rem solid var(--keyboard-background-3); border-radius: calc(var(--keyboard-key-base-size) * 0.2); background: var(--keyboard-background-2); color: var(--keyboard-contrast); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); transition: 0.2s ease; display: flex; align-items: center; justify-content: center; text-decoration: none; }
   .key p { color: var(--keyboard-contrast); margin: 0; padding: 0; }
   .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.5rem 0.5rem 0 0 var(--keyboard-background-3); }
   .key:active { cursor: grabbing; transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
-  /* FIX: Removed unused .key.isDown selector */
-  [data-key] { position: relative; z-index: 2; cursor: pointer; }
-  [data-key]:before, [data-key]:after { visibility: hidden; opacity: 0; pointer-events: none; transition: opacity 0.2s ease-in-out, visibility 0.2s ease-in-out; }
-  [data-key]:before { position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%); margin-bottom: 5px; padding: 6px 12px; border-radius: 3px; background-color: #333; color: #fff; content: attr(data-key); text-align: center; font-size: 14px; line-height: 1.2; white-space: nowrap; z-index: 10; }
-  [data-key]:after { position: absolute; bottom: 110%; left: 50%; margin-left: -5px; margin-bottom: 0px; width: 0; border-top: 5px solid #333; border-right: 5px solid transparent; border-left: 5px solid transparent; content: " "; font-size: 0; line-height: 0; z-index: 10; }
-  [data-key]:hover:before, [data-key]:hover:after { visibility: visible; opacity: 1; }
+  
+  /* MODIFICATION START: Removed all CSS rules related to the [data-key] tooltip */
+  /* The entire block for [data-key], [data-key]:before, [data-key]:after has been deleted. */
+  /* MODIFICATION END */
+  
   @media (max-width: 768px) { .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; } }
   @media (max-width: 640px) { .keyboard-buttons-wrapper { flex-direction: column; align-items: center; gap: 1rem; } .keyboard-board { gap: calc(var(--keyboard-key-base-size) * 0.1); } .key.call-to-action { width: 120px; font-size: 12px; } }
 </style>
