@@ -370,15 +370,22 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import type { SocialLink } from '$lib/data/siteConfig';
 
+  // --- NEW: Create an event dispatcher ---
+  const dispatch = createEventDispatcher();
+
+  export let title: string;
+  export let introduction: string;
   export let socialLinks: SocialLink[] = [];
   export let contactSectionIndex: number;
   export let navigateToSection: (index: number) => void;
 
   let wrapperElement: HTMLDivElement;
+  let h2El: HTMLHeadingElement;
+  let pEl: HTMLParagraphElement;
   let keyElements: NodeListOf<Element> | null = null;
 
   onMount(() => {
@@ -386,30 +393,36 @@ export {};
   });
 
   export function onEnterSection() {
-    if (!keyElements) return;
-    // Instantly reset the buttons to their invisible starting state.
+    if (!keyElements || !h2El || !pEl) return;
+
+    gsap.set(h2El, { autoAlpha: 0, y: 40 });
+    gsap.set(pEl, { autoAlpha: 0, y: 30 });
     gsap.set(keyElements, { autoAlpha: 0 });
-    // Play the entrance animation from that clean state.
-    gsap.to(keyElements, {
-      autoAlpha: 1,
-      duration: 0.5,
-      ease: 'power1.inOut',
-      stagger: 0.1,
-      // Using the shorter delay you requested.
-      delay: 0.1 
-    });
+
+    gsap.timeline({
+      // --- NEW: Add an onComplete callback to the timeline ---
+      onComplete: () => {
+        // Signal that the animation has finished.
+        dispatch('animationComplete');
+      }
+    })
+      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, 0)
+      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, 0.15)
+      .to(keyElements, {
+          autoAlpha: 1,
+          duration: 0.5,
+          ease: 'power1.inOut',
+          stagger: 0.1,
+        }, 
+        0.3
+      );
   }
 
   export function onLeaveSection() {
-    if (!keyElements) return;
+    if (!keyElements || !h2El || !pEl) return;
     
-    // --- THIS IS THE DEFINITIVE FIX ---
-    // 1. Immediately kill any ongoing or scheduled animations on the buttons.
-    //    This prevents an interrupted entrance animation from causing issues.
-    gsap.killTweensOf(keyElements);
-
-    // 2. Now, reliably set the buttons to be invisible.
-    gsap.set(keyElements, { autoAlpha: 0 });
+    gsap.killTweensOf([h2El, pEl, keyElements]);
+    gsap.set([h2El, pEl, keyElements], { autoAlpha: 0 });
   }
 
   const getLink = (name: string): string => {
@@ -417,150 +430,77 @@ export {};
     return link ? link.url : '#';
   };
 
-  const handleExploreMoreClick = () => {
-    if (typeof navigateToSection === 'function' && contactSectionIndex !== undefined && contactSectionIndex !== -1) {
+  const handleContactClick = () => {
+    if (typeof navigateToSection === 'function' && contactSectionIndex !== -1) {
       navigateToSection(contactSectionIndex);
-    } else {
-      console.warn('navigateToSection or valid contactSectionIndex not provided to KeyboardButtons for "Explore More" action.');
     }
   };
 </script>
 
-<div class="keyboard-buttons-wrapper" bind:this={wrapperElement}>
-  {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
-  <div class="key-position">
-    <a
-      aria-label="Github"
-      class="key"
-      target="_blank"
-      rel="noopener noreferrer"
-      href={getLink('GitHub')}
-    >
-      <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
-        <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor">
-          <path d="M10 20.568c-3.429 1.157-6.286 0-8-3.568"></path>
-          <path d="M10 22v-3.242c0-.598.184-1.118.48-1.588c.204-.322.064-.78-.303-.88C7.134 15.452 5 14.107 5 9.645c0-1.16.38-2.25 1.048-3.2c.166-.236.25-.354.27-.46c.02-.108-.015-.247-.085-.527c-.283-1.136-.264-2.343.16-3.43c0 0 .877-.287 2.874.96c.456.285.684.428.885.46s.469-.035 1.005-.169A9.5 9.5 0 0 1 13.5 3a9.6 9.6 0 0 1 2.343.28c.536.134.805.2 1.006.169c.2-.032.428-.175.884-.46c1.997-1.247 2.874-.96 2.874-.96c.424 1.087.443 2.294.16 3.43c-.07.28-.104.42-.084.526s.103.225.269.461c.668.95 1.048 2.04 1.048 3.2c0 4.462-2.364 5.807-5.177 6.643c-.367.101-.507.559-.303.88c.296.47.48.99.48 1.589V22"></path>
-        </g>
-      </svg>
-    </a>
-  </div>
-  {/if}
-  {#if socialLinks.find(l => l.name.toLowerCase() === 'linkedin')}
-  <div class="key-position">
-    <a
-      aria-label="LinkedIn"
-      class="key"
-      target="_blank"
-      rel="noopener noreferrer"
-      href={getLink('LinkedIn')}
-    >
-      <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
-          <path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.5 9.5H4c-.943 0-1.414 0-1.707.293S2 10.557 2 11.5V20c0 .943 0 1.414.293 1.707S3.057 22 4 22h.5c.943 0 1.414 0 1.707-.293S6.5 20.943 6.5 20v-8.5c0-.943 0-1.414-.293-1.707S5.443 9.5 4.5 9.5m2-5.25a2.25 2.25 0 1 1-4.5 0a2.25 2.25 0 0 1 4.5 0m5.826 5.25H11.5c-.943 0-1.414 0-1.707.293S9.5 10.557 9.5 11.5V20c0 .943 0 1.414.293 1.707S10.557 22 11.5 22h.5c.943 0 1.414 0 1.707-.293S14 20.943 14 20v-3.5c0-1.657.528-3 2.088-3c.78 0 1.412.672 1.412 1.5v4.5c0 .943 0 1.414.293 1.707s.764.293 1.707.293h.499c.942 0 1.414 0 1.707-.293c.292-.293.293-.764.293-1.706L22 14c0-2.486-2.364-4.5-4.703-4.5c-1.332 0-2.52.652-3.297 1.673c0-.63 0-.945-.137-1.179a1 1 0 0 0-.358-.358c-.234-.137-.549-.137-1.179-.137" color="currentColor"></path>
-      </svg>
-    </a>
-  </div>
-  {/if}
-  {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
-  <div class="key-position">
-    <a
-      aria-label="Email"
-      class="key"
-      target="_blank" 
-      rel="noopener noreferrer" 
-      href={getLink('Email')}
-    >
-      <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24">
-          <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor">
-              <path d="m2 6l6.913 3.917c2.549 1.444 3.625 1.444 6.174 0L22 6"></path>
-              <path d="M2.016 13.476c.065 3.065.098 4.598 1.229 5.733c1.131 1.136 2.705 1.175 5.854 1.254c1.94.05 3.862.05 5.802 0c3.149-.079 4.723-.118 5.854-1.254c1.131-1.135 1.164-2.668 1.23-5.733c.02-.986.02-1.966 0-2.952c-.066-3.065-.099-4.598-1.23-5.733c-1.131-1.136-2.705-1.175-5.854-1.254a115 115 0 0 0-5.802 0c-3.149.079-4.723.118-5.854 1.254c-1.131 1.135-1.164 2.668-1.23 5.733a69 69 0 0 0 0 2.952"></path>
-          </g>
-      </svg>
-    </a>
-  </div>
-  {/if}
+<div class="about-text-block" bind:this={wrapperElement}>
+  <h2 bind:this={h2El}>{title}</h2>
+  <p bind:this={pEl}>{introduction}</p>
 
-  <div class="key-position">
-    <button type="button" id="about-explore-more-btn" class="key call-to-action peer" on:click={handleExploreMoreClick}>
-      <p class="call-to-action-content">Explore more</p>
-    </button>
+  <div class="keyboard-buttons-wrapper">
+    {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
+    <div class="key-position">
+      <a aria-label="Github" class="key" target="_blank" rel="noopener noreferrer" href={getLink('GitHub')}>
+        <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor"><path d="M10 20.568c-3.429 1.157-6.286 0-8-3.568"></path><path d="M10 22v-3.242c0-.598.184-1.118.48-1.588c.204-.322.064-.78-.303-.88C7.134 15.452 5 14.107 5 9.645c0-1.16.38-2.25 1.048-3.2c.166-.236.25-.354.27-.46c.02-.108-.015-.247-.085-.527c-.283-1.136-.264-2.343.16-3.43c0 0 .877-.287 2.874.96c.456.285.684.428.885.46s.469-.035 1.005-.169A9.5 9.5 0 0 1 13.5 3a9.6 9.6 0 0 1 2.343.28c.536.134.805.2 1.006.169c.2-.032.428-.175.884-.46c1.997-1.247 2.874-.96 2.874-.96c.424 1.087.443 2.294.16 3.43c-.07.28-.104.42-.084.526s.103.225.269.461c.668.95 1.048 2.04 1.048 3.2c0 4.462-2.364 5.807-5.177 6.643c-.367.101-.507.559-.303.88c.296.47.48.99.48 1.589V22"></path></g></svg>
+      </a>
+    </div>
+    {/if}
+    {#if socialLinks.find(l => l.name.toLowerCase() === 'linkedin')}
+    <div class="key-position">
+      <a aria-label="LinkedIn" class="key" target="_blank" rel="noopener noreferrer" href={getLink('LinkedIn')}>
+        <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.5 9.5H4c-.943 0-1.414 0-1.707.293S2 10.557 2 11.5V20c0 .943 0 1.414.293 1.707S3.057 22 4 22h.5c.943 0 1.414 0 1.707-.293S6.5 20.943 6.5 20v-8.5c0-.943 0-1.414-.293-1.707S5.443 9.5 4.5 9.5m2-5.25a2.25 2.25 0 1 1-4.5 0a2.25 2.25 0 0 1 4.5 0m5.826 5.25H11.5c-.943 0-1.414 0-1.707.293S9.5 10.557 9.5 11.5V20c0 .943 0 1.414.293 1.707S10.557 22 11.5 22h.5c.943 0 1.414 0 1.707-.293S14 20.943 14 20v-3.5c0-1.657.528-3 2.088-3c.78 0 1.412.672 1.412 1.5v4.5c0 .943 0 1.414.293 1.707s.764.293 1.707.293h.499c.942 0 1.414 0 1.707-.293c.292-.293.293-.764.293-1.706L22 14c0-2.486-2.364-4.5-4.703-4.5c-1.332 0-2.52.652-3.297 1.673c0-.63 0-.945-.137-1.179a1 1 0 0 0-.358-.358c-.234-.137-.549-.137-1.179-.137" color="currentColor"></path></svg>
+      </a>
+    </div>
+    {/if}
+    {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
+    <div class="key-position">
+      <a aria-label="Email" class="key" target="_blank" rel="noopener noreferrer" href={getLink('Email')}>
+        <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor"><path d="m2 6l6.913 3.917c2.549 1.444 3.625 1.444 6.174 0L22 6"></path><path d="M2.016 13.476c.065 3.065.098 4.598 1.229 5.733c1.131 1.136 2.705 1.175 5.854 1.254c1.94.05 3.862.05 5.802 0c3.149-.079 4.723-.118 5.854-1.254c1.131-1.135 1.164-2.668 1.23-5.733c.02-.986.02-1.966 0-2.952c-.066-3.065-.099-4.598-1.23-5.733c-1.131-1.136-2.705-1.175-5.854-1.254a115 115 0 0 0-5.802 0c-3.149.079-4.723.118-5.854 1.254c-1.131 1.135-1.164 2.668-1.23 5.733a69 69 0 0 0 0 2.952"></path></g></svg>
+      </a>
+    </div>
+    {/if}
+    <div class="key-position">
+      <button type="button" id="about-contact-me-btn" class="key call-to-action peer" on:click={handleContactClick}>
+        <span class="call-to-action-content">Contact Me</span>
+      </button>
+    </div>
   </div>
 </div>
 
 <style>
+  .about-text-block { max-width: 580px; }
+  .about-text-block > p { 
+    font-size: clamp(1rem, 2.2vw, 1.15rem); 
+    line-height: 1.8; 
+    margin-bottom: 2.5rem; 
+    color: rgb(212 212 216); 
+    opacity: 0; 
+  }
+  .about-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; }
   .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
-  
-  .keyboard-buttons-wrapper { 
-    display: flex; 
-    align-items: flex-start; 
-    text-align: center; 
-    margin-top: 2.5rem; 
-    gap: calc(var(--keyboard-key-base-size) * 0.01); 
-  }
-
-  .key-position {
-    perspective: 800px;
-    transform: rotateY(0.05turn) rotateX(-0.1turn);
-  }
-
-  .key.call-to-action { 
-    width: 140px; 
-    font-size: 13px; 
-    font-weight: 500; 
-    text-transform: uppercase; 
-    letter-spacing: 0.05rem; 
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  }
+  .keyboard-buttons-wrapper { display: flex; align-items: flex-start; text-align: center; gap: calc(var(--keyboard-key-base-size) * 0.01); }
+  .key-position { perspective: 800px; transform: rotateY(0.05turn) rotateX(-0.1turn); }
+  .key.call-to-action { width: 140px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
   .call-to-action-content { position: relative; }
-  .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; margin-left: 15%; margin-right: 15%; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
-  .key.call-to-action:hover .call-to-action-content:after { width: 70%; }
-  
-  .key { 
-    position: relative; 
-    width: var(--keyboard-key-base-size); 
-    height: var(--keyboard-key-base-size); 
-    font-size: calc(var(--keyboard-key-base-size) / 2.2); 
-    border: 0.1rem solid var(--keyboard-background-3); 
-    border-radius: calc(var(--keyboard-key-base-size) * 0.2); 
-    background: var(--keyboard-background-2); 
-    color: var(--keyboard-contrast); 
-    box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); 
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-    display: flex; 
-    align-items: center; 
-    justify-content: center; 
-    text-decoration: none;
-    transform-style: preserve-3d;
-    opacity: 0;
-    visibility: hidden;
-  }
-  .key p { color: var(--keyboard-contrast); margin: 0; padding: 0; }
-  
-  .key:hover { 
-    cursor: pointer; 
-    transform: translate(0.3rem, 0.3rem); 
-  }
-  .key:active { 
-    cursor: grabbing; 
-    transform: translate(0.8rem, 0.8rem); 
-    box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); 
-    filter: blur(0.02rem); 
-  }
-  
-  @media (max-width: 768px) { .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; } }
-  @media (max-width: 640px) { 
-    .keyboard-buttons-wrapper { 
-      flex-direction: column; 
-      align-items: center; 
-      gap: 1rem; 
-    } 
-  }
+  .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
+  .key.call-to-action:hover .call-to-action-content:after { width: 100%;}
+  .key { position: relative; width: var(--keyboard-key-base-size); height: var(--keyboard-key-base-size); font-size: calc(var(--keyboard-key-base-size) / 2.2); border: 0.1rem solid var(--keyboard-background-3); border-radius: calc(var(--keyboard-key-base-size) * 0.2); background: var(--keyboard-background-2); color: var(--keyboard-contrast); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); transition: transform 0.2s ease, box-shadow 0.2s ease; display: flex; align-items: center; justify-content: center; text-decoration: none; transform-style: preserve-3d; opacity: 0; visibility: hidden; }
+  .key span { color: inherit; margin: 0; padding: 0; }
+  .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); }
+  .key:active { cursor: grabbing; transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
+  @media (max-width: 640px) { .keyboard-buttons-wrapper { flex-direction: column; align-items: center; gap: 1rem; } }
 </style>
 --- END OF FILE src\lib\components\KeyboardButtons.svelte ---
 
 --- START OF FILE src\lib\components\LoadingScreen.svelte ---
 <!-- src/lib/components/LoadingScreen.svelte -->
-<script lang="ts">  import { onMount, onDestroy } from 'svelte';
-  import { overallLoadingState, initialSiteLoadComplete, loadingProgress, minimumLoadingDuration } from '$lib/stores/preloadingStore';
+<script lang="ts">
+  import { onMount, onDestroy } from 'svelte';
+  import { overallLoadingState, initialSiteLoadComplete, minimumLoadingDuration } from '$lib/stores/preloadingStore';
   import { get } from 'svelte/store';
 
   let showScreen = !get(initialSiteLoadComplete);
@@ -573,10 +513,11 @@ export {};
   
   let loadingStartTime = Date.now();
   let minimumDurationTimer: number | undefined;
+  
   // Ticker class for continuous matrix-like animation
   class Ticker {
     private done = false;
-    private cycleCount = 8; // Increased for longer animation cycles
+    private cycleCount = 8;
     private cycleCurrent = 0;
     private chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()-_=+{}|[]\\;\':"<>?,./`~'.split('');
     private charsCount = this.chars.length;
@@ -587,17 +528,13 @@ export {};
     private originalText: string;
     private continuousMode = false;
 
-    constructor(element: HTMLDivElement, text: string, continuous = false) {
+    constructor(element: HTMLDivElement, text: string) {
       this.originalText = text;
-      this.continuousMode = continuous;
       this.setupLetters(element);
     }
 
     private setupLetters(element: HTMLDivElement) {
-      // Clear existing content
       element.innerHTML = '';
-      
-      // Create spans for each character
       this.letters = [];
       for (let i = 0; i < this.originalText.length; i++) {
         const span = document.createElement('span');
@@ -607,48 +544,26 @@ export {};
         element.appendChild(span);
         this.letters.push(span);
       }
-      
       this.letterCount = this.letters.length;
     }
 
     private getChar(): string {
       return this.chars[Math.floor(Math.random() * this.charsCount)];
-    }    public start(continuous = false): void {
-      this.continuousMode = continuous;
-      this.reset();
     }
 
-    private reset(): void {
-      this.done = false;
-      this.cycleCurrent = 0;
-      this.letterCurrent = 0;
-      
-      this.letters.forEach(letter => {
-        if (this.continuousMode) {
-          // In continuous mode, keep letters visible
-          letter.textContent = letter.getAttribute('data-orig') || '';
-          letter.classList.add('done');
-          letter.style.transform = 'translateX(0) scale(1)';
-          letter.style.opacity = '1';
-        } else {
-          letter.textContent = letter.getAttribute('data-orig') || '';
-          letter.classList.remove('done');
-          letter.style.transform = 'translateX(100%) scale(0.9)';
-          letter.style.opacity = '1';
-        }
-      });
-      
+    public start(): void {
       this.loop();
-    }    private loop = (): void => {
+    }
+    
+    private loop = (): void => {
       if (this.continuousMode) {
         // In continuous mode, randomly glitch some letters periodically
-        this.letters.forEach((letter, index) => {
+        this.letters.forEach((letter) => {
           const orig = letter.getAttribute('data-orig');
           if (orig !== ' ' && Math.random() < 0.1) { // 10% chance per frame
             letter.textContent = this.getChar();
             letter.style.opacity = String(0.5 + Math.random() * 0.5);
             
-            // Reset back to original after a short delay
             setTimeout(() => {
               letter.textContent = orig || '';
               letter.style.opacity = '1';
@@ -698,18 +613,6 @@ export {};
       this.done = true;
     }
   }
-  function startLoadingAnimation() {
-    if (!textElement) return;
-    
-    // Destroy previous ticker if exists
-    if (tickerInstance) {
-      tickerInstance.destroy();
-    }
-    
-    // Create new ticker with "LOADING..." text
-    tickerInstance = new Ticker(textElement, "LOADING...");
-    tickerInstance.start(); // No callback needed, continuous animation
-  }
 
   function handleLoadingComplete() {
     if (isFadingOut) return;
@@ -717,7 +620,6 @@ export {};
     const elapsedTime = Date.now() - loadingStartTime;
     const remainingMinimumTime = Math.max(0, minimumLoadingDuration - elapsedTime);
     
-    // Wait for minimum duration before fading out
     minimumDurationTimer = setTimeout(() => {
       if (tickerInstance) {
         tickerInstance.destroy();
@@ -735,35 +637,28 @@ export {};
       handleLoadingComplete();
     }
   });
+
   const unsubOverallState = overallLoadingState.subscribe(status => {
     if (get(initialSiteLoadComplete)) return;
     
-    if (status === 'error') {
+    if (status === 'error' && textElement) {
       clearTimeout(minimumDurationTimer);
-      
-      // Show error state
-      if (tickerInstance) {
-        tickerInstance.destroy();
-      }
-      if (textElement) {
-        tickerInstance = new Ticker(textElement, "ERROR LOADING");
-        tickerInstance.start();
-      }
+      if (tickerInstance) tickerInstance.destroy();
+      tickerInstance = new Ticker(textElement, "ERROR LOADING");
+      tickerInstance.start();
     }
   });
+
   onMount(() => {
     loadingStartTime = Date.now();
-    
     if (!get(initialSiteLoadComplete) && textElement) {
-      // Start the loading animation
-      startLoadingAnimation();
+      tickerInstance = new Ticker(textElement, "LOADING...");
+      tickerInstance.start();
     }
   });
 
   onDestroy(() => {
-    if (tickerInstance) {
-      tickerInstance.destroy();
-    }
+    if (tickerInstance) tickerInstance.destroy();
     clearTimeout(minimumDurationTimer);
     unsubOverallState();
     unsubInitialLoad();
@@ -781,154 +676,27 @@ export {};
 
 <style>
   .loading-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     background: radial-gradient(ellipse at center, #0a1a0a 0%, #000500 100%);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 10000;
-    opacity: 1;
-    transition: opacity var(--fade-duration) cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex; justify-content: center; align-items: center; z-index: 10000;
+    opacity: 1; transition: opacity var(--fade-duration) cubic-bezier(0.4, 0, 0.2, 1);
   }
-
-  .loading-overlay.fade-out {
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .loading-content {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-  }
-
+  .loading-overlay.fade-out { opacity: 0; pointer-events: none; }
+  .loading-content { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
   .word {
-    color: #fff;
-    font-family: 'Source Code Pro', 'Courier New', monospace;
-    font-weight: 400;
-    font-size: clamp(1.5rem, 4vw, 2.5rem);
-    text-transform: uppercase;
-    letter-spacing: 0.15em;
-    text-shadow: 
-      0 0 10px rgba(50, 255, 50, 0.5), 
-      0 0 20px rgba(100, 255, 100, 0.5),
-      0 0 30px rgba(50, 255, 50, 0.3),
-      0 0 40px rgba(100, 255, 100, 0.2);
-    position: relative;
-    z-index: 2;
+    color: #fff; font-family: 'Source Code Pro', 'Courier New', monospace; font-weight: 400; font-size: clamp(1.5rem, 4vw, 2.5rem); text-transform: uppercase; letter-spacing: 0.15em;
+    text-shadow: 0 0 10px rgba(50, 255, 50, 0.5), 0 0 20px rgba(100, 255, 100, 0.5), 0 0 30px rgba(50, 255, 50, 0.3), 0 0 40px rgba(100, 255, 100, 0.2);
+    position: relative; z-index: 2; animation: flicker 4s linear infinite;
   }
-
-  .word :global(span) {
-    display: inline-block;
-    transform: translateX(100%) scale(0.9);
-    transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1);
-    will-change: transform, opacity;
-  }
-
-  .word :global(.done) {
-    color: #6f6;
-    transform: translateX(0) scale(1) !important;
-  }
-
-  .scanline-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-image: 
-      repeating-linear-gradient(
-        0deg,
-        transparent,
-        transparent 2px,
-        rgba(50, 255, 50, 0.03) 2px,
-        rgba(50, 255, 50, 0.03) 4px
-      );
-    background-size: 100% 4px;
-    animation: scanline 8s linear infinite;
-    pointer-events: none;
-    z-index: 1;
-  }
-
-  .scanline-overlay::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(
-      180deg,
-      transparent 0%,
-      rgba(50, 255, 50, 0.02) 50%,
-      transparent 100%
-    );
-    animation: scanline-move 3s linear infinite;
-  }
-
-  @keyframes scanline {
-    0% {
-      background-position: 0 0;
-    }
-    100% {
-      background-position: 0 10px;
-    }
-  }
-
-  @keyframes scanline-move {
-    0% {
-      transform: translateY(-100%);
-    }
-    100% {
-      transform: translateY(100%);
-    }
-  }
-
-  /* Add subtle flicker effect */
-  @keyframes flicker {
-    0%, 100% {
-      opacity: 1;
-    }
-    92% {
-      opacity: 0.95;
-    }
-    94% {
-      opacity: 1;
-    }
-    96% {
-      opacity: 0.97;
-    }
-  }
-
-  .word {
-    animation: flicker 4s linear infinite;
-  }
-
-  /* Mobile optimizations */
-  @media (max-width: 640px) {
-    .word {
-      font-size: 1.25rem;
-      letter-spacing: 0.1em;
-    }
-  }
-
-  /* Reduced motion preference */
-  @media (prefers-reduced-motion: reduce) {
-    .word :global(span) {
-      transition: none;
-    }
-    .scanline-overlay,
-    .scanline-overlay::before {
-      animation: none;
-    }
-  }
+  .word :global(span) { display: inline-block; transform: translateX(100%) scale(0.9); transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); will-change: transform, opacity; }
+  .word :global(.done) { color: #6f6; transform: translateX(0) scale(1) !important; }
+  .scanline-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: repeating-linear-gradient( 0deg, transparent, transparent 2px, rgba(50, 255, 50, 0.03) 2px, rgba(50, 255, 50, 0.03) 4px ); background-size: 100% 4px; animation: scanline 8s linear infinite; pointer-events: none; z-index: 1; }
+  .scanline-overlay::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient( 180deg, transparent 0%, rgba(50, 255, 50, 0.02) 50%, transparent 100% ); animation: scanline-move 3s linear infinite; }
+  @keyframes scanline { 0% { background-position: 0 0; } 100% { background-position: 0 10px; } }
+  @keyframes scanline-move { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
+  @keyframes flicker { 0%, 100% { opacity: 1; } 92% { opacity: 0.95; } 94% { opacity: 1; } 96% { opacity: 0.97; } }
+  @media (max-width: 640px) { .word { font-size: 1.25rem; letter-spacing: 0.1em; } }
+  @media (prefers-reduced-motion: reduce) { .word :global(span) { transition: none; } .scanline-overlay, .scanline-overlay::before { animation: none; } }
 </style>
 --- END OF FILE src\lib\components\LoadingScreen.svelte ---
 
@@ -938,12 +706,10 @@ export {};
   import { onMount, onDestroy } from 'svelte';
   import type { ProjectCard } from '$lib/data/projectsData';
 
-  // --- PROPS ---
   export let cardData: ProjectCard;
   export let width: string = '240px';
   export let height: string = '320px';
 
-  // --- STATE ---
   let cardWrapElement: HTMLDivElement;
   let elementWidth: number = 0;
   let elementHeight: number = 0;
@@ -951,7 +717,6 @@ export {};
   let mouseY: number = 0;
   let mouseLeaveDelay: number | null = null;
 
-  // --- LIFECYCLE ---
   onMount(() => {
     if (cardWrapElement) {
       elementWidth = cardWrapElement.offsetWidth;
@@ -963,7 +728,6 @@ export {};
     if (mouseLeaveDelay) clearTimeout(mouseLeaveDelay);
   });
 
-  // --- REACTIVE COMPUTATIONS (Derived State) ---
   $: mousePX = mouseX / elementWidth;
   $: mousePY = mouseY / elementHeight;
   $: rX = !isNaN(mousePX) ? mousePX * 30 : 0;
@@ -974,7 +738,6 @@ export {};
   $: cardBgTransform = `transform: translateX(${tX}px) translateY(${tY}px);`;
   $: cardBgImage = `background-image: url(${cardData.image});`;
 
-  // --- EVENT HANDLERS ---
   function handleMouseMove(e: MouseEvent) {
     if (!cardWrapElement) return;
     const rect = cardWrapElement.getBoundingClientRect();
@@ -1023,9 +786,11 @@ export {};
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    opacity: 0;
-    visibility: hidden;
-    will-change: transform, opacity;
+    /* --- FIXED: The card itself is visible by default. --- */
+    /* Its parent (.card-click-wrapper) controls the entry animation. */
+    opacity: 1;
+    visibility: visible;
+    will-change: transform;
   }
   .card-wrap:hover .card-info {
     transform: translateY(0);
@@ -1046,7 +811,6 @@ export {};
     transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1), opacity 5s cubic-bezier(0.23, 1, 0.32, 1);
     opacity: 0.8;
   }
-  /* MODIFICATION: This rule now applies the expensive shadow only on hover */
   .card-wrap:hover .card {
     transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 2s cubic-bezier(0.23, 1, 0.32, 1);
     box-shadow: rgba(255, 255, 255, 0.2) 0 0 40px 5px, white 0 0 0 1px, rgba(0, 0, 0, 0.66) 0 30px 60px 0, inset #333 0 0 0 5px, inset white 0 0 0 6px;
@@ -1059,7 +823,6 @@ export {};
     background-color: #333;
     overflow: hidden;
     border-radius: 10px;
-    /* MODIFICATION: Use a much "cheaper" initial box-shadow to reduce first-paint cost. */
     box-shadow: inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
     transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
@@ -1084,10 +847,12 @@ export {};
     bottom: 0;
     color: #fff;
     transform: translateY(40%);
+    transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1);
   }
   
   .card-description {
     opacity: 0;
+    transition: opacity 0.6s cubic-bezier(0.23, 1, 0.32, 1);
     text-shadow: black 0 2px 3px;
     font-size: 0.9rem;
     line-height: 1.5;
@@ -1119,11 +884,216 @@ export {};
     font-weight: 700;
     text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
     margin-bottom: 0.5rem;
-    opacity: 0;
-    will-change: opacity, transform;
+    opacity: 1; 
   }
 </style>
 --- END OF FILE src\lib\components\ParallaxCard.svelte ---
+
+--- START OF FILE src\lib\components\ProjectSection.svelte ---
+<!-- src/lib/components/ProjectSection.svelte -->
+<script context="module" lang="ts">
+  export type ProjectSectionInstance = {
+    onEnterSection: () => void;
+    onLeaveSection: () => void;
+  };
+</script>
+
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { gsap } from 'gsap';
+  import type { Project, ProjectCard } from '$lib/data/projectsData';
+  import ParallaxCard from '$lib/components/ParallaxCard.svelte';
+  
+  export let project: Project;
+
+  let sectionEl: HTMLElement;
+  let headlineEl: HTMLHeadingElement;
+  let summaryEl: HTMLParagraphElement;
+  let readMoreBtn: HTMLButtonElement | null = null;
+  
+  // --- FIXED: We will now target the .card-wrap elements directly for animation ---
+  let cardWrapsToAnimate: HTMLElement[] = [];
+  
+  onMount(() => {
+    // Find the .card-wrap elements which are the visual root of the ParallaxCard component.
+    cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
+  });
+  
+  export function onEnterSection() {
+    if (!headlineEl || !summaryEl || !cardWrapsToAnimate) return;
+
+    // Set initial state for text elements
+    gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
+    gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
+    if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
+
+    // The cards (.card-wrap) are already at autoAlpha: 0 due to our pre-renderer.
+    // We just need to set their starting scale for the animation.
+    gsap.set(cardWrapsToAnimate, { scale: 0.97 });
+
+
+    const tl = gsap.timeline();
+    tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
+      .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
+      
+    if (cardWrapsToAnimate.length > 0) {
+        // --- FIXED: Animate the .card-wrap elements directly ---
+        tl.to(cardWrapsToAnimate, { 
+            autoAlpha: 1, // This is the crucial change that makes them visible
+            scale: 1, 
+            duration: 2.8, 
+            stagger: 0.15, 
+            ease: 'expo.out' 
+        }, "start+=0.2");
+    }
+
+    if (readMoreBtn) {
+      tl.to(readMoreBtn, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
+    }
+  }
+
+  export function onLeaveSection() {
+    if (!headlineEl || !summaryEl || !cardWrapsToAnimate) return;
+    
+    // --- FIXED: Ensure we are targeting the correct elements for cleanup ---
+    const allElements = [headlineEl, summaryEl, ...cardWrapsToAnimate];
+    if (readMoreBtn) allElements.push(readMoreBtn);
+    
+    gsap.killTweensOf(allElements);
+    gsap.set(allElements, { autoAlpha: 0 });
+  }
+  
+  function handleCardClick(card: ProjectCard) {
+    const aspectLink = card.aspectLink || '';
+    goto(`/projects/${project.slug}${aspectLink}`);
+  }
+</script>
+
+<div class="project-section-wrapper" bind:this={sectionEl}>
+  <div class="background-image-container" style="background-image: url({project.background.value});"></div>
+  <div class="content-overlay">
+    <div class="project-content">
+      <h2 bind:this={headlineEl}>{project.headline}</h2>
+      <p class="project-summary" bind:this={summaryEl}>{project.summary}</p>
+      
+      <div class="project-cards-container">
+        {#each project.cards as card (card.id)}
+          <!-- The wrapper is now just a layout element, not an animation target -->
+          <button type="button" class="card-click-wrapper" on:click={() => handleCardClick(card)}>
+            <ParallaxCard cardData={card} width="220px" height="290px" />
+          </button>
+        {/each}
+      </div>
+      
+      {#if project.readMoreLinkText}
+        <button class="read-more-btn" on:click={() => goto(`/projects/${project.slug}`)} bind:this={readMoreBtn}>
+            {project.readMoreLinkText}
+        </button>
+      {/if}
+    </div>
+  </div>
+</div>
+
+<style>
+    .project-section-wrapper { 
+        width: 100%; 
+        height: 100%; 
+        color: rgb(245 245 247); 
+        z-index: 2; 
+        background-color: transparent; 
+        display: flex; 
+        flex-direction: column; 
+        justify-content: center; 
+        align-items: center; 
+    }
+    .background-image-container { 
+        position: absolute; 
+        top: 0; 
+        left: 0; 
+        width: 100%; 
+        height: 100%; 
+        background-size: cover; 
+        background-position: center; 
+        z-index: -1; 
+        transform: scale(1); 
+    }
+    .content-overlay { 
+        background-color: rgba(9 9 11 / 0.85); 
+        backdrop-filter: blur(8px); 
+        padding: 2rem 3rem; 
+        border-radius: 16px; 
+        width: 90%; 
+        max-width: 1100px; 
+        z-index: 1; 
+        position: relative; 
+        border: 1px solid rgba(255 255 255 / 0.1); 
+    }
+    .project-content { 
+        text-align: center; 
+    }
+    h2 { 
+        opacity: 0; 
+        font-size: 2.5rem; 
+        font-weight: 300; 
+        margin-bottom: 1rem; 
+        letter-spacing: -0.02em; 
+    }
+    p.project-summary { 
+        font-size: 1.15rem; 
+        color: rgb(212 212 216); 
+        line-height: 1.7; 
+        margin-bottom: 2rem; 
+        max-width: 800px; 
+        margin-left: auto; 
+        margin-right: auto; 
+        opacity: 0; 
+    }
+    .project-cards-container { 
+        display: flex; 
+        justify-content: center; 
+        gap: 1rem; 
+        margin-top: 1rem; 
+        margin-bottom: 2rem; 
+        flex-wrap: wrap; 
+    }
+    /* --- FIXED: The wrapper no longer needs to be hidden by default --- */
+    .card-click-wrapper { 
+        background: none; 
+        border: none; 
+        padding: 0; 
+        cursor: pointer; 
+        border-radius: 10px; 
+        transition: transform 0.3s ease, box-shadow 0.3s ease; 
+    }
+    .card-click-wrapper:hover { 
+        transform: translateY(-5px); 
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+    }
+    .card-click-wrapper:focus-visible { 
+        outline: 2px solid rgb(99 102 241); 
+        outline-offset: 4px; 
+    }
+    button.read-more-btn { 
+        opacity: 0; 
+        padding: 0.875rem 2rem; 
+        background-color: rgb(99 102 241); 
+        color: white; 
+        border: none; 
+        border-radius: 8px; 
+        cursor: pointer; 
+        font-size: 1rem; 
+        font-weight: 500; 
+        transition: all 0.3s ease; 
+        margin-top: 1rem; 
+    }
+    button.read-more-btn:hover { 
+        background-color: rgb(79 70 229); 
+        transform: translateY(-2px); 
+        box-shadow: 0 4px 20px rgba(99 102 241 / 0.4); 
+    }
+</style>
+--- END OF FILE src\lib\components\ProjectSection.svelte ---
 
 --- START OF FILE src\lib\data\projectsData.ts ---
 // src/lib/data/projectsData.ts
@@ -1368,6 +1338,12 @@ export interface PreloadTask {
 // Configuration
 export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
 
+// --- NEW ---
+/**
+ * A queue of asset URLs (e.g., images) to be displayed on the loading screen.
+ */
+export const loadingAssetQueue = writable<string[]>([]);
+
 const tasks = writable<Record<string, PreloadTask>>({});
 
 /**
@@ -1384,7 +1360,6 @@ export const loadingProgress = derived(tasks, $tasks => {
   
   if (allTasksArray.length === 0) return 0;
   
-  // Calculate weighted progress
   let totalWeight = 0;
   let weightedProgress = 0;
   
@@ -1392,24 +1367,12 @@ export const loadingProgress = derived(tasks, $tasks => {
     const weight = task.priority || 1;
     totalWeight += weight;
     
-    // Calculate task progress
     let taskProgress = 0;
     switch (task.status) {
-      case 'idle':
-        taskProgress = 0;
-        break;
-      case 'pending':
-        taskProgress = 0.1;
-        break;
-      case 'loading':
-        taskProgress = task.progress || 0.5;
-        break;
-      case 'loaded':
-        taskProgress = 1;
-        break;
-      case 'error':
-        taskProgress = 1; // Count as complete for progress purposes
-        break;
+      case 'loaded': taskProgress = 1; break;
+      case 'error': taskProgress = 1; break;
+      case 'loading': taskProgress = task.progress || 0.5; break;
+      default: taskProgress = 0; break;
     }
     
     weightedProgress += taskProgress * weight;
@@ -1430,9 +1393,7 @@ export const preloadingStore = {
           priority,
           progress: initialStatus === 'loading' ? 0.5 : undefined
         };
-        // console.log(`PreloadingStore: Task '${taskId}' registered with status '${initialStatus}' and priority ${priority}.`);
       } else {
-        // Update priority if task already exists
         currentTasks[taskId].priority = priority;
       }
       return currentTasks;
@@ -1445,23 +1406,16 @@ export const preloadingStore = {
         if (currentTasks[taskId].status !== 'loaded' || status !== 'loading') {
           currentTasks[taskId].status = status;
           if (message) currentTasks[taskId].message = message;
-          // Set default progress based on status
-          if (status === 'loading' && currentTasks[taskId].progress === undefined) {
-            currentTasks[taskId].progress = 0.5;
-          } else if (status === 'loaded') {
-            currentTasks[taskId].progress = 1;
-          } else if (status === 'error') {
+          if (status === 'loaded' || status === 'error') {
             currentTasks[taskId].progress = 1;
           }
-          // console.log(`PreloadingStore: Task '${taskId}' status updated to '${status}'.`);
         }
       } else {
-        // console.warn(`PreloadingStore: Task '${taskId}' not found to update status. Registering.`);
         currentTasks[taskId] = { 
           id: taskId, 
           status: status, 
           message: message,
-          progress: status === 'loaded' ? 1 : status === 'loading' ? 0.5 : 0
+          progress: status === 'loaded' ? 1 : 0
         };
       }
       return currentTasks;
@@ -1472,7 +1426,6 @@ export const preloadingStore = {
     tasks.update(currentTasks => {
       if (currentTasks[taskId]) {
         currentTasks[taskId].progress = Math.max(0, Math.min(1, progress));
-        // console.log(`PreloadingStore: Task '${taskId}' progress updated to ${progress}.`);
       }
       return currentTasks;
     });
@@ -1483,112 +1436,37 @@ export const preloadingStore = {
     return currentTasks[taskId]?.status;
   },
   
-  getTaskProgress: (taskId: string): number => {
-    const currentTasks = get(tasks);
-    const task = currentTasks[taskId];
-    if (!task) return 0;
-    
-    switch (task.status) {
-      case 'idle': return 0;
-      case 'pending': return 0.1;
-      case 'loading': return task.progress || 0.5;
-      case 'loaded': return 1;
-      case 'error': return 1;
-      default: return 0;
-    }
-  },
-  
   resetTasks: () => {
-    // console.log("PreloadingStore: Resetting all tasks.");
     tasks.set({});
     initialSiteLoadComplete.set(false);
+    loadingAssetQueue.set([]); // Reset the asset queue as well
   },
-  
-  /**
-   * Get a summary of all tasks for debugging
-   */
-  getTasksSummary: () => {
-    const currentTasks = get(tasks);
-    const summary = Object.values(currentTasks).map(task => ({
-      id: task.id,
-      status: task.status,
-      progress: task.progress,
-      priority: task.priority
-    }));
-    return summary;
-  }
 };
 
 export const overallLoadingState = derived(tasks, $tasks => {
   const allTasksArray = Object.values($tasks);
 
-  if (allTasksArray.length === 0) {
-    return 'idle';
-  }
-
-  if (allTasksArray.some(task => task.status === 'error')) {
-    return 'error';
-  }
-
-  if (allTasksArray.every(task => task.status === 'loaded')) {
-    return 'loaded';
-  }
-  
-  if (allTasksArray.some(task => task.status === 'loading' || task.status === 'pending')) {
-    return 'loading';
-  }
-
+  if (allTasksArray.length === 0) return 'idle';
+  if (allTasksArray.some(task => task.status === 'error')) return 'error';
+  if (allTasksArray.every(task => task.status === 'loaded')) return 'loaded';
+  if (allTasksArray.some(task => task.status === 'loading' || task.status === 'pending')) return 'loading';
   return 'idle';
 });
-
-export const isEverythingLoading = derived(overallLoadingState, $status => $status === 'loading');
-export const isEverythingLoaded = derived(overallLoadingState, $status => $status === 'loaded');
-export const hasLoadingError = derived(overallLoadingState, $status => $status === 'error');
 
 // Helper to initiate a task with priority
 export const startLoadingTask = (taskId: string, priority: number = 1) => {
   preloadingStore.registerTask(taskId, 'loading', priority);
 };
 
-// Helper to simulate progress updates (useful for long-running tasks)
-export const simulateTaskProgress = (taskId: string, duration: number = 2000) => {
-  const steps = 20;
-  const stepDuration = duration / steps;
-  let currentStep = 0;
-  
-  const interval = setInterval(() => {
-    currentStep++;
-    const progress = currentStep / steps;
-    preloadingStore.updateTaskProgress(taskId, progress);
-    
-    if (currentStep >= steps) {
-      clearInterval(interval);
-    }
-  }, stepDuration);
-  
-  return () => clearInterval(interval);
-};
---- END OF FILE src\lib\stores\preloadingStore.ts ---
-
---- START OF FILE src\lib\stores\transitionStore.ts ---
-// src/lib/stores/transitionStore.ts
-import { writable } from 'svelte/store';
-import type { Flip } from 'gsap/Flip';
-
-// This type will hold the state captured by GSAP's Flip plugin.
-export type TransitionState = {
-  // FIX: Replaced 'any' with the specific 'Flip.FlipState' type from GSAP.
-  // We use 'type Flip' to import only the type information, which is efficient.
-  fromState: Flip.FlipState; 
-  cardId: string | null;
-} | null;
-
+// --- NEW ---
 /**
- * A globally accessible Svelte store to pass the animation state
- * from the main page to the project subpage during navigation.
+ * Helper function to populate the loading screen's asset queue.
+ * @param urls An array of image URLs to display.
  */
-export const transitionStore = writable<TransitionState>(null);
---- END OF FILE src\lib\stores\transitionStore.ts ---
+export function addAssetsToLoadingQueue(urls: string[]) {
+    loadingAssetQueue.set(urls);
+}
+--- END OF FILE src\lib\stores\preloadingStore.ts ---
 
 --- START OF FILE src\lib\three\HeroBloomEffect.ts ---
 // src/lib/three/HeroBloomEffect.ts
@@ -2718,20 +2596,20 @@ export class CreateParticles {
   import { writable, get } from 'svelte/store';
   import { goto } from '$app/navigation';
   import { siteConfig } from '$lib/data/siteConfig';
-  import { projects, type Project, type ProjectCard } from '$lib/data/projectsData';
+  import { projects, type Project } from '$lib/data/projectsData';
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
   import type { SvelteComponent } from 'svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
-  import KeyboardButtons, { type KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
-  import ParallaxCard from '$lib/components/ParallaxCard.svelte';
+  import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
+  import ProjectSection from '$lib/components/ProjectSection.svelte';
   import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
-  import { transitionStore } from '$lib/stores/transitionStore';
-
   import { gsap } from 'gsap';
-  import { Flip } from 'gsap/Flip';
 
-  gsap.registerPlugin(Flip);
-
+  interface IAnimatedComponent {
+    onEnterSection: () => void;
+    onLeaveSection: () => void;
+  }
+  
   interface HeroParticleEffectInstance extends SvelteComponent {
     onTransitionToHeroStart: () => Promise<void>;
     onTransitionToHeroComplete: () => void;
@@ -2739,14 +2617,29 @@ export class CreateParticles {
   }
   
   let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
-  let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
+  
+  const allSectionsData = [
+    { id: 'hero', type: 'hero', data: siteConfig.heroSection },
+    { id: 'about', type: 'about', data: siteConfig.aboutSection },
+    ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
+    { id: 'contact', type: 'contact', data: siteConfig.contactSection }
+  ];
+  
+  const aboutSectionIndex = allSectionsData.findIndex(s => s.id === 'about');
+  const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
+
+  let animatedComponentInstances: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
 
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
-
   const isInitialReveal = writable(true);
   const particleEffectReady = writable(false);
+
+  // --- NEW: State for the keep-alive mechanism ---
+  let cardsHaveBeenPreRendered = false;
+  let cardKeepAliveInterval: number | undefined;
+
 
   let particleLayerPointerEvents = 'none';
   $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
@@ -2755,198 +2648,118 @@ export class CreateParticles {
   $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
 
   let sectionElements: HTMLElement[] = [];
-  let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
   let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
-
-  const allSectionsData = [
-    { id: 'hero', type: 'hero', data: siteConfig.heroSection },
-    { id: 'about', type: 'about', data: siteConfig.aboutSection },
-    ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
-    { id: 'contact', type: 'contact', data: siteConfig.contactSection }
-  ];
-
-  const HERO_LOGICAL_INDEX = 0;
-  const MAIN_PROJECT_ASSETS_TASK_ID = 'main-project-assets';
-
+  
   const transitionDuration = 1.1;
   const projectBgZoomDuration = 3;
   const minSectionDisplayDuration = 1.2;
-  const contentAnimationStartOffset = -0.3;
   const projectBgZoomStartOffset = 0.1;
-
   const initialRevealDelay = 300;
   const particleFadeInDuration = 1.5;
 
   let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
-  let contactSectionIndex: number = -1;
-  let aboutSectionIndex: number = -1;
-
   let hasStartedInitialReveal = false;
 
-  function handleCardClick(project: Project, card: ProjectCard) {
-    if (get(isAnimating)) return;
+  // --- NEW: "Ping" function to keep card layers "hot" ---
+  function pingRenderedCards() {
+      const allCards = document.querySelectorAll('.card-wrap');
+      if (allCards.length === 0) return;
+      
+      // A tiny, imperceptible transform is enough to signal to the browser
+      // that this layer is still active and should not be garbage collected.
+      gsap.set(allCards, { z: 0.01, overwrite: true });
+  }
 
-    const cardBgElement = document.getElementById(`card-bg-${card.id}`);
-    if (!cardBgElement) {
-      console.error(`Flip target 'card-bg-${card.id}' not found!`);
-      goto(`/projects/${project.slug}${card.aspectLink}`);
-      return;
-    }
+  function triggerStaggeredCardPreRender() {
+    if (cardsHaveBeenPreRendered) return;
+    cardsHaveBeenPreRendered = true;
 
-    const state = Flip.getState(cardBgElement);
-    transitionStore.set({ fromState: state, cardId: card.id });
-    goto(`/projects/${project.slug}${card.aspectLink}`);
+    const allCards = document.querySelectorAll('.card-wrap');
+    if (allCards.length === 0) return;
+
+    gsap.fromTo(allCards, 
+        { autoAlpha: 0 }, 
+        { 
+            autoAlpha: 0.001,
+            duration: 0.05,
+            stagger: 0.1,
+            onComplete: function() {
+                gsap.set(this.targets(), { autoAlpha: 0 });
+            }
+        }
+    );
   }
 
   async function preloadMainProjectAssets() {
-    startLoadingTask(MAIN_PROJECT_ASSETS_TASK_ID, 2);
-
+    startLoadingTask('main-project-assets', 2);
     const imageUrls = projects.flatMap(p => p.cards.map(c => c.image));
-
     if (imageUrls.length === 0) {
-      preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'loaded');
+      preloadingStore.updateTaskStatus('main-project-assets', 'loaded');
       return;
     }
-
     const imagePromises = imageUrls.map(src => new Promise((resolve, reject) => {
         const img = new Image();
         img.src = src;
-        img.decode()
-          .then(resolve)
-          .catch(() => reject(new Error(`Failed to load or decode card image: ${src}`)));
+        img.decode().then(resolve).catch(() => reject(new Error(`Failed to load/decode: ${src}`)));
         img.onload = resolve;
-        img.onerror = () => reject(new Error(`Failed to load card image: ${src}`));
+        img.onerror = () => reject(new Error(`Failed to load: ${src}`));
       })
     );
-
     try {
       await Promise.all(imagePromises);
-      preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'loaded');
-      console.log('All main project card images decoded and ready.');
+      preloadingStore.updateTaskStatus('main-project-assets', 'loaded');
     } catch (error) {
-      console.error(error);
-      preloadingStore.updateTaskStatus(MAIN_PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
+      preloadingStore.updateTaskStatus('main-project-assets', 'error', (error as Error).message);
     }
   }
-
 
   onMount((): (() => void) | void => {
     preloadMainProjectAssets();
 
     const setupPromise = async () => {
       await tick();
-
-      sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
-      if (sectionElements.some(el => !el)) {
-          console.error("One or more sections not found in DOM!");
-          return;
-      }
       
-      aboutSectionIndex = allSectionsData.findIndex(section => section.id === 'about');
-      contactSectionIndex = allSectionsData.findIndex(section => section.id === 'contact');
-      if (aboutSectionIndex === -1) console.error("About section ID ('about') not found!");
-      if (contactSectionIndex === -1) console.error("Contact section ID ('contact') not found!");
-
+      sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
+      if (sectionElements.some(el => !el)) { return; }
+      
       sectionElements.forEach((sectionEl, index) => {
-        const contentTl = gsap.timeline({ paused: true });
         const currentSectionType = allSectionsData[index].type;
         
-        if (currentSectionType === 'project') {
-          const headlineEl = sectionEl.querySelector('h2');
-          const summaryEl = sectionEl.querySelector('.project-summary');
-          const readMoreBtn = sectionEl.querySelector('.read-more-btn');
-          
-          if (headlineEl) contentTl.fromTo(headlineEl, { autoAlpha: 0, y: 50 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
-          if (summaryEl) contentTl.fromTo(summaryEl, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
-          if (readMoreBtn) contentTl.fromTo(readMoreBtn, { autoAlpha: 0 }, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
-        
-        } else if (currentSectionType === 'about') {
-          const h2El = sectionEl.querySelector('.about-text-block h2');
-          const pEl = sectionEl.querySelector('.about-text-block p');
-          
-          if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
-          if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
-
-          // The timeline now ONLY calls the component's own methods.
-          contentTl.call(() => {
-            keyboardButtonsInstance?.onEnterSection();
-          });
-        
-        } else if (currentSectionType === 'contact') {
-          const h2El = sectionEl.querySelector('h2');
-          const paragraphs = sectionEl.querySelectorAll('p');
-          const links = sectionEl.querySelector('.additional-links');
-          
-          if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
-          paragraphs.forEach((p, i) => {
-            contentTl.fromTo(p, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, `start+=${0.1 * (i + 1)}`);
-          });
-          if (links) contentTl.fromTo(links, { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.3");
-        }
-        sectionContentTimelines[index] = contentTl;
-
         sectionBackgroundZooms[index] = null;
         if (currentSectionType === 'project') {
           const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
           if (bgTarget) {
-            sectionBackgroundZooms[index] = gsap.to(bgTarget, {
-              scale: 1.05,
-              duration: projectBgZoomDuration,
-              ease: 'power1.out',
-              paused: true,
-            });
+            sectionBackgroundZooms[index] = gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true });
           }
         }
 
-        if (index === 0) {
-          gsap.set(sectionEl, { yPercent: 0, autoAlpha: 1 });
-        } else {
-          gsap.set(sectionEl, { yPercent: 100, autoAlpha: 0 });
-        }
+        if (index === 0) gsap.set(sectionEl, { yPercent: 0, autoAlpha: 1 });
+        else gsap.set(sectionEl, { yPercent: 100, autoAlpha: 0 });
       });
-
+      
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
     };
     
-    particleEffectReady.subscribe(ready => {
-      if (ready && get(initialSiteLoadComplete) && !hasStartedInitialReveal) {
-        startInitialReveal();
-      }
-    });
-    
-    unsubOverallLoadingState = overallLoadingState.subscribe(status => {
-      if (status === 'loaded' && !get(initialSiteLoadComplete)) {
-        setTimeout(() => {
-          initialSiteLoadComplete.set(true);
-          if (get(particleEffectReady) && !hasStartedInitialReveal) {
-            startInitialReveal();
-          }
-        }, 100);
-      }
-    });
-    
-    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
-      if (complete && get(particleEffectReady) && !hasStartedInitialReveal) {
-        startInitialReveal();
-      }
-    });
+    particleEffectReady.subscribe(ready => { if (ready && get(initialSiteLoadComplete) && !hasStartedInitialReveal) startInitialReveal(); });
+    unsubOverallLoadingState = overallLoadingState.subscribe(status => { if (status === 'loaded' && !get(initialSiteLoadComplete)) { setTimeout(() => { initialSiteLoadComplete.set(true); if (get(particleEffectReady) && !hasStartedInitialReveal) startInitialReveal(); }, 100); }});
+    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => { if (complete && get(particleEffectReady) && !hasStartedInitialReveal) startInitialReveal(); });
     
     setupPromise();
 
     return () => {
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
-      sectionContentTimelines.forEach(timeline => timeline?.kill());
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
+      clearInterval(cardKeepAliveInterval); // Ensure interval is cleared on unmount
       if (unsubOverallLoadingState) unsubOverallLoadingState();
       if (unsubInitialLoadComplete) unsubInitialLoadComplete();
     };
   });
 
-  function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroParticleEffectInstance && get(currentSectionIndex) === HERO_LOGICAL_INDEX) { heroParticleEffectInstance.onTransitionToHeroComplete(); } setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
+  function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroParticleEffectInstance) heroParticleEffectInstance.onTransitionToHeroComplete(); setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
   
   function navigateToSection(newIndex: number) { 
     if (get(isInitialReveal)) return; 
@@ -2956,96 +2769,57 @@ export class CreateParticles {
     isAnimating.set(true); 
     isTransitioning.set(true); 
 
+    // --- NEW: Stop the keep-alive interval when we leave the "About Me" section ---
+    if (oldIndex === aboutSectionIndex) {
+        clearInterval(cardKeepAliveInterval);
+    }
+
     if (heroParticleEffectInstance) { 
-      if (newIndex === HERO_LOGICAL_INDEX && oldIndex !== HERO_LOGICAL_INDEX) { 
-        heroParticleEffectInstance.onTransitionToHeroStart(); 
-      } else if (oldIndex === HERO_LOGICAL_INDEX && newIndex !== HERO_LOGICAL_INDEX) { 
-        heroParticleEffectInstance.onTransitionFromHeroStart(); 
-      } 
+      if (newIndex === 0) heroParticleEffectInstance.onTransitionToHeroStart(); 
+      else if (oldIndex === 0) heroParticleEffectInstance.onTransitionFromHeroStart(); 
     } 
 
     const currentSectionEl = sectionElements[oldIndex]; 
     const targetSectionEl = sectionElements[newIndex]; 
     const direction = newIndex > oldIndex ? 1 : -1; 
     
-    sectionContentTimelines[oldIndex]?.progress(0).pause();
-    if (oldIndex === aboutSectionIndex) {
-      keyboardButtonsInstance?.onLeaveSection();
-    }
-    
+    animatedComponentInstances[oldIndex]?.onLeaveSection();
     sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
-
-    const oldCardWraps = currentSectionEl.querySelectorAll('.card-wrap');
-    if (oldCardWraps.length > 0) {
-      gsap.set(oldCardWraps, { autoAlpha: 0 });
-      gsap.set(currentSectionEl.querySelectorAll('.card-wrap .card'), { '--shadow-opacity': 0 });
-    }
 
     const masterTransitionTl = gsap.timeline({ 
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false); 
-        
-        if (heroParticleEffectInstance && newIndex === HERO_LOGICAL_INDEX) { 
+        if (heroParticleEffectInstance && newIndex === 0) { 
           heroParticleEffectInstance.onTransitionToHeroComplete(); 
         }
-
-        const newSectionType = allSectionsData[newIndex].type;
-        if (newSectionType === 'project') {
-          const cardWraps = targetSectionEl.querySelectorAll('.card-wrap');
-          const cardTitles = targetSectionEl.querySelectorAll('.card-title');
-          const cardDescriptions = targetSectionEl.querySelectorAll('.card-description');
-          const cards = targetSectionEl.querySelectorAll('.card-wrap .card');
-
-          gsap.set(cardWraps, { autoAlpha: 0, scale: 0.97 });
-          gsap.set(cardTitles, { autoAlpha: 0, y: 20 });
-          gsap.set(cardDescriptions, { autoAlpha: 0, y: 20 });
-          gsap.set(cards, { '--shadow-opacity': 0 });
-
-          gsap.to(cardWraps, { 
-            autoAlpha: 1,
-            scale: 1,
-            duration: 1.2,
-            stagger: 0.2,
-            ease: 'expo.out',
-            delay: 0.1
-          });
-          
-          const afterCardSettleDelay = 1.0;
-          gsap.to(cardTitles, { 
-            autoAlpha: 1, 
-            y: 0, 
-            stagger: 0.1, 
-            duration: 0.8, 
-            ease: 'power2.out', 
-            delay: afterCardSettleDelay 
-          });
-          gsap.to(cardDescriptions, { 
-            autoAlpha: 1, 
-            y: 0, 
-            stagger: 0.1, 
-            duration: 0.8, 
-            ease: 'power2.out', 
-            delay: afterCardSettleDelay + 0.1 
-          });
-          gsap.to(cards, { '--shadow-opacity': 0.66, duration: 1.2, ease: 'power2.out', delay: afterCardSettleDelay });
+        
+        // --- NEW: Start the keep-alive interval when we land on the "About Me" section ---
+        if (newIndex === aboutSectionIndex) {
+            cardKeepAliveInterval = setInterval(pingRenderedCards, 4000); // Ping every 4 seconds
         }
+
+        animatedComponentInstances[newIndex]?.onEnterSection();
       } 
     }); 
     
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
-    
     masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     
-    if (newIndex !== HERO_LOGICAL_INDEX) { 
-      masterTransitionTl.call(() => { 
-        sectionContentTimelines[newIndex]?.restart(); 
-      }, [], `slide+=${transitionDuration + contentAnimationStartOffset}`); 
-    } 
+    const componentToAnimate = animatedComponentInstances[newIndex];
+    if (componentToAnimate) {
+        let startTime = `slide+=${transitionDuration - 0.2}`; 
+        if (newIndex === aboutSectionIndex) {
+            startTime = "slide+=0.5"; 
+        }
+        masterTransitionTl.call(() => {
+            componentToAnimate.onEnterSection();
+        }, [], startTime);
+    }
     
     const targetBgZoom = sectionBackgroundZooms[newIndex]; 
-    if (allSectionsData[newIndex].type === 'project' && targetBgZoom) { 
+    if (targetBgZoom) { 
       masterTransitionTl.call(() => { 
         targetBgZoom.restart(); 
       }, [], `slide+=${projectBgZoomStartOffset}`); 
@@ -3060,7 +2834,6 @@ export class CreateParticles {
   const scrollDebounce = 200;
   function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
   function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
-  function getSectionData(id: string) { return allSectionsData.find(s => s.id === id)?.data; }
   function onParticleEffectReady() { particleEffectReady.set(true); }
 </script>
 
@@ -3083,46 +2856,27 @@ export class CreateParticles {
 
   <section id="about" class="full-screen-section about-section">
     <div class="about-content-wrapper">
-      <div class="about-text-block">
-        <h2>{siteConfig.aboutSection.title}</h2>
-        <p>{siteConfig.aboutSection.introduction}</p>
-        {#if contactSectionIndex !== -1}
-          <KeyboardButtons 
-            bind:this={keyboardButtonsInstance}
-            socialLinks={siteConfig.aboutSection.socialLinks} 
-            {contactSectionIndex} 
-            {navigateToSection} />
-        {/if}
-      </div>
+      <KeyboardButtons 
+        bind:this={animatedComponentInstances[aboutSectionIndex]}
+        title={siteConfig.aboutSection.title}
+        introduction={siteConfig.aboutSection.introduction}
+        socialLinks={siteConfig.aboutSection.socialLinks} 
+        {contactSectionIndex} 
+        {navigateToSection}
+        on:animationComplete={triggerStaggeredCardPreRender}
+      />
     </div>
   </section>
 
-  {#each projects as project (project.id)}
-    {@const projectSectionData = getSectionData(`project-${project.id}`) as Project | undefined}
-    <section id="project-{project.id}" class="full-screen-section project-section">
-      <div class="background-image-container" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: url({projectSectionData?.background.type === 'image' ? projectSectionData.background.value : ''}); background-size: cover; background-position: center; z-index: -1; transform: scale(1);"></div>
-      <div class="content-overlay">
-        <div class="project-content">
-          <h2>{project.headline}</h2>
-          <p class="project-summary">{project.summary}</p>
-          
-          <div class="project-cards-container">
-            {#each project.cards as card (card.id)}
-              <button type="button" class="card-click-wrapper" on:click={() => handleCardClick(project, card)}>
-                <ParallaxCard cardData={card} width="220px" height="290px" />
-              </button>
-            {/each}
-          </div>
-          
-          {#if project.readMoreLinkText}
-            <button class="read-more-btn" on:click={() => goto(`/projects/${project.slug}`)}>
-                {project.readMoreLinkText}
-            </button>
-          {/if}
-
-        </div>
-      </div>
-    </section>
+  {#each allSectionsData as section, index (section.id)}
+    {#if section.type === 'project'}
+      <section id={section.id} class="full-screen-section project-section">
+        <ProjectSection 
+            bind:this={animatedComponentInstances[index]} 
+            project={section.data as Project} 
+        />
+      </section>
+    {/if}
   {/each}
 
   <section id="contact" class="full-screen-section contact-section">
@@ -3148,75 +2902,20 @@ export class CreateParticles {
   .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
   .full-screen-section { height: 100%; width: 100%; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; box-sizing: border-box; background-color: rgb(9 9 11); }
   .hero-section { background-color: transparent; z-index: 2; pointer-events: none; }
-  
   .about-section { padding: 0; text-align: left; background-color: transparent; z-index: 2; position: relative; overflow: hidden; }
   .about-content-wrapper { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; justify-content: flex-start; align-items: center; padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem); box-sizing: border-box; }
-  .about-text-block { max-width: 580px; }
-  .about-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; }
-  .about-text-block p { font-size: clamp(1rem, 2.2vw, 1.15rem); line-height: 1.8; margin-bottom: 2.5rem; color: rgb(212 212 216); opacity: 0; }
-  
-  .project-section { color: rgb(245 245 247); z-index: 2; background-color: transparent; }
-  .project-section .content-overlay { background-color: rgba(9 9 11 / 0.85); backdrop-filter: blur(8px); padding: 2rem 3rem; border-radius: 16px; width: 90%; max-width: 1100px; z-index: 1; position: relative; border: 1px solid rgba(255 255 255 / 0.1); }
-  .project-section h2 { opacity: 0; font-size: 2.5rem; font-weight: 300; margin-bottom: 1rem; letter-spacing: -0.02em; }
-  .project-section p.project-summary { font-size: 1.15rem; color: rgb(212 212 216); line-height: 1.7; margin-bottom: 2rem; max-width: 800px; margin-left: auto; margin-right: auto; opacity: 0; }
-  
-  .project-cards-container { 
-    display: flex; 
-    justify-content: center; 
-    gap: 1rem; 
-    margin-top: 1rem; 
-    margin-bottom: 2rem; 
-    flex-wrap: wrap; 
-  }
-  
-  .card-click-wrapper {
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    border-radius: 10px;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-  }
-  .card-click-wrapper:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-  }
-  .card-click-wrapper:focus-visible {
-    outline: 2px solid rgb(99 102 241);
-    outline-offset: 4px;
-  }
-
-  .project-section button.read-more-btn { 
-    opacity: 0;
-    padding: 0.875rem 2rem; background-color: rgb(99 102 241); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: 500; transition: all 0.3s ease; margin-top: 1rem;
-  }
-  .project-section button.read-more-btn:hover { background-color: rgb(79 70 229); transform: translateY(-2px); box-shadow: 0 4px 20px rgba(99 102 241 / 0.4); }
-
+  .project-section { color: rgb(245 245 247); z-index: 2; background-color: transparent; padding: 0; }
   .contact-section { background-color: rgb(24 24 27); color: rgb(245 245 247); z-index: 2; }
   .content-center { max-width: 800px; margin: 0 auto; padding: 2rem; }
-  .contact-section h2 { font-size: 2.5rem; margin-bottom: 2rem; font-weight: 300; letter-spacing: -0.02em; opacity: 0; }
-  .contact-section p { font-size: 1.15rem; line-height: 1.8; margin-bottom: 1.5rem; color: rgb(212 212 216); opacity: 0; }
+  .contact-section h2 { font-size: 2.5rem; margin-bottom: 2rem; font-weight: 300; letter-spacing: -0.02em; }
+  .contact-section p { font-size: 1.15rem; line-height: 1.8; margin-bottom: 1.5rem; color: rgb(212 212 216); }
   .contact-section a { color: rgb(99 102 241); text-decoration: none; font-weight: 500; transition: color 0.3s ease; }
   .contact-section a:hover { color: rgb(129 140 248); text-decoration: underline; }
-  .additional-links { margin-top: 2rem; display: flex; gap: 2rem; justify-content: center; opacity: 0; }
-  
+  .additional-links { margin-top: 2rem; display: flex; gap: 2rem; justify-content: center; }
   * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-  
-  @media (max-width: 1024px) {
-    .project-cards-container {
-        gap: 0.5rem;
-    }
-  }
   @media (max-width: 768px) { 
-    .project-cards-container {
-      flex-direction: column;
-      align-items: center;
-      gap: 1.5rem;
-    }
     .about-section { padding: 2rem; }
     .about-content-wrapper { justify-content: center; text-align: center; padding: 1rem; }
-    .about-text-block { max-width: 100%; }
-    .about-text-block h2, .about-text-block p { text-align: center; }
   }
 </style>
 --- END OF FILE src\routes\+page.svelte ---

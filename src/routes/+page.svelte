@@ -44,8 +44,10 @@
   const isInitialReveal = writable(true);
   const particleEffectReady = writable(false);
 
-  // --- NEW: State for the one-time pre-rendering ---
+  // --- NEW: State for the keep-alive mechanism ---
   let cardsHaveBeenPreRendered = false;
+  let cardKeepAliveInterval: number | undefined;
+
 
   let particleLayerPointerEvents = 'none';
   $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
@@ -67,26 +69,30 @@
   let unsubInitialLoadComplete: (() => void) | undefined;
   let hasStartedInitialReveal = false;
 
-  // --- NEW: The staggered invisible rendering function ---
+  // --- NEW: "Ping" function to keep card layers "hot" ---
+  function pingRenderedCards() {
+      const allCards = document.querySelectorAll('.card-wrap');
+      if (allCards.length === 0) return;
+      
+      // A tiny, imperceptible transform is enough to signal to the browser
+      // that this layer is still active and should not be garbage collected.
+      gsap.set(allCards, { z: 0.01, overwrite: true });
+  }
+
   function triggerStaggeredCardPreRender() {
-    if (cardsHaveBeenPreRendered) return; // Only run this once
+    if (cardsHaveBeenPreRendered) return;
     cardsHaveBeenPreRendered = true;
 
     const allCards = document.querySelectorAll('.card-wrap');
     if (allCards.length === 0) return;
 
-    console.log(`[Orchestrator] Starting staggered pre-render of ${allCards.length} cards.`);
-
-    // This is the "noop" animation that forces the browser to paint the cards.
-    // It happens invisibly over a couple of seconds in the background.
     gsap.fromTo(allCards, 
         { autoAlpha: 0 }, 
         { 
-            autoAlpha: 0.001, // Animate to a barely-visible state
-            duration: 0.05,   // For a very short time
-            stagger: 0.1,     // The key: do it one-by-one with a 100ms delay
+            autoAlpha: 0.001,
+            duration: 0.05,
+            stagger: 0.1,
             onComplete: function() {
-                // Immediately hide it again after it has been rendered.
                 gsap.set(this.targets(), { autoAlpha: 0 });
             }
         }
@@ -155,6 +161,7 @@
       window.removeEventListener('keydown', handleKeyDown);
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
+      clearInterval(cardKeepAliveInterval); // Ensure interval is cleared on unmount
       if (unsubOverallLoadingState) unsubOverallLoadingState();
       if (unsubInitialLoadComplete) unsubInitialLoadComplete();
     };
@@ -169,6 +176,11 @@
     
     isAnimating.set(true); 
     isTransitioning.set(true); 
+
+    // --- NEW: Stop the keep-alive interval when we leave the "About Me" section ---
+    if (oldIndex === aboutSectionIndex) {
+        clearInterval(cardKeepAliveInterval);
+    }
 
     if (heroParticleEffectInstance) { 
       if (newIndex === 0) heroParticleEffectInstance.onTransitionToHeroStart(); 
@@ -189,6 +201,12 @@
         if (heroParticleEffectInstance && newIndex === 0) { 
           heroParticleEffectInstance.onTransitionToHeroComplete(); 
         }
+        
+        // --- NEW: Start the keep-alive interval when we land on the "About Me" section ---
+        if (newIndex === aboutSectionIndex) {
+            cardKeepAliveInterval = setInterval(pingRenderedCards, 4000); // Ping every 4 seconds
+        }
+
         animatedComponentInstances[newIndex]?.onEnterSection();
       } 
     }); 
