@@ -8,7 +8,7 @@
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
   import type { SvelteComponent } from 'svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
-  import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
+  import KeyboardButtons, { type KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
   import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
   import { transitionStore } from '$lib/stores/transitionStore';
@@ -23,7 +23,9 @@
     onTransitionToHeroComplete: () => void;
     onTransitionFromHeroStart: () => void;
   }
+  
   let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
+  let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
 
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
@@ -64,6 +66,7 @@
   let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
   let contactSectionIndex: number = -1;
+  let aboutSectionIndex: number = -1;
 
   let hasStartedInitialReveal = false;
 
@@ -125,16 +128,16 @@
           console.error("One or more sections not found in DOM!");
           return;
       }
-
+      
+      aboutSectionIndex = allSectionsData.findIndex(section => section.id === 'about');
       contactSectionIndex = allSectionsData.findIndex(section => section.id === 'contact');
-      if (contactSectionIndex === -1) {
-          console.error("Contact section ID ('contact') not found!");
-      }
+      if (aboutSectionIndex === -1) console.error("About section ID ('about') not found!");
+      if (contactSectionIndex === -1) console.error("Contact section ID ('contact') not found!");
 
       sectionElements.forEach((sectionEl, index) => {
         const contentTl = gsap.timeline({ paused: true });
         const currentSectionType = allSectionsData[index].type;
-
+        
         if (currentSectionType === 'project') {
           const headlineEl = sectionEl.querySelector('h2');
           const summaryEl = sectionEl.querySelector('.project-summary');
@@ -147,10 +150,14 @@
         } else if (currentSectionType === 'about') {
           const h2El = sectionEl.querySelector('.about-text-block h2');
           const pEl = sectionEl.querySelector('.about-text-block p');
-
+          
           if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
-          // The animation for the background image has been removed.
+
+          // The timeline now ONLY calls the component's own methods.
+          contentTl.call(() => {
+            keyboardButtonsInstance?.onEnterSection();
+          });
         
         } else if (currentSectionType === 'contact') {
           const h2El = sectionEl.querySelector('h2');
@@ -247,7 +254,11 @@
     const targetSectionEl = sectionElements[newIndex]; 
     const direction = newIndex > oldIndex ? 1 : -1; 
     
-    sectionContentTimelines[oldIndex]?.progress(0).pause(); 
+    sectionContentTimelines[oldIndex]?.progress(0).pause();
+    if (oldIndex === aboutSectionIndex) {
+      keyboardButtonsInstance?.onLeaveSection();
+    }
+    
     sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
 
     const oldCardWraps = currentSectionEl.querySelectorAll('.card-wrap');
@@ -272,16 +283,11 @@
           const cardDescriptions = targetSectionEl.querySelectorAll('.card-description');
           const cards = targetSectionEl.querySelectorAll('.card-wrap .card');
 
-          // --- MODIFICATION START: Dramatic card and text animations ---
-          // 1. Stage the cards (invisible and slightly scaled down)
           gsap.set(cardWraps, { autoAlpha: 0, scale: 0.97 });
-          // Stage the text (invisible and slightly down)
           gsap.set(cardTitles, { autoAlpha: 0, y: 20 });
           gsap.set(cardDescriptions, { autoAlpha: 0, y: 20 });
-          // Ensure shadow is off
           gsap.set(cards, { '--shadow-opacity': 0 });
 
-          // 2. Animate the cards with a longer, more dramatic fade-and-scale effect.
           gsap.to(cardWraps, { 
             autoAlpha: 1,
             scale: 1,
@@ -291,7 +297,6 @@
             delay: 0.1
           });
           
-          // 3. Animate the text and shadows after the cards have had time to settle.
           const afterCardSettleDelay = 1.0;
           gsap.to(cardTitles, { 
             autoAlpha: 1, 
@@ -310,7 +315,6 @@
             delay: afterCardSettleDelay + 0.1 
           });
           gsap.to(cards, { '--shadow-opacity': 0.66, duration: 1.2, ease: 'power2.out', delay: afterCardSettleDelay });
-          // --- MODIFICATION END ---
         }
       } 
     }); 
@@ -369,7 +373,11 @@
         <h2>{siteConfig.aboutSection.title}</h2>
         <p>{siteConfig.aboutSection.introduction}</p>
         {#if contactSectionIndex !== -1}
-          <KeyboardButtons socialLinks={siteConfig.aboutSection.socialLinks} {contactSectionIndex} {navigateToSection} />
+          <KeyboardButtons 
+            bind:this={keyboardButtonsInstance}
+            socialLinks={siteConfig.aboutSection.socialLinks} 
+            {contactSectionIndex} 
+            {navigateToSection} />
         {/if}
       </div>
     </div>
@@ -427,7 +435,7 @@
   .full-screen-section { height: 100%; width: 100%; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; box-sizing: border-box; background-color: rgb(9 9 11); }
   .hero-section { background-color: transparent; z-index: 2; pointer-events: none; }
   
-  .about-section { padding: 0; text-align: left; background-color: rgb(9 9 11); z-index: 2; position: relative; overflow: hidden; }
+  .about-section { padding: 0; text-align: left; background-color: transparent; z-index: 2; position: relative; overflow: hidden; }
   .about-content-wrapper { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; justify-content: flex-start; align-items: center; padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem); box-sizing: border-box; }
   .about-text-block { max-width: 580px; }
   .about-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; }
