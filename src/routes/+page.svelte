@@ -44,6 +44,9 @@
   const isInitialReveal = writable(true);
   const particleEffectReady = writable(false);
 
+  // --- NEW: State for the one-time pre-rendering ---
+  let cardsHaveBeenPreRendered = false;
+
   let particleLayerPointerEvents = 'none';
   $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
 
@@ -63,6 +66,32 @@
   let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
   let hasStartedInitialReveal = false;
+
+  // --- NEW: The staggered invisible rendering function ---
+  function triggerStaggeredCardPreRender() {
+    if (cardsHaveBeenPreRendered) return; // Only run this once
+    cardsHaveBeenPreRendered = true;
+
+    const allCards = document.querySelectorAll('.card-wrap');
+    if (allCards.length === 0) return;
+
+    console.log(`[Orchestrator] Starting staggered pre-render of ${allCards.length} cards.`);
+
+    // This is the "noop" animation that forces the browser to paint the cards.
+    // It happens invisibly over a couple of seconds in the background.
+    gsap.fromTo(allCards, 
+        { autoAlpha: 0 }, 
+        { 
+            autoAlpha: 0.001, // Animate to a barely-visible state
+            duration: 0.05,   // For a very short time
+            stagger: 0.1,     // The key: do it one-by-one with a 100ms delay
+            onComplete: function() {
+                // Immediately hide it again after it has been rendered.
+                gsap.set(this.targets(), { autoAlpha: 0 });
+            }
+        }
+    );
+  }
 
   async function preloadMainProjectAssets() {
     startLoadingTask('main-project-assets', 2);
@@ -106,9 +135,6 @@
             sectionBackgroundZooms[index] = gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true });
           }
         }
-        
-        // --- FIXED: The global pre-rendering logic has been REMOVED ---
-        // Each component is now fully responsible for its own initial state.
 
         if (index === 0) gsap.set(sectionEl, { yPercent: 0, autoAlpha: 1 });
         else gsap.set(sectionEl, { yPercent: 100, autoAlpha: 0 });
@@ -226,7 +252,8 @@
         introduction={siteConfig.aboutSection.introduction}
         socialLinks={siteConfig.aboutSection.socialLinks} 
         {contactSectionIndex} 
-        {navigateToSection} 
+        {navigateToSection}
+        on:animationComplete={triggerStaggeredCardPreRender}
       />
     </div>
   </section>

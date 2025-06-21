@@ -8,9 +8,12 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import type { SocialLink } from '$lib/data/siteConfig';
+
+  // --- NEW: Create an event dispatcher ---
+  const dispatch = createEventDispatcher();
 
   export let title: string;
   export let introduction: string;
@@ -34,17 +37,22 @@
     gsap.set(pEl, { autoAlpha: 0, y: 30 });
     gsap.set(keyElements, { autoAlpha: 0 });
 
-    // --- FIXED: This timeline now uses precise positioning for a tighter, overlapping animation ---
-    gsap.timeline()
-      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, 0) // Start immediately
-      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, 0.15) // Start at 0.15s, overlapping with the title
+    gsap.timeline({
+      // --- NEW: Add an onComplete callback to the timeline ---
+      onComplete: () => {
+        // Signal that the animation has finished.
+        dispatch('animationComplete');
+      }
+    })
+      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, 0)
+      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, 0.15)
       .to(keyElements, {
           autoAlpha: 1,
           duration: 0.5,
           ease: 'power1.inOut',
           stagger: 0.1,
         }, 
-        0.3 // Start at 0.3s, overlapping with the paragraph
+        0.3
       );
   }
 
@@ -111,36 +119,15 @@
     opacity: 0; 
   }
   .about-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; }
-  
   .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
   .keyboard-buttons-wrapper { display: flex; align-items: flex-start; text-align: center; gap: calc(var(--keyboard-key-base-size) * 0.01); }
   .key-position { perspective: 800px; transform: rotateY(0.05turn) rotateX(-0.1turn); }
-  
   .key.call-to-action { width: 140px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
   .call-to-action-content { position: relative; }
-  
-  .call-to-action-content:after { 
-    position: absolute; 
-    content: ""; 
-    width: 0; 
-    left: 0; 
-    bottom: -4px; 
-    background: var(--keyboard-contrast); 
-    height: 1.5px; 
-    transition: 0.3s ease-out; 
-  }
-  .key.call-to-action:hover .call-to-action-content:after { 
-    width: 100%;
-  }
-  
+  .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
+  .key.call-to-action:hover .call-to-action-content:after { width: 100%;}
   .key { position: relative; width: var(--keyboard-key-base-size); height: var(--keyboard-key-base-size); font-size: calc(var(--keyboard-key-base-size) / 2.2); border: 0.1rem solid var(--keyboard-background-3); border-radius: calc(var(--keyboard-key-base-size) * 0.2); background: var(--keyboard-background-2); color: var(--keyboard-contrast); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); transition: transform 0.2s ease, box-shadow 0.2s ease; display: flex; align-items: center; justify-content: center; text-decoration: none; transform-style: preserve-3d; opacity: 0; visibility: hidden; }
-  
-  .key span { 
-    color: inherit;
-    margin: 0; 
-    padding: 0; 
-  }
-  
+  .key span { color: inherit; margin: 0; padding: 0; }
   .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); }
   .key:active { cursor: grabbing; transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
   @media (max-width: 640px) { .keyboard-buttons-wrapper { flex-direction: column; align-items: center; gap: 1rem; } }

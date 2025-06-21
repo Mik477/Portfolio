@@ -19,29 +19,37 @@
   let headlineEl: HTMLHeadingElement;
   let summaryEl: HTMLParagraphElement;
   let readMoreBtn: HTMLButtonElement | null = null;
-  let cardWrappers: HTMLElement[] = [];
+  
+  // --- FIXED: We will now target the .card-wrap elements directly for animation ---
+  let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
-    cardWrappers = Array.from(sectionEl.querySelectorAll('.card-click-wrapper'));
+    // Find the .card-wrap elements which are the visual root of the ParallaxCard component.
+    cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
   });
   
   export function onEnterSection() {
-    if (!headlineEl || !summaryEl || !cardWrappers) return;
+    if (!headlineEl || !summaryEl || !cardWrapsToAnimate) return;
 
+    // Set initial state for text elements
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
-    gsap.set(cardWrappers, { autoAlpha: 0, scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
+
+    // The cards (.card-wrap) are already at autoAlpha: 0 due to our pre-renderer.
+    // We just need to set their starting scale for the animation.
+    gsap.set(cardWrapsToAnimate, { scale: 0.97 });
+
 
     const tl = gsap.timeline();
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
       .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
       
-    if (cardWrappers.length > 0) {
-        tl.to(cardWrappers, { 
-            autoAlpha: 1, 
+    if (cardWrapsToAnimate.length > 0) {
+        // --- FIXED: Animate the .card-wrap elements directly ---
+        tl.to(cardWrapsToAnimate, { 
+            autoAlpha: 1, // This is the crucial change that makes them visible
             scale: 1, 
-            // --- FIXED: Increased duration for a longer, smoother, more dramatic deceleration ---
             duration: 2.8, 
             stagger: 0.15, 
             ease: 'expo.out' 
@@ -54,9 +62,10 @@
   }
 
   export function onLeaveSection() {
-    if (!headlineEl || !summaryEl || !cardWrappers) return;
-
-    const allElements = [headlineEl, summaryEl, ...cardWrappers];
+    if (!headlineEl || !summaryEl || !cardWrapsToAnimate) return;
+    
+    // --- FIXED: Ensure we are targeting the correct elements for cleanup ---
+    const allElements = [headlineEl, summaryEl, ...cardWrapsToAnimate];
     if (readMoreBtn) allElements.push(readMoreBtn);
     
     gsap.killTweensOf(allElements);
@@ -78,6 +87,7 @@
       
       <div class="project-cards-container">
         {#each project.cards as card (card.id)}
+          <!-- The wrapper is now just a layout element, not an animation target -->
           <button type="button" class="card-click-wrapper" on:click={() => handleCardClick(card)}>
             <ParallaxCard cardData={card} width="220px" height="290px" />
           </button>
@@ -155,6 +165,7 @@
         margin-bottom: 2rem; 
         flex-wrap: wrap; 
     }
+    /* --- FIXED: The wrapper no longer needs to be hidden by default --- */
     .card-click-wrapper { 
         background: none; 
         border: none; 
@@ -162,8 +173,6 @@
         cursor: pointer; 
         border-radius: 10px; 
         transition: transform 0.3s ease, box-shadow 0.3s ease; 
-        opacity: 0; 
-        visibility: hidden; 
     }
     .card-click-wrapper:hover { 
         transform: translateY(-5px); 

@@ -83,7 +83,8 @@
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    /* This element is now visible by default. Its parent controls its entry animation. */
+    /* --- FIXED: The card itself is visible by default. --- */
+    /* Its parent (.card-click-wrapper) controls the entry animation. */
     opacity: 1;
     visibility: visible;
     will-change: transform;
