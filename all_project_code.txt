@@ -361,12 +361,56 @@ export {};
 
 --- START OF FILE src\lib\components\KeyboardButtons.svelte ---
 <!-- src/lib/components/KeyboardButtons.svelte -->
+
+<script context="module" lang="ts">
+  export type KeyboardButtonsInstance = {
+    onEnterSection: () => void;
+    onLeaveSection: () => void;
+  };
+</script>
+
 <script lang="ts">
+  import { onMount } from 'svelte';
+  import { gsap } from 'gsap';
   import type { SocialLink } from '$lib/data/siteConfig';
 
   export let socialLinks: SocialLink[] = [];
   export let contactSectionIndex: number;
   export let navigateToSection: (index: number) => void;
+
+  let wrapperElement: HTMLDivElement;
+  let keyElements: NodeListOf<Element> | null = null;
+
+  onMount(() => {
+    keyElements = wrapperElement.querySelectorAll('.key');
+  });
+
+  export function onEnterSection() {
+    if (!keyElements) return;
+    // Instantly reset the buttons to their invisible starting state.
+    gsap.set(keyElements, { autoAlpha: 0 });
+    // Play the entrance animation from that clean state.
+    gsap.to(keyElements, {
+      autoAlpha: 1,
+      duration: 0.5,
+      ease: 'power1.inOut',
+      stagger: 0.1,
+      // Using the shorter delay you requested.
+      delay: 0.1 
+    });
+  }
+
+  export function onLeaveSection() {
+    if (!keyElements) return;
+    
+    // --- THIS IS THE DEFINITIVE FIX ---
+    // 1. Immediately kill any ongoing or scheduled animations on the buttons.
+    //    This prevents an interrupted entrance animation from causing issues.
+    gsap.killTweensOf(keyElements);
+
+    // 2. Now, reliably set the buttons to be invisible.
+    gsap.set(keyElements, { autoAlpha: 0 });
+  }
 
   const getLink = (name: string): string => {
     const link = socialLinks.find(l => l.name.toLowerCase() === name.toLowerCase());
@@ -382,7 +426,7 @@ export {};
   };
 </script>
 
-<div class="keyboard-buttons-wrapper">
+<div class="keyboard-buttons-wrapper" bind:this={wrapperElement}>
   {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
   <div class="key-position">
     <a
@@ -450,11 +494,12 @@ export {};
     align-items: flex-start; 
     text-align: center; 
     margin-top: 2.5rem; 
-    gap: calc(var(--keyboard-key-base-size) * 0.15); 
+    gap: calc(var(--keyboard-key-base-size) * 0.01); 
   }
 
   .key-position {
     perspective: 800px;
+    transform: rotateY(0.05turn) rotateX(-0.1turn);
   }
 
   .key.call-to-action { 
@@ -484,20 +529,19 @@ export {};
     align-items: center; 
     justify-content: center; 
     text-decoration: none;
-    transform: rotateY(0.05turn) rotateX(-0.1turn);
-    /* MODIFICATION: This is the critical fix for the "weird lean" */
     transform-style: preserve-3d;
+    opacity: 0;
+    visibility: hidden;
   }
   .key p { color: var(--keyboard-contrast); margin: 0; padding: 0; }
   
   .key:hover { 
     cursor: pointer; 
-    transform: translate(0.3rem, 0.3rem) rotateY(0.05turn) rotateX(-0.1turn); 
-    box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.5rem 0.5rem 0 0 var(--keyboard-background-3); 
+    transform: translate(0.3rem, 0.3rem); 
   }
   .key:active { 
     cursor: grabbing; 
-    transform: translate(0.8rem, 0.8rem) rotateY(0.05turn) rotateX(-0.1turn); 
+    transform: translate(0.8rem, 0.8rem); 
     box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); 
     filter: blur(0.02rem); 
   }
@@ -2678,7 +2722,7 @@ export class CreateParticles {
   import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
   import type { SvelteComponent } from 'svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
-  import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
+  import KeyboardButtons, { type KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
   import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
   import { transitionStore } from '$lib/stores/transitionStore';
@@ -2693,7 +2737,9 @@ export class CreateParticles {
     onTransitionToHeroComplete: () => void;
     onTransitionFromHeroStart: () => void;
   }
+  
   let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
+  let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
 
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
@@ -2734,6 +2780,7 @@ export class CreateParticles {
   let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
   let contactSectionIndex: number = -1;
+  let aboutSectionIndex: number = -1;
 
   let hasStartedInitialReveal = false;
 
@@ -2795,16 +2842,16 @@ export class CreateParticles {
           console.error("One or more sections not found in DOM!");
           return;
       }
-
+      
+      aboutSectionIndex = allSectionsData.findIndex(section => section.id === 'about');
       contactSectionIndex = allSectionsData.findIndex(section => section.id === 'contact');
-      if (contactSectionIndex === -1) {
-          console.error("Contact section ID ('contact') not found!");
-      }
+      if (aboutSectionIndex === -1) console.error("About section ID ('about') not found!");
+      if (contactSectionIndex === -1) console.error("Contact section ID ('contact') not found!");
 
       sectionElements.forEach((sectionEl, index) => {
         const contentTl = gsap.timeline({ paused: true });
         const currentSectionType = allSectionsData[index].type;
-
+        
         if (currentSectionType === 'project') {
           const headlineEl = sectionEl.querySelector('h2');
           const summaryEl = sectionEl.querySelector('.project-summary');
@@ -2817,24 +2864,14 @@ export class CreateParticles {
         } else if (currentSectionType === 'about') {
           const h2El = sectionEl.querySelector('.about-text-block h2');
           const pEl = sectionEl.querySelector('.about-text-block p');
-          const keyboardKeys = sectionEl.querySelectorAll('.key');
-
+          
           if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 40 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start");
           if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.15");
 
-          if (keyboardKeys.length > 0) {
-            // MODIFICATION: Use .fromTo() for explicit control. This is the fix for the animation.
-            contentTl.fromTo(keyboardKeys, 
-              { autoAlpha: 0 }, // FROM state
-              {                 // TO state
-                autoAlpha: 1,
-                duration: 0.5,
-                ease: 'power1.inOut',
-                stagger: 0.1
-              }, 
-              "start+=0.4"
-            );
-          }
+          // The timeline now ONLY calls the component's own methods.
+          contentTl.call(() => {
+            keyboardButtonsInstance?.onEnterSection();
+          });
         
         } else if (currentSectionType === 'contact') {
           const h2El = sectionEl.querySelector('h2');
@@ -2931,7 +2968,11 @@ export class CreateParticles {
     const targetSectionEl = sectionElements[newIndex]; 
     const direction = newIndex > oldIndex ? 1 : -1; 
     
-    sectionContentTimelines[oldIndex]?.progress(0).pause(); 
+    sectionContentTimelines[oldIndex]?.progress(0).pause();
+    if (oldIndex === aboutSectionIndex) {
+      keyboardButtonsInstance?.onLeaveSection();
+    }
+    
     sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
 
     const oldCardWraps = currentSectionEl.querySelectorAll('.card-wrap');
@@ -2956,16 +2997,11 @@ export class CreateParticles {
           const cardDescriptions = targetSectionEl.querySelectorAll('.card-description');
           const cards = targetSectionEl.querySelectorAll('.card-wrap .card');
 
-          // --- MODIFICATION START: Dramatic card and text animations ---
-          // 1. Stage the cards (invisible and slightly scaled down)
           gsap.set(cardWraps, { autoAlpha: 0, scale: 0.97 });
-          // Stage the text (invisible and slightly down)
           gsap.set(cardTitles, { autoAlpha: 0, y: 20 });
           gsap.set(cardDescriptions, { autoAlpha: 0, y: 20 });
-          // Ensure shadow is off
           gsap.set(cards, { '--shadow-opacity': 0 });
 
-          // 2. Animate the cards with a longer, more dramatic fade-and-scale effect.
           gsap.to(cardWraps, { 
             autoAlpha: 1,
             scale: 1,
@@ -2975,7 +3011,6 @@ export class CreateParticles {
             delay: 0.1
           });
           
-          // 3. Animate the text and shadows after the cards have had time to settle.
           const afterCardSettleDelay = 1.0;
           gsap.to(cardTitles, { 
             autoAlpha: 1, 
@@ -2994,7 +3029,6 @@ export class CreateParticles {
             delay: afterCardSettleDelay + 0.1 
           });
           gsap.to(cards, { '--shadow-opacity': 0.66, duration: 1.2, ease: 'power2.out', delay: afterCardSettleDelay });
-          // --- MODIFICATION END ---
         }
       } 
     }); 
@@ -3053,7 +3087,11 @@ export class CreateParticles {
         <h2>{siteConfig.aboutSection.title}</h2>
         <p>{siteConfig.aboutSection.introduction}</p>
         {#if contactSectionIndex !== -1}
-          <KeyboardButtons socialLinks={siteConfig.aboutSection.socialLinks} {contactSectionIndex} {navigateToSection} />
+          <KeyboardButtons 
+            bind:this={keyboardButtonsInstance}
+            socialLinks={siteConfig.aboutSection.socialLinks} 
+            {contactSectionIndex} 
+            {navigateToSection} />
         {/if}
       </div>
     </div>

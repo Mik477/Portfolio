@@ -3,12 +3,10 @@
   import { onMount, onDestroy } from 'svelte';
   import type { ProjectCard } from '$lib/data/projectsData';
 
-  // --- PROPS ---
   export let cardData: ProjectCard;
   export let width: string = '240px';
   export let height: string = '320px';
 
-  // --- STATE ---
   let cardWrapElement: HTMLDivElement;
   let elementWidth: number = 0;
   let elementHeight: number = 0;
@@ -16,7 +14,6 @@
   let mouseY: number = 0;
   let mouseLeaveDelay: number | null = null;
 
-  // --- LIFECYCLE ---
   onMount(() => {
     if (cardWrapElement) {
       elementWidth = cardWrapElement.offsetWidth;
@@ -28,7 +25,6 @@
     if (mouseLeaveDelay) clearTimeout(mouseLeaveDelay);
   });
 
-  // --- REACTIVE COMPUTATIONS (Derived State) ---
   $: mousePX = mouseX / elementWidth;
   $: mousePY = mouseY / elementHeight;
   $: rX = !isNaN(mousePX) ? mousePX * 30 : 0;
@@ -39,7 +35,6 @@
   $: cardBgTransform = `transform: translateX(${tX}px) translateY(${tY}px);`;
   $: cardBgImage = `background-image: url(${cardData.image});`;
 
-  // --- EVENT HANDLERS ---
   function handleMouseMove(e: MouseEvent) {
     if (!cardWrapElement) return;
     const rect = cardWrapElement.getBoundingClientRect();
@@ -88,9 +83,10 @@
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    opacity: 0;
-    visibility: hidden;
-    will-change: transform, opacity;
+    /* This element is now visible by default. Its parent controls its entry animation. */
+    opacity: 1;
+    visibility: visible;
+    will-change: transform;
   }
   .card-wrap:hover .card-info {
     transform: translateY(0);
@@ -111,7 +107,6 @@
     transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1), opacity 5s cubic-bezier(0.23, 1, 0.32, 1);
     opacity: 0.8;
   }
-  /* MODIFICATION: This rule now applies the expensive shadow only on hover */
   .card-wrap:hover .card {
     transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 2s cubic-bezier(0.23, 1, 0.32, 1);
     box-shadow: rgba(255, 255, 255, 0.2) 0 0 40px 5px, white 0 0 0 1px, rgba(0, 0, 0, 0.66) 0 30px 60px 0, inset #333 0 0 0 5px, inset white 0 0 0 6px;
@@ -124,7 +119,6 @@
     background-color: #333;
     overflow: hidden;
     border-radius: 10px;
-    /* MODIFICATION: Use a much "cheaper" initial box-shadow to reduce first-paint cost. */
     box-shadow: inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
     transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
@@ -149,10 +143,12 @@
     bottom: 0;
     color: #fff;
     transform: translateY(40%);
+    transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1);
   }
   
   .card-description {
     opacity: 0;
+    transition: opacity 0.6s cubic-bezier(0.23, 1, 0.32, 1);
     text-shadow: black 0 2px 3px;
     font-size: 0.9rem;
     line-height: 1.5;
@@ -184,7 +180,6 @@
     font-weight: 700;
     text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
     margin-bottom: 0.5rem;
-    opacity: 0;
-    will-change: opacity, transform;
+    opacity: 1; 
   }
 </style>
