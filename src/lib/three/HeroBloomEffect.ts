@@ -8,7 +8,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 export class HeroBloomEffect {
     private renderer: THREE.WebGLRenderer;
     private scene: THREE.Scene;
-    private camera: THREE.PerspectiveCamera;
+    // --- MODIFIED: Changed from PerspectiveCamera to the more general Camera type ---
+    private camera: THREE.Camera;
     
     public composer: EffectComposer;
     private renderPass: RenderPass;
@@ -26,7 +27,8 @@ export class HeroBloomEffect {
     constructor(
         renderer: THREE.WebGLRenderer, 
         scene: THREE.Scene, 
-        camera: THREE.PerspectiveCamera, 
+        // --- MODIFIED: Now accepts any type of camera (Perspective or Orthographic) ---
+        camera: THREE.Camera, 
         width: number, 
         height: number
     ) {

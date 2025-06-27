@@ -9,9 +9,22 @@
   import type { SvelteComponent } from 'svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
+  import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
+  import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
+  import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
   import ProjectSection from '$lib/components/ProjectSection.svelte';
   import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
   import { gsap } from 'gsap';
+
+  const allSectionsData = [
+    { id: 'hero', type: 'hero', data: siteConfig.heroSection },
+    { id: 'about', type: 'about', data: siteConfig.aboutSection },
+    ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
+    { id: 'contact', type: 'contact', data: siteConfig.contactSection }
+  ];
+  
+  const aboutSectionIndex = allSectionsData.findIndex(s => s.id === 'about');
+  const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
 
   interface IAnimatedComponent {
     onEnterSection: () => void;
@@ -24,30 +37,25 @@
     onTransitionFromHeroStart: () => void;
   }
   
+  // Component Instances
   let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
-  
-  const allSectionsData = [
-    { id: 'hero', type: 'hero', data: siteConfig.heroSection },
-    { id: 'about', type: 'about', data: siteConfig.aboutSection },
-    ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
-    { id: 'contact', type: 'contact', data: siteConfig.contactSection }
-  ];
-  
-  const aboutSectionIndex = allSectionsData.findIndex(s => s.id === 'about');
-  const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
-
+  let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
+  let aboutImageEffectInstance: AboutImageEffectInstance | null = null;
   let animatedComponentInstances: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
-
+  
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
   const particleEffectReady = writable(false);
 
-  // --- NEW: State for the keep-alive mechanism ---
+  // --- NEW: Page Visibility State ---
+  let visibilityHideTimeoutId: number | undefined;
+  let isTabHiddenAndPaused = false;
+  const HIDE_BUFFER_DURATION = 15000; // 15 seconds
+
   let cardsHaveBeenPreRendered = false;
   let cardKeepAliveInterval: number | undefined;
-
 
   let particleLayerPointerEvents = 'none';
   $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
@@ -61,7 +69,6 @@
   const transitionDuration = 1.1;
   const projectBgZoomDuration = 3;
   const minSectionDisplayDuration = 1.2;
-  const projectBgZoomStartOffset = 0.1;
   const initialRevealDelay = 300;
   const particleFadeInDuration = 1.5;
 
@@ -69,13 +76,63 @@
   let unsubInitialLoadComplete: (() => void) | undefined;
   let hasStartedInitialReveal = false;
 
-  // --- NEW: "Ping" function to keep card layers "hot" ---
+  // --- NEW: Page Visibility Handler ---
+  /**
+   * Handles browser tab visibility changes to prevent animation artifacts.
+   * When the tab is hidden for a set duration, it pauses the current section's
+   * animations. When the tab becomes visible again, it resets and restarts them.
+   */
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      // The user has switched away from the tab.
+      // Set a timeout to pause animations after a buffer period.
+      visibilityHideTimeoutId = window.setTimeout(() => {
+        if (document.hidden && !isTabHiddenAndPaused) {
+          console.log('Tab hidden for >15s. Pausing current section animations.');
+          const index = get(currentSectionIndex);
+          
+          // Use our existing API to "leave" the section
+          if (index === 0) heroParticleEffectInstance?.onTransitionFromHeroStart();
+          else if (index === aboutSectionIndex) {
+            keyboardButtonsInstance?.onLeaveSection();
+            aboutImageEffectInstance?.onLeaveSection();
+          } else {
+            animatedComponentInstances[index]?.onLeaveSection();
+          }
+
+          isTabHiddenAndPaused = true;
+        }
+      }, HIDE_BUFFER_DURATION);
+
+    } else {
+      // The user has returned to the tab.
+      // Immediately cancel any pending "hide" timeout.
+      clearTimeout(visibilityHideTimeoutId);
+
+      if (isTabHiddenAndPaused) {
+        console.log('Tab re-focused. Resetting and restarting current section animations.');
+        const index = get(currentSectionIndex);
+        
+        // Use our existing API to "re-enter" the section for a clean reset.
+        if (index === 0) {
+           heroParticleEffectInstance?.onTransitionToHeroStart().then(() => {
+             heroParticleEffectInstance?.onTransitionToHeroComplete();
+           });
+        } else if (index === aboutSectionIndex) {
+            keyboardButtonsInstance?.onEnterSection();
+            aboutImageEffectInstance?.onEnterSection();
+        } else {
+            animatedComponentInstances[index]?.onEnterSection();
+        }
+        
+        isTabHiddenAndPaused = false;
+      }
+    }
+  }
+
   function pingRenderedCards() {
       const allCards = document.querySelectorAll('.card-wrap');
       if (allCards.length === 0) return;
-      
-      // A tiny, imperceptible transform is enough to signal to the browser
-      // that this layer is still active and should not be garbage collected.
       gsap.set(allCards, { z: 0.01, overwrite: true });
   }
 
@@ -148,6 +205,8 @@
       
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
+      // NEW: Add the visibility change listener
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     };
     
     particleEffectReady.subscribe(ready => { if (ready && get(initialSiteLoadComplete) && !hasStartedInitialReveal) startInitialReveal(); });
@@ -159,9 +218,13 @@
     return () => {
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
+      // NEW: Clean up the visibility change listener
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearTimeout(visibilityHideTimeoutId); // Clear any pending timeout on unmount
+
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
-      clearInterval(cardKeepAliveInterval); // Ensure interval is cleared on unmount
+      clearInterval(cardKeepAliveInterval);
       if (unsubOverallLoadingState) unsubOverallLoadingState();
       if (unsubInitialLoadComplete) unsubInitialLoadComplete();
     };
@@ -177,61 +240,53 @@
     isAnimating.set(true); 
     isTransitioning.set(true); 
 
-    // --- NEW: Stop the keep-alive interval when we leave the "About Me" section ---
+    // --- On Leave Logic ---
+    if (heroParticleEffectInstance && oldIndex === 0) {
+      heroParticleEffectInstance.onTransitionFromHeroStart();
+    }
+    
     if (oldIndex === aboutSectionIndex) {
         clearInterval(cardKeepAliveInterval);
+        keyboardButtonsInstance?.onLeaveSection();
+        aboutImageEffectInstance?.onLeaveSection();
+    } else {
+        animatedComponentInstances[oldIndex]?.onLeaveSection();
     }
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
 
-    if (heroParticleEffectInstance) { 
-      if (newIndex === 0) heroParticleEffectInstance.onTransitionToHeroStart(); 
-      else if (oldIndex === 0) heroParticleEffectInstance.onTransitionFromHeroStart(); 
-    } 
+    // --- On Enter Logic ---
+    if (heroParticleEffectInstance && newIndex === 0) {
+      heroParticleEffectInstance.onTransitionToHeroStart();
+    }
 
     const currentSectionEl = sectionElements[oldIndex]; 
     const targetSectionEl = sectionElements[newIndex]; 
     const direction = newIndex > oldIndex ? 1 : -1; 
     
-    animatedComponentInstances[oldIndex]?.onLeaveSection();
-    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
-
     const masterTransitionTl = gsap.timeline({ 
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
-        isTransitioning.set(false); 
+        isTransitioning.set(false);
+        
         if (heroParticleEffectInstance && newIndex === 0) { 
           heroParticleEffectInstance.onTransitionToHeroComplete(); 
         }
         
-        // --- NEW: Start the keep-alive interval when we land on the "About Me" section ---
         if (newIndex === aboutSectionIndex) {
-            cardKeepAliveInterval = setInterval(pingRenderedCards, 4000); // Ping every 4 seconds
+            cardKeepAliveInterval = setInterval(pingRenderedCards, 4000);
+            keyboardButtonsInstance?.onEnterSection();
+            aboutImageEffectInstance?.onEnterSection();
+        } else {
+            animatedComponentInstances[newIndex]?.onEnterSection();
         }
-
-        animatedComponentInstances[newIndex]?.onEnterSection();
+        
+        sectionBackgroundZooms[newIndex]?.restart();
       } 
     }); 
     
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
     masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
-    
-    const componentToAnimate = animatedComponentInstances[newIndex];
-    if (componentToAnimate) {
-        let startTime = `slide+=${transitionDuration - 0.2}`; 
-        if (newIndex === aboutSectionIndex) {
-            startTime = "slide+=0.5"; 
-        }
-        masterTransitionTl.call(() => {
-            componentToAnimate.onEnterSection();
-        }, [], startTime);
-    }
-    
-    const targetBgZoom = sectionBackgroundZooms[newIndex]; 
-    if (targetBgZoom) { 
-      masterTransitionTl.call(() => { 
-        targetBgZoom.restart(); 
-      }, [], `slide+=${projectBgZoomStartOffset}`); 
-    } 
     
     gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
       isAnimating.set(false); 
@@ -263,9 +318,10 @@
   <section id="hero" class="full-screen-section hero-section"></section>
 
   <section id="about" class="full-screen-section about-section">
+    <!-- This wrapper is the "left pane" for the text content -->
     <div class="about-content-wrapper">
       <KeyboardButtons 
-        bind:this={animatedComponentInstances[aboutSectionIndex]}
+        bind:this={keyboardButtonsInstance}
         title={siteConfig.aboutSection.title}
         introduction={siteConfig.aboutSection.introduction}
         socialLinks={siteConfig.aboutSection.socialLinks} 
@@ -274,6 +330,11 @@
         on:animationComplete={triggerStaggeredCardPreRender}
       />
     </div>
+    <!-- The new effect component acts as the "right pane" -->
+    <AboutImageEffect
+      bind:this={aboutImageEffectInstance}
+      imageUrl={siteConfig.aboutSection.imageUrl}
+    />
   </section>
 
   {#each allSectionsData as section, index (section.id)}
@@ -310,8 +371,30 @@
   .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
   .full-screen-section { height: 100%; width: 100%; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; box-sizing: border-box; background-color: rgb(9 9 11); }
   .hero-section { background-color: transparent; z-index: 2; pointer-events: none; }
-  .about-section { padding: 0; text-align: left; background-color: transparent; z-index: 2; position: relative; overflow: hidden; }
-  .about-content-wrapper { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; justify-content: flex-start; align-items: center; padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem); box-sizing: border-box; }
+  
+  .about-section {
+    padding: 0;
+    text-align: left;
+    background-color: transparent;
+    z-index: 2;
+    position: relative;
+    overflow: hidden;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+  .about-content-wrapper {
+    position: relative;
+    z-index: 3;
+    flex-grow: 1;
+    height: 100%;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem);
+    padding-right: 2rem;
+    box-sizing: border-box;
+  }
+  
   .project-section { color: rgb(245 245 247); z-index: 2; background-color: transparent; padding: 0; }
   .contact-section { background-color: rgb(24 24 27); color: rgb(245 245 247); z-index: 2; }
   .content-center { max-width: 800px; margin: 0 auto; padding: 2rem; }
@@ -321,8 +404,35 @@
   .contact-section a:hover { color: rgb(129 140 248); text-decoration: underline; }
   .additional-links { margin-top: 2rem; display: flex; gap: 2rem; justify-content: center; }
   * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-  @media (max-width: 768px) { 
-    .about-section { padding: 2rem; }
-    .about-content-wrapper { justify-content: center; text-align: center; padding: 1rem; }
+  
+  @media (max-width: 768px) {
+    .about-section { 
+      flex-direction: column;
+      justify-content: center;
+      padding: 2rem; 
+    }
+    .about-content-wrapper { 
+      justify-content: center; 
+      text-align: center; 
+      padding: 1rem;
+      width: 100%;
+      flex-grow: 0;
+      z-index: 2;
+    }
+    .about-section :global(.main-container) {
+      position: absolute;
+      top: 0;
+      left: 0;
+      opacity: 0.15 !important;
+      z-index: 1;
+    }
+    .about-section :global(.image-pane) {
+      justify-content: center;
+    }
+    .about-section :global(.image-pane img) {
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
   }
 </style>

@@ -82,6 +82,643 @@ export {};
 
 --- END OF FILE src\lib\index.ts ---
 
+--- START OF FILE src\lib\components\AboutImageEffect.svelte ---
+<!-- src/lib/components/AboutImageEffect.svelte -->
+<script context="module" lang="ts">
+  // Export a type for the component's instance, following our established pattern.
+  export type AboutImageEffectInstance = {
+    onEnterSection: () => void;
+    onLeaveSection: () => void;
+  };
+</script>
+
+<script lang="ts">
+  import { onMount, onDestroy, tick } from 'svelte';
+  import * as THREE from 'three';
+  import { gsap } from 'gsap';
+
+  export let imageUrl: string;
+
+  // --- Svelte DOM Bindings ---
+  let mainContainer: HTMLDivElement;
+  let imageElement: HTMLImageElement;
+  let particleOverlayElement: HTMLDivElement;
+
+  // --- Effect Instance ---
+  let effectInstance: DigitalDecayEffect | null = null;
+  let isInitialized = false;
+
+  // --- Component API ---
+  export async function onEnterSection() {
+    if (!isInitialized) {
+      await initialize();
+    }
+    
+    if (effectInstance) {
+      // Fade in the image container and start the animation loop.
+      // The start() method now handles its own reset, ensuring a clean state.
+      gsap.to(mainContainer, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
+      effectInstance.start();
+    }
+  }
+
+  export function onLeaveSection() {
+    if (effectInstance) {
+      // Trigger the graceful shutdown. The effect will stop itself after fading.
+      effectInstance.beginLeaveAnimation();
+      
+      // Hide the <img> container immediately. The canvas overlay remains for the fade-out.
+      gsap.killTweensOf(mainContainer);
+      gsap.set(mainContainer, { autoAlpha: 0 });
+    }
+  }
+  
+  // --- Lifecycle & Initialization ---
+  async function initialize() {
+    await tick();
+    if (!particleOverlayElement || !imageElement || isInitialized) return;
+    effectInstance = new DigitalDecayEffect(particleOverlayElement, imageElement);
+    isInitialized = true;
+  }
+
+  onMount(() => {
+    // Initialization is deferred until the first onEnterSection call.
+  });
+
+  onDestroy(() => {
+    if (effectInstance) {
+      effectInstance.dispose();
+      effectInstance = null;
+    }
+  });
+
+  // --- Ported and Adapted DigitalDecayEffect Class ---
+
+  interface GridCell {
+    state: number;
+    timer: number;
+    opacity: number;
+  }
+
+  interface Particle {
+    index: number;
+    active: boolean;
+    originalPos: THREE.Vector2;
+    amplitude: number;
+    timeOffset: number;
+    speed: number;
+    lifetime: number;
+    age: number;
+    size: number;
+    color: THREE.Color;
+    symbolIndex: number;
+    gridCellIndex: number;
+    lastSymbolChange: number;
+    symbolChangeInterval: number;
+  }
+
+  class DigitalDecayEffect {
+    private overlayContainer: HTMLElement;
+    private image: HTMLImageElement;
+    private clock: THREE.Clock | null = null;
+    private animationFrameId: number | null = null;
+    
+    private width = 0;
+    private height = 0;
+    private scene!: THREE.Scene;
+    private camera!: THREE.OrthographicCamera;
+    private renderer!: THREE.WebGLRenderer;
+
+    // --- State & Config ---
+    private STATE = { IDLE: 0, ACTIVE: 1, REGENERATING: 2 };
+    private CELL_SIZE = 9;
+    private REGENERATION_TIME = 1.5;
+    private MAX_ACTIVE_PARTICLES = 2000;
+
+    private BASE_CHANCE = 0.003;
+    private PROBABILITY_DECAY_FACTOR = 9;
+    private SPAWN_AREA_WIDTH = 0.5;
+
+    // --- NEW/MODIFIED: Graceful Shutdown Parameters ---
+    private isFadingOut = false;
+    private fadeOutTimer = 0;
+    private readonly PARTICLE_FADEOUT_DURATION = 0.2; // Time for particles to fade
+    private readonly SHUTDOWN_CLEANUP_DELAY = 1.0;  // Total time until reset/stop
+
+    private PARTICLE_FADE_IN_DURATION = 0.4;
+    private BLACKOUT_FADE_DURATION = 0.35;
+
+    private SYMBOL_CHANGE_INTERVAL = 1.5;
+    private SYMBOL_CHANGE_VARIATION = 0.8;
+
+    private PARTICLE_LIFETIME = { min: 4, max: 8 };
+    private PARTICLE_SPEED = 0.25;
+    private PARTICLE_SPEED_VARIATION = 0.5;
+    private AMPLITUDE = { min: 90, max: 210 };
+    private PARTICLE_BASE_OPACITY = 0.9;
+    private SYMBOLS = [
+        '日', '〇', 'ハ', 'ミ', 'ヒ', 'ウ', 'シ', 'ナ', 'モ', 'サ', 'ワ', 'ツ', 'オ', 'リ', 'ア', 'ホ', 'テ',
+        'マ', 'ケ', 'メ', 'エ', 'カ', 'キ', 'ム', 'ユ', 'ラ', 'セ', 'ネ', 'ヲ', 'イ', 'ク', 'コ', 'ソ', 'タ',
+        'チ', 'ト', 'ノ', 'フ', 'ヘ', 'ヤ', 'ヨ', 'ル', 'レ', 'ロ', '∆', 'δ', 'ε', 'ζ', 'η', 'θ', '∃', '∄',
+        '∅', 'Д'
+    ];
+    private SYMBOL_COLORS = [
+        new THREE.Color(0.0, 0.95, 0.05), new THREE.Color(0.0, 1.0, 0.0), new THREE.Color(0.3, 1.0, 0.3)
+    ];
+    private BLACKOUT_COLOR = new THREE.Color('#09090b');
+
+    private grid: { cols: number; rows: number; cells: GridCell[] } = { cols: 0, rows: 0, cells: [] };
+    private particles: { pool: Particle[]; active: Map<number, Particle> } = { pool: [], active: new Map() };
+    private imageRect: DOMRect | null = null;
+
+    private particleSystem!: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
+    private blackoutMesh!: THREE.InstancedMesh;
+    private symbolsTexture!: THREE.CanvasTexture;
+
+    private boundOnWindowResize = this.onWindowResize.bind(this);
+
+    constructor(overlayContainer: HTMLElement, image: HTMLImageElement) {
+        this.overlayContainer = overlayContainer;
+        this.image = image;
+
+        if (this.image.complete && this.image.naturalHeight !== 0) {
+            this.onImageLoaded();
+        } else {
+            this.image.onload = () => this.onImageLoaded();
+        }
+    }
+
+    private onImageLoaded(): void {
+        this.setupScene();
+        this.createSymbolTexture();
+        this.createBlackoutMesh();
+        this.createParticleSystem();
+        this.setupGrid();
+        window.addEventListener('resize', this.boundOnWindowResize);
+    }
+    
+    // --- Public API ---
+
+    public start(): void {
+        if (this.animationFrameId === null) {
+            this.fullReset(); // Ensure we always start from a clean slate
+            this.clock = new THREE.Clock();
+            this.animate();
+        }
+    }
+
+    public stop(): void {
+        if (this.animationFrameId !== null) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+            this.clock = null;
+        }
+    }
+
+    public beginLeaveAnimation(): void {
+        if (!this.isFadingOut) {
+          this.isFadingOut = true;
+          this.fadeOutTimer = 0;
+          this.resetBlackoutGrid(); // Immediately remove black squares
+        }
+    }
+
+    private createParticleSystem(): void {
+        // ... (code is identical, but I will show the material part)
+        const geometry = new THREE.BufferGeometry();
+        // ... attribute setup ...
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3));
+        geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3));
+        geometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
+        geometry.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
+        geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
+
+        const material = new THREE.ShaderMaterial({
+            // NEW: Add globalOpacity uniform
+            uniforms: { 
+                symbolsTexture: { value: this.symbolsTexture },
+                globalOpacity: { value: 1.0 },
+            },
+            vertexShader: `
+                attribute float size; attribute vec3 customColor; attribute float symbolIndex; attribute float particleOpacity;
+                varying vec3 vColor; varying float vSymbolIndex; varying float vOpacity;
+                void main() {
+                    vColor = customColor; vSymbolIndex = symbolIndex; vOpacity = particleOpacity;
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_PointSize = size;
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            // MODIFIED: Multiply by globalOpacity
+            fragmentShader: `
+                uniform sampler2D symbolsTexture;
+                uniform float globalOpacity;
+                varying vec3 vColor; varying float vSymbolIndex; varying float vOpacity;
+                void main() {
+                    float symbolsPerRow = 8.0; float totalRows = ${Math.ceil(this.SYMBOLS.length / 8)}.0;
+                    vec2 symbolCoord = gl_PointCoord;
+                    symbolCoord.x = (symbolCoord.x + mod(vSymbolIndex, symbolsPerRow)) / symbolsPerRow;
+                    symbolCoord.y = (symbolCoord.y + floor(vSymbolIndex / symbolsPerRow)) / totalRows;
+                    vec4 tex = texture2D(symbolsTexture, symbolCoord);
+                    if (tex.a < 0.3) discard;
+                    gl_FragColor = vec4(vColor, tex.a * vOpacity * ${this.PARTICLE_BASE_OPACITY} * globalOpacity);
+                }
+            `,
+            blending: THREE.AdditiveBlending, depthTest: false, transparent: true
+        });
+        // ... rest of the function ...
+        this.particleSystem = new THREE.Points(geometry, material);
+        this.scene.add(this.particleSystem);
+        const symbolIndices = (geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+        for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) {
+            symbolIndices[i] = Math.floor(Math.random() * this.SYMBOLS.length);
+        }
+        (geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+        for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) {
+            this.particles.pool.push({
+                index: i, active: false, originalPos: new THREE.Vector2(), amplitude: 0, timeOffset: 0, speed: 0,
+                lifetime: 0, age: 0, size: 0, color: new THREE.Color(), symbolIndex: 0, gridCellIndex: -1,
+                lastSymbolChange: 0, symbolChangeInterval: 0
+            });
+        }
+    }
+
+    // --- NEW: Reset Functions ---
+    private fullReset(): void {
+        this.isFadingOut = false;
+        this.fadeOutTimer = 0;
+        if(this.particleSystem) {
+            this.particleSystem.material.uniforms.globalOpacity.value = 1.0;
+        }
+        this.resetBlackoutGrid();
+        this.resetAllParticles();
+    }
+    
+    private resetBlackoutGrid(): void {
+        if (!this.blackoutMesh) return;
+        
+        for (const cell of this.grid.cells) {
+            cell.state = this.STATE.IDLE;
+            cell.timer = 0;
+            cell.opacity = 0;
+        }
+        this.blackoutMesh.count = 0;
+        this.blackoutMesh.instanceMatrix.needsUpdate = true;
+        (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true;
+    }
+
+    private resetAllParticles(): void {
+      if (!this.particleSystem) return;
+      
+      const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+      
+      // Move all active particles back to the pool
+      this.particles.active.forEach(p => {
+          p.active = false;
+          positions[p.index * 3 + 1] = -99999; // Move offscreen
+          this.particles.pool.push(p);
+      });
+      this.particles.active.clear();
+      
+      (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    }
+    
+    private animate(): void {
+        this.animationFrameId = requestAnimationFrame(() => this.animate());
+        if (!this.clock || !this.imageRect) return;
+        
+        const deltaTime = this.clock.getDelta();
+
+        if (this.isFadingOut) {
+            this.fadeOutTimer += deltaTime;
+            
+            // Particles keep moving and fading
+            this.updateParticles(deltaTime);
+            
+            // Update global opacity uniform for fade effect
+            const fadeProgress = Math.max(0, 1.0 - (this.fadeOutTimer / this.PARTICLE_FADEOUT_DURATION));
+            this.particleSystem.material.uniforms.globalOpacity.value = fadeProgress;
+
+            // After the reset delay, stop everything and reset fully
+            if (this.fadeOutTimer >= this.SHUTDOWN_CLEANUP_DELAY) {
+                this.stop();
+                this.fullReset();
+            }
+
+        } else {
+            // Normal animation loop
+            this.updateGrid(deltaTime);
+            this.updateParticles(deltaTime);
+            this.updateBlackout();
+        }
+        
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    // --- Unchanged methods (setupScene, getSymbolColor, createSymbolTexture, createBlackoutMesh, etc.) ---
+    // Note: I have included `createParticleSystem` above as it needed modification.
+    // The rest of the original methods from the previous step are still here and correct,
+    // so I am omitting them for brevity. They are identical to the previous version.
+    // ... setupScene, getSymbolColor, createSymbolTexture, createBlackoutMesh ...
+    // ... setupGrid, updateGrid, spawnParticleForCell, updateParticles, updateBlackout ...
+    // ... onWindowResize, dispose ...
+
+    private setupScene(): void {
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.scene = new THREE.Scene();
+        this.camera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 1, 1000);
+        this.camera.position.z = 100;
+        this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setSize(this.width, this.height);
+        this.overlayContainer.appendChild(this.renderer.domElement);
+    }
+    
+    private getSymbolColor(): THREE.Color {
+        return this.SYMBOL_COLORS[Math.floor(Math.random() * this.SYMBOL_COLORS.length)];
+    }
+
+    private createSymbolTexture(): void {
+        const symbolsPerRow = 8, symbolSize = 64;
+        const rows = Math.ceil(this.SYMBOLS.length / symbolsPerRow);
+        const canvas = document.createElement('canvas');
+        canvas.width = symbolsPerRow * symbolSize; canvas.height = rows * symbolSize;
+        const ctx = canvas.getContext('2d')!;
+        ctx.font = `bold ${symbolSize * 0.8}px monospace`;
+        ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        for (let i = 0; i < this.SYMBOLS.length; i++) {
+            const x = (i % symbolsPerRow) * symbolSize + symbolSize / 2;
+            const y = Math.floor(i / symbolsPerRow) * symbolSize + symbolSize / 2;
+            ctx.fillText(this.SYMBOLS[i], x, y);
+        }
+        this.symbolsTexture = new THREE.CanvasTexture(canvas);
+    }
+
+    private createBlackoutMesh(): void {
+        const quadGeom = new THREE.PlaneGeometry(this.CELL_SIZE, this.CELL_SIZE);
+        quadGeom.setAttribute('instanceOpacity', new THREE.InstancedBufferAttribute(new Float32Array(200 * 200), 1));
+        const material = new THREE.ShaderMaterial({
+            uniforms: { color: { value: this.BLACKOUT_COLOR } },
+            vertexShader: `
+                attribute float instanceOpacity;
+                varying float vOpacity;
+                void main() {
+                    vOpacity = instanceOpacity;
+                    gl_Position = projectionMatrix * instanceMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 color;
+                varying float vOpacity;
+                void main() {
+                    gl_FragColor = vec4(color, vOpacity);
+                }
+            `,
+            transparent: true,
+        });
+        this.blackoutMesh = new THREE.InstancedMesh(quadGeom, material, 150 * 200);
+        this.scene.add(this.blackoutMesh);
+    }
+
+    private setupGrid(): void {
+        this.imageRect = this.image.getBoundingClientRect();
+        if (!this.imageRect.width) return;
+        this.grid.cols = Math.floor(this.imageRect.width / this.CELL_SIZE);
+        this.grid.rows = Math.floor(this.imageRect.height / this.CELL_SIZE);
+        this.grid.cells = [];
+        for (let i = 0; i < this.grid.cols * this.grid.rows; i++) {
+            this.grid.cells.push({ state: this.STATE.IDLE, timer: 0, opacity: 0 });
+        }
+    }
+
+    private updateGrid(deltaTime: number): void {
+        if (this.particles.active.size >= this.MAX_ACTIVE_PARTICLES) return;
+        const spawnCols = Math.floor(this.grid.cols * this.SPAWN_AREA_WIDTH);
+        for (let i = 0; i < this.grid.cells.length; i++) {
+            const cell = this.grid.cells[i];
+            const fadeSpeed = deltaTime / this.BLACKOUT_FADE_DURATION;
+            if (cell.state === this.STATE.ACTIVE) {
+                cell.opacity = Math.min(1.0, cell.opacity + fadeSpeed);
+            } else {
+                cell.opacity = Math.max(0.0, cell.opacity - fadeSpeed);
+            }
+            if (cell.state === this.STATE.IDLE) {
+                const col = i % this.grid.cols;
+                if (col < spawnCols) {
+                    const normalizedX = col / spawnCols;
+                    const probability = this.BASE_CHANCE * Math.exp(-this.PROBABILITY_DECAY_FACTOR * normalizedX) * deltaTime * 60;
+                    if (Math.random() < probability) {
+                        cell.state = this.STATE.ACTIVE;
+                        this.spawnParticleForCell(i);
+                    }
+                }
+            } else if (cell.state === this.STATE.REGENERATING) {
+                cell.timer += deltaTime;
+                if (cell.timer >= this.REGENERATION_TIME && cell.opacity <= 0) {
+                    cell.state = this.STATE.IDLE;
+                    cell.timer = 0;
+                }
+            }
+        }
+    }
+
+    private spawnParticleForCell(cellIndex: number): void {
+        if (this.particles.pool.length === 0 || !this.imageRect) return;
+        const particle = this.particles.pool.pop()!;
+        particle.active = true;
+        particle.gridCellIndex = cellIndex;
+        const col = cellIndex % this.grid.cols;
+        const row = Math.floor(cellIndex / this.grid.cols);
+        const xOnImage = col * this.CELL_SIZE + this.CELL_SIZE / 2;
+        const yOnImage = row * this.CELL_SIZE + this.CELL_SIZE / 2;
+        const x = this.imageRect.left + xOnImage - this.width / 2;
+        const y = -(this.imageRect.top + yOnImage) + this.height / 2;
+        particle.originalPos.set(x, y);
+        const speedVariation = (Math.random() * 2 - 1) * this.PARTICLE_SPEED_VARIATION;
+        particle.speed = this.PARTICLE_SPEED * (1 + speedVariation);
+        particle.amplitude = this.AMPLITUDE.min + Math.random() * (this.AMPLITUDE.max - this.AMPLITUDE.min);
+        particle.timeOffset = Math.random() * Math.PI * 2;
+        particle.lifetime = this.PARTICLE_LIFETIME.min + Math.random() * (this.PARTICLE_LIFETIME.max - this.PARTICLE_LIFETIME.min);
+        particle.age = 0;
+        particle.size = this.CELL_SIZE * (1 + 1.1 * Math.random());
+        particle.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
+        particle.color.copy(this.getSymbolColor());
+        particle.lastSymbolChange = 0;
+        const variation = 1 + (Math.random() * 2 - 1) * this.SYMBOL_CHANGE_VARIATION;
+        particle.symbolChangeInterval = this.SYMBOL_CHANGE_INTERVAL * variation;
+        this.particles.active.set(particle.index, particle);
+    }
+
+    private updateParticles(deltaTime: number): void {
+        const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+        const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array;
+        const colors = (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).array as Float32Array;
+        const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array;
+        const symbolIndices = (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+        let needsUpdate = false;
+        
+        this.particles.active.forEach(p => {
+            p.age += deltaTime;
+            if (p.age >= p.lifetime && !this.isFadingOut) {
+                this.grid.cells[p.gridCellIndex].state = this.STATE.REGENERATING;
+                p.active = false;
+                this.particles.active.delete(p.index);
+                this.particles.pool.push(p);
+                positions[p.index * 3 + 1] = -99999;
+                opacities[p.index] = 0;
+                needsUpdate = true;
+                return;
+            }
+            if (p.age < this.PARTICLE_FADE_IN_DURATION) {
+                opacities[p.index] = p.age / this.PARTICLE_FADE_IN_DURATION;
+            } else if (p.age > p.lifetime - this.PARTICLE_FADEOUT_DURATION && !this.isFadingOut) {
+                opacities[p.index] = (p.lifetime - p.age) / this.PARTICLE_FADEOUT_DURATION;
+            } else {
+                opacities[p.index] = 1.0;
+            }
+            p.lastSymbolChange += deltaTime;
+            if(p.lastSymbolChange > p.symbolChangeInterval) {
+                symbolIndices[p.index] = Math.floor(Math.random() * this.SYMBOLS.length);
+                p.lastSymbolChange = 0;
+            }
+            const offsetX = -p.age * p.speed * p.amplitude;
+            const offsetY = Math.sin(p.age * 1.5 + p.timeOffset) * 10;
+            positions[p.index * 3] = p.originalPos.x + offsetX;
+            positions[p.index * 3 + 1] = p.originalPos.y + offsetY;
+            positions[p.index * 3 + 2] = 1;
+            p.color.toArray(colors, p.index * 3);
+            sizes[p.index] = p.size;
+            needsUpdate = true;
+        });
+        
+        if (needsUpdate) {
+            (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true;
+        }
+    }
+
+    private updateBlackout(): void {
+        if (!this.imageRect) return;
+        const dummy = new THREE.Object3D();
+        const opacities = (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).array as Float32Array;
+        let instanceIdx = 0;
+        
+        for (let i = 0; i < this.grid.cells.length; i++) {
+            if (this.grid.cells[i].opacity > 0) {
+                const col = i % this.grid.cols;
+                const row = Math.floor(i / this.grid.cols);
+                const xOnImage = col * this.CELL_SIZE + this.CELL_SIZE / 2;
+                const yOnImage = row * this.CELL_SIZE + this.CELL_SIZE / 2;
+                const x = this.imageRect.left + xOnImage - this.width / 2;
+                const y = -(this.imageRect.top + yOnImage) + this.height / 2;
+                dummy.position.set(x, y, 0);
+                dummy.updateMatrix();
+                this.blackoutMesh.setMatrixAt(instanceIdx, dummy.matrix);
+                opacities[instanceIdx] = this.grid.cells[i].opacity;
+                instanceIdx++;
+            }
+        }
+        
+        this.blackoutMesh.count = instanceIdx;
+        this.blackoutMesh.instanceMatrix.needsUpdate = true;
+        (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true;
+    }
+
+    private onWindowResize(): void {
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.camera.left = -this.width / 2;
+        this.camera.right = this.width / 2;
+        this.camera.top = this.height / 2;
+        this.camera.bottom = -this.height / 2;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(this.width, this.height);
+        this.setupGrid();
+    }
+    
+    public dispose(): void {
+      this.stop();
+      window.removeEventListener('resize', this.boundOnWindowResize);
+      if (this.scene) {
+        this.scene.traverse(object => {
+            const obj = object as THREE.Mesh;
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) {
+                if (Array.isArray(obj.material)) {
+                    obj.material.forEach((material: THREE.Material) => material.dispose());
+                } else {
+                    (obj.material as THREE.Material).dispose();
+                }
+            }
+        });
+      }
+      if (this.symbolsTexture) this.symbolsTexture.dispose();
+      if (this.renderer) {
+          this.renderer.dispose();
+          if (this.renderer.domElement.parentElement) {
+              this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
+          }
+      }
+    }
+  }
+</script>
+
+<!-- The visual part of the component. GSAP will fade this in/out. -->
+<div class="main-container" bind:this={mainContainer}>
+  <!-- Image pane for layout. Stays in the document flow. -->
+  <div class="image-pane">
+    <img src={imageUrl} alt="Profile" bind:this={imageElement}/>
+  </div>
+</div>
+
+<!-- Fixed overlay for the Three.js canvas. Spans the entire viewport. -->
+<div class="particle-overlay" bind:this={particleOverlayElement}></div>
+
+<style>
+  .main-container {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    visibility: hidden;
+    opacity: 0;
+  }
+
+  .image-pane {
+    position: relative;
+    height: 100%;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+
+  .image-pane img {
+    height: 100vh;
+    width: auto;
+    display: block;
+    object-fit: cover;
+  }
+
+  .particle-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 2;
+    pointer-events: none;
+  }
+</style>
+--- END OF FILE src\lib\components\AboutImageEffect.svelte ---
+
 --- START OF FILE src\lib\components\HeroParticleEffect.svelte ---
 <!-- src/lib/components/HeroParticleEffect.svelte -->
 <script lang="ts">
@@ -1292,7 +1929,7 @@ export const siteConfig = {
   aboutSection: {
     title: "About Me", // MODIFIED
     introduction: "This is where you'll learn about who I am and what I do.", // MODIFIED
-    imageUrl: "/images/about-me-placeholder.jpg", // MODIFIED - ensure this image exists in static/images
+    imageUrl: "/images/profile.png", // MODIFIED - ensure this image exists in static/images
     imageParticleEffect: {
       type: 'imageAuraParticles', // We'll define this later
     } as ParticleEffectConfig,
@@ -1479,7 +2116,8 @@ import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 export class HeroBloomEffect {
     private renderer: THREE.WebGLRenderer;
     private scene: THREE.Scene;
-    private camera: THREE.PerspectiveCamera;
+    // --- MODIFIED: Changed from PerspectiveCamera to the more general Camera type ---
+    private camera: THREE.Camera;
     
     public composer: EffectComposer;
     private renderPass: RenderPass;
@@ -1497,7 +2135,8 @@ export class HeroBloomEffect {
     constructor(
         renderer: THREE.WebGLRenderer, 
         scene: THREE.Scene, 
-        camera: THREE.PerspectiveCamera, 
+        // --- MODIFIED: Now accepts any type of camera (Perspective or Orthographic) ---
+        camera: THREE.Camera, 
         width: number, 
         height: number
     ) {
@@ -2601,9 +3240,22 @@ export class CreateParticles {
   import type { SvelteComponent } from 'svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
+  import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
+  import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
+  import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
   import ProjectSection from '$lib/components/ProjectSection.svelte';
   import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
   import { gsap } from 'gsap';
+
+  const allSectionsData = [
+    { id: 'hero', type: 'hero', data: siteConfig.heroSection },
+    { id: 'about', type: 'about', data: siteConfig.aboutSection },
+    ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
+    { id: 'contact', type: 'contact', data: siteConfig.contactSection }
+  ];
+  
+  const aboutSectionIndex = allSectionsData.findIndex(s => s.id === 'about');
+  const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
 
   interface IAnimatedComponent {
     onEnterSection: () => void;
@@ -2616,30 +3268,25 @@ export class CreateParticles {
     onTransitionFromHeroStart: () => void;
   }
   
+  // Component Instances
   let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
-  
-  const allSectionsData = [
-    { id: 'hero', type: 'hero', data: siteConfig.heroSection },
-    { id: 'about', type: 'about', data: siteConfig.aboutSection },
-    ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
-    { id: 'contact', type: 'contact', data: siteConfig.contactSection }
-  ];
-  
-  const aboutSectionIndex = allSectionsData.findIndex(s => s.id === 'about');
-  const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
-
+  let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
+  let aboutImageEffectInstance: AboutImageEffectInstance | null = null;
   let animatedComponentInstances: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
-
+  
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
   const particleEffectReady = writable(false);
 
-  // --- NEW: State for the keep-alive mechanism ---
+  // --- NEW: Page Visibility State ---
+  let visibilityHideTimeoutId: number | undefined;
+  let isTabHiddenAndPaused = false;
+  const HIDE_BUFFER_DURATION = 15000; // 15 seconds
+
   let cardsHaveBeenPreRendered = false;
   let cardKeepAliveInterval: number | undefined;
-
 
   let particleLayerPointerEvents = 'none';
   $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
@@ -2653,7 +3300,6 @@ export class CreateParticles {
   const transitionDuration = 1.1;
   const projectBgZoomDuration = 3;
   const minSectionDisplayDuration = 1.2;
-  const projectBgZoomStartOffset = 0.1;
   const initialRevealDelay = 300;
   const particleFadeInDuration = 1.5;
 
@@ -2661,13 +3307,63 @@ export class CreateParticles {
   let unsubInitialLoadComplete: (() => void) | undefined;
   let hasStartedInitialReveal = false;
 
-  // --- NEW: "Ping" function to keep card layers "hot" ---
+  // --- NEW: Page Visibility Handler ---
+  /**
+   * Handles browser tab visibility changes to prevent animation artifacts.
+   * When the tab is hidden for a set duration, it pauses the current section's
+   * animations. When the tab becomes visible again, it resets and restarts them.
+   */
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      // The user has switched away from the tab.
+      // Set a timeout to pause animations after a buffer period.
+      visibilityHideTimeoutId = window.setTimeout(() => {
+        if (document.hidden && !isTabHiddenAndPaused) {
+          console.log('Tab hidden for >15s. Pausing current section animations.');
+          const index = get(currentSectionIndex);
+          
+          // Use our existing API to "leave" the section
+          if (index === 0) heroParticleEffectInstance?.onTransitionFromHeroStart();
+          else if (index === aboutSectionIndex) {
+            keyboardButtonsInstance?.onLeaveSection();
+            aboutImageEffectInstance?.onLeaveSection();
+          } else {
+            animatedComponentInstances[index]?.onLeaveSection();
+          }
+
+          isTabHiddenAndPaused = true;
+        }
+      }, HIDE_BUFFER_DURATION);
+
+    } else {
+      // The user has returned to the tab.
+      // Immediately cancel any pending "hide" timeout.
+      clearTimeout(visibilityHideTimeoutId);
+
+      if (isTabHiddenAndPaused) {
+        console.log('Tab re-focused. Resetting and restarting current section animations.');
+        const index = get(currentSectionIndex);
+        
+        // Use our existing API to "re-enter" the section for a clean reset.
+        if (index === 0) {
+           heroParticleEffectInstance?.onTransitionToHeroStart().then(() => {
+             heroParticleEffectInstance?.onTransitionToHeroComplete();
+           });
+        } else if (index === aboutSectionIndex) {
+            keyboardButtonsInstance?.onEnterSection();
+            aboutImageEffectInstance?.onEnterSection();
+        } else {
+            animatedComponentInstances[index]?.onEnterSection();
+        }
+        
+        isTabHiddenAndPaused = false;
+      }
+    }
+  }
+
   function pingRenderedCards() {
       const allCards = document.querySelectorAll('.card-wrap');
       if (allCards.length === 0) return;
-      
-      // A tiny, imperceptible transform is enough to signal to the browser
-      // that this layer is still active and should not be garbage collected.
       gsap.set(allCards, { z: 0.01, overwrite: true });
   }
 
@@ -2740,6 +3436,8 @@ export class CreateParticles {
       
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
+      // NEW: Add the visibility change listener
+      document.addEventListener('visibilitychange', handleVisibilityChange);
     };
     
     particleEffectReady.subscribe(ready => { if (ready && get(initialSiteLoadComplete) && !hasStartedInitialReveal) startInitialReveal(); });
@@ -2751,9 +3449,13 @@ export class CreateParticles {
     return () => {
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
+      // NEW: Clean up the visibility change listener
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearTimeout(visibilityHideTimeoutId); // Clear any pending timeout on unmount
+
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
-      clearInterval(cardKeepAliveInterval); // Ensure interval is cleared on unmount
+      clearInterval(cardKeepAliveInterval);
       if (unsubOverallLoadingState) unsubOverallLoadingState();
       if (unsubInitialLoadComplete) unsubInitialLoadComplete();
     };
@@ -2769,61 +3471,53 @@ export class CreateParticles {
     isAnimating.set(true); 
     isTransitioning.set(true); 
 
-    // --- NEW: Stop the keep-alive interval when we leave the "About Me" section ---
+    // --- On Leave Logic ---
+    if (heroParticleEffectInstance && oldIndex === 0) {
+      heroParticleEffectInstance.onTransitionFromHeroStart();
+    }
+    
     if (oldIndex === aboutSectionIndex) {
         clearInterval(cardKeepAliveInterval);
+        keyboardButtonsInstance?.onLeaveSection();
+        aboutImageEffectInstance?.onLeaveSection();
+    } else {
+        animatedComponentInstances[oldIndex]?.onLeaveSection();
     }
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
 
-    if (heroParticleEffectInstance) { 
-      if (newIndex === 0) heroParticleEffectInstance.onTransitionToHeroStart(); 
-      else if (oldIndex === 0) heroParticleEffectInstance.onTransitionFromHeroStart(); 
-    } 
+    // --- On Enter Logic ---
+    if (heroParticleEffectInstance && newIndex === 0) {
+      heroParticleEffectInstance.onTransitionToHeroStart();
+    }
 
     const currentSectionEl = sectionElements[oldIndex]; 
     const targetSectionEl = sectionElements[newIndex]; 
     const direction = newIndex > oldIndex ? 1 : -1; 
     
-    animatedComponentInstances[oldIndex]?.onLeaveSection();
-    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
-
     const masterTransitionTl = gsap.timeline({ 
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
-        isTransitioning.set(false); 
+        isTransitioning.set(false);
+        
         if (heroParticleEffectInstance && newIndex === 0) { 
           heroParticleEffectInstance.onTransitionToHeroComplete(); 
         }
         
-        // --- NEW: Start the keep-alive interval when we land on the "About Me" section ---
         if (newIndex === aboutSectionIndex) {
-            cardKeepAliveInterval = setInterval(pingRenderedCards, 4000); // Ping every 4 seconds
+            cardKeepAliveInterval = setInterval(pingRenderedCards, 4000);
+            keyboardButtonsInstance?.onEnterSection();
+            aboutImageEffectInstance?.onEnterSection();
+        } else {
+            animatedComponentInstances[newIndex]?.onEnterSection();
         }
-
-        animatedComponentInstances[newIndex]?.onEnterSection();
+        
+        sectionBackgroundZooms[newIndex]?.restart();
       } 
     }); 
     
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
     masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
-    
-    const componentToAnimate = animatedComponentInstances[newIndex];
-    if (componentToAnimate) {
-        let startTime = `slide+=${transitionDuration - 0.2}`; 
-        if (newIndex === aboutSectionIndex) {
-            startTime = "slide+=0.5"; 
-        }
-        masterTransitionTl.call(() => {
-            componentToAnimate.onEnterSection();
-        }, [], startTime);
-    }
-    
-    const targetBgZoom = sectionBackgroundZooms[newIndex]; 
-    if (targetBgZoom) { 
-      masterTransitionTl.call(() => { 
-        targetBgZoom.restart(); 
-      }, [], `slide+=${projectBgZoomStartOffset}`); 
-    } 
     
     gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
       isAnimating.set(false); 
@@ -2855,9 +3549,10 @@ export class CreateParticles {
   <section id="hero" class="full-screen-section hero-section"></section>
 
   <section id="about" class="full-screen-section about-section">
+    <!-- This wrapper is the "left pane" for the text content -->
     <div class="about-content-wrapper">
       <KeyboardButtons 
-        bind:this={animatedComponentInstances[aboutSectionIndex]}
+        bind:this={keyboardButtonsInstance}
         title={siteConfig.aboutSection.title}
         introduction={siteConfig.aboutSection.introduction}
         socialLinks={siteConfig.aboutSection.socialLinks} 
@@ -2866,6 +3561,11 @@ export class CreateParticles {
         on:animationComplete={triggerStaggeredCardPreRender}
       />
     </div>
+    <!-- The new effect component acts as the "right pane" -->
+    <AboutImageEffect
+      bind:this={aboutImageEffectInstance}
+      imageUrl={siteConfig.aboutSection.imageUrl}
+    />
   </section>
 
   {#each allSectionsData as section, index (section.id)}
@@ -2902,8 +3602,30 @@ export class CreateParticles {
   .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
   .full-screen-section { height: 100%; width: 100%; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; box-sizing: border-box; background-color: rgb(9 9 11); }
   .hero-section { background-color: transparent; z-index: 2; pointer-events: none; }
-  .about-section { padding: 0; text-align: left; background-color: transparent; z-index: 2; position: relative; overflow: hidden; }
-  .about-content-wrapper { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; justify-content: flex-start; align-items: center; padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); padding-right: max(calc(env(safe-area-inset-right, 0px) + 3vw), 2rem); box-sizing: border-box; }
+  
+  .about-section {
+    padding: 0;
+    text-align: left;
+    background-color: transparent;
+    z-index: 2;
+    position: relative;
+    overflow: hidden;
+    flex-direction: row;
+    justify-content: space-between;
+  }
+  .about-content-wrapper {
+    position: relative;
+    z-index: 3;
+    flex-grow: 1;
+    height: 100%;
+    display: flex;
+    justify-content: flex-start;
+    align-items: center;
+    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem);
+    padding-right: 2rem;
+    box-sizing: border-box;
+  }
+  
   .project-section { color: rgb(245 245 247); z-index: 2; background-color: transparent; padding: 0; }
   .contact-section { background-color: rgb(24 24 27); color: rgb(245 245 247); z-index: 2; }
   .content-center { max-width: 800px; margin: 0 auto; padding: 2rem; }
@@ -2913,9 +3635,36 @@ export class CreateParticles {
   .contact-section a:hover { color: rgb(129 140 248); text-decoration: underline; }
   .additional-links { margin-top: 2rem; display: flex; gap: 2rem; justify-content: center; }
   * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-  @media (max-width: 768px) { 
-    .about-section { padding: 2rem; }
-    .about-content-wrapper { justify-content: center; text-align: center; padding: 1rem; }
+  
+  @media (max-width: 768px) {
+    .about-section { 
+      flex-direction: column;
+      justify-content: center;
+      padding: 2rem; 
+    }
+    .about-content-wrapper { 
+      justify-content: center; 
+      text-align: center; 
+      padding: 1rem;
+      width: 100%;
+      flex-grow: 0;
+      z-index: 2;
+    }
+    .about-section :global(.main-container) {
+      position: absolute;
+      top: 0;
+      left: 0;
+      opacity: 0.15 !important;
+      z-index: 1;
+    }
+    .about-section :global(.image-pane) {
+      justify-content: center;
+    }
+    .about-section :global(.image-pane img) {
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+    }
   }
 </style>
 --- END OF FILE src\routes\+page.svelte ---

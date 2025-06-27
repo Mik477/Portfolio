@@ -28,7 +28,7 @@ export const siteConfig = {
   aboutSection: {
     title: "About Me", // MODIFIED
     introduction: "This is where you'll learn about who I am and what I do.", // MODIFIED
-    imageUrl: "/images/about-me-placeholder.jpg", // MODIFIED - ensure this image exists in static/images
+    imageUrl: "/images/profile.png", // MODIFIED - ensure this image exists in static/images
     imageParticleEffect: {
       type: 'imageAuraParticles', // We'll define this later
     } as ParticleEffectConfig,
