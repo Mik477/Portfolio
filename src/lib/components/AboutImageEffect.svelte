@@ -1,6 +1,5 @@
 <!-- src/lib/components/AboutImageEffect.svelte -->
 <script context="module" lang="ts">
-  // Export a type for the component's instance, following our established pattern.
   export type AboutImageEffectInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
@@ -13,42 +12,58 @@
   import { gsap } from 'gsap';
 
   export let imageUrl: string;
+  // NEW: Add a configurable delay prop with a default value (in milliseconds).
+  export let startDelay: number = 450;
 
-  // --- Svelte DOM Bindings ---
+  // Svelte DOM Bindings
   let mainContainer: HTMLDivElement;
   let imageElement: HTMLImageElement;
   let particleOverlayElement: HTMLDivElement;
 
-  // --- Effect Instance ---
+  // Effect Instance & State
   let effectInstance: DigitalDecayEffect | null = null;
   let isInitialized = false;
+  // NEW: Variable to hold the timeout ID for the start delay.
+  let startTimeoutId: number | undefined;
 
   // --- Component API ---
+
   export async function onEnterSection() {
     if (!isInitialized) {
       await initialize();
     }
     
     if (effectInstance) {
-      // Fade in the image container and start the animation loop.
-      // The start() method now handles its own reset, ensuring a clean state.
+      // Clear any previous timeout to prevent multiple triggers.
+      clearTimeout(startTimeoutId);
+
+      // Fade in the image container immediately.
       gsap.to(mainContainer, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
-      effectInstance.start();
+      
+      // NEW: Delay the start of the Three.js animation loop.
+      startTimeoutId = window.setTimeout(() => {
+        // Check if the instance still exists, in case the component was destroyed during the delay.
+        if (effectInstance) {
+          effectInstance.start();
+        }
+      }, startDelay);
     }
   }
 
   export function onLeaveSection() {
+    // NEW: Crucially, clear the pending start timeout if the user scrolls away before it fires.
+    clearTimeout(startTimeoutId);
+
     if (effectInstance) {
-      // Trigger the graceful shutdown. The effect will stop itself after fading.
       effectInstance.beginLeaveAnimation();
       
-      // Hide the <img> container immediately. The canvas overlay remains for the fade-out.
       gsap.killTweensOf(mainContainer);
       gsap.set(mainContainer, { autoAlpha: 0 });
     }
   }
   
   // --- Lifecycle & Initialization ---
+
   async function initialize() {
     await tick();
     if (!particleOverlayElement || !imageElement || isInitialized) return;
@@ -57,18 +72,21 @@
   }
 
   onMount(() => {
-    // Initialization is deferred until the first onEnterSection call.
+    // Initialization remains deferred.
   });
 
   onDestroy(() => {
+    // NEW: Also clear the timeout on component destruction.
+    clearTimeout(startTimeoutId);
+
     if (effectInstance) {
       effectInstance.dispose();
       effectInstance = null;
     }
   });
 
-  // --- Ported and Adapted DigitalDecayEffect Class ---
-
+  // --- The DigitalDecayEffect class remains unchanged from the previous version ---
+  // (Omitted for brevity, as its internal logic is correct)
   interface GridCell {
     state: number;
     timer: number;
@@ -104,7 +122,6 @@
     private camera!: THREE.OrthographicCamera;
     private renderer!: THREE.WebGLRenderer;
 
-    // --- State & Config ---
     private STATE = { IDLE: 0, ACTIVE: 1, REGENERATING: 2 };
     private CELL_SIZE = 9;
     private REGENERATION_TIME = 1.5;
@@ -114,11 +131,10 @@
     private PROBABILITY_DECAY_FACTOR = 9;
     private SPAWN_AREA_WIDTH = 0.5;
 
-    // --- NEW/MODIFIED: Graceful Shutdown Parameters ---
     private isFadingOut = false;
     private fadeOutTimer = 0;
-    private readonly PARTICLE_FADEOUT_DURATION = 0.2; // Time for particles to fade
-    private readonly SHUTDOWN_CLEANUP_DELAY = 1.0;  // Total time until reset/stop
+    private readonly PARTICLE_FADEOUT_DURATION = 0.2;
+    private readonly SHUTDOWN_CLEANUP_DELAY = 1.0;
 
     private PARTICLE_FADE_IN_DURATION = 0.4;
     private BLACKOUT_FADE_DURATION = 0.35;
@@ -172,11 +188,9 @@
         window.addEventListener('resize', this.boundOnWindowResize);
     }
     
-    // --- Public API ---
-
     public start(): void {
         if (this.animationFrameId === null) {
-            this.fullReset(); // Ensure we always start from a clean slate
+            this.fullReset();
             this.clock = new THREE.Clock();
             this.animate();
         }
@@ -194,14 +208,12 @@
         if (!this.isFadingOut) {
           this.isFadingOut = true;
           this.fadeOutTimer = 0;
-          this.resetBlackoutGrid(); // Immediately remove black squares
+          this.resetBlackoutGrid();
         }
     }
 
     private createParticleSystem(): void {
-        // ... (code is identical, but I will show the material part)
         const geometry = new THREE.BufferGeometry();
-        // ... attribute setup ...
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3));
         geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3));
         geometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
@@ -209,7 +221,6 @@
         geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
 
         const material = new THREE.ShaderMaterial({
-            // NEW: Add globalOpacity uniform
             uniforms: { 
                 symbolsTexture: { value: this.symbolsTexture },
                 globalOpacity: { value: 1.0 },
@@ -224,7 +235,6 @@
                     gl_Position = projectionMatrix * mvPosition;
                 }
             `,
-            // MODIFIED: Multiply by globalOpacity
             fragmentShader: `
                 uniform sampler2D symbolsTexture;
                 uniform float globalOpacity;
@@ -241,7 +251,6 @@
             `,
             blending: THREE.AdditiveBlending, depthTest: false, transparent: true
         });
-        // ... rest of the function ...
         this.particleSystem = new THREE.Points(geometry, material);
         this.scene.add(this.particleSystem);
         const symbolIndices = (geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
@@ -258,7 +267,6 @@
         }
     }
 
-    // --- NEW: Reset Functions ---
     private fullReset(): void {
         this.isFadingOut = false;
         this.fadeOutTimer = 0;
@@ -287,10 +295,9 @@
       
       const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
       
-      // Move all active particles back to the pool
       this.particles.active.forEach(p => {
           p.active = false;
-          positions[p.index * 3 + 1] = -99999; // Move offscreen
+          positions[p.index * 3 + 1] = -99999;
           this.particles.pool.push(p);
       });
       this.particles.active.clear();
@@ -306,22 +313,16 @@
 
         if (this.isFadingOut) {
             this.fadeOutTimer += deltaTime;
-            
-            // Particles keep moving and fading
             this.updateParticles(deltaTime);
-            
-            // Update global opacity uniform for fade effect
             const fadeProgress = Math.max(0, 1.0 - (this.fadeOutTimer / this.PARTICLE_FADEOUT_DURATION));
             this.particleSystem.material.uniforms.globalOpacity.value = fadeProgress;
 
-            // After the reset delay, stop everything and reset fully
             if (this.fadeOutTimer >= this.SHUTDOWN_CLEANUP_DELAY) {
                 this.stop();
                 this.fullReset();
             }
 
         } else {
-            // Normal animation loop
             this.updateGrid(deltaTime);
             this.updateParticles(deltaTime);
             this.updateBlackout();
@@ -329,14 +330,6 @@
         
         this.renderer.render(this.scene, this.camera);
     }
-
-    // --- Unchanged methods (setupScene, getSymbolColor, createSymbolTexture, createBlackoutMesh, etc.) ---
-    // Note: I have included `createParticleSystem` above as it needed modification.
-    // The rest of the original methods from the previous step are still here and correct,
-    // so I am omitting them for brevity. They are identical to the previous version.
-    // ... setupScene, getSymbolColor, createSymbolTexture, createBlackoutMesh ...
-    // ... setupGrid, updateGrid, spawnParticleForCell, updateParticles, updateBlackout ...
-    // ... onWindowResize, dispose ...
 
     private setupScene(): void {
         this.width = window.innerWidth;
@@ -582,15 +575,12 @@
   }
 </script>
 
-<!-- The visual part of the component. GSAP will fade this in/out. -->
 <div class="main-container" bind:this={mainContainer}>
-  <!-- Image pane for layout. Stays in the document flow. -->
   <div class="image-pane">
     <img src={imageUrl} alt="Profile" bind:this={imageElement}/>
   </div>
 </div>
 
-<!-- Fixed overlay for the Three.js canvas. Spans the entire viewport. -->
 <div class="particle-overlay" bind:this={particleOverlayElement}></div>
 
 <style>

@@ -52,7 +52,7 @@
   // --- NEW: Page Visibility State ---
   let visibilityHideTimeoutId: number | undefined;
   let isTabHiddenAndPaused = false;
-  const HIDE_BUFFER_DURATION = 15000; // 15 seconds
+  const HIDE_BUFFER_DURATION =5000; // 15 seconds
 
   let cardsHaveBeenPreRendered = false;
   let cardKeepAliveInterval: number | undefined;
