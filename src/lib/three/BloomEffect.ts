@@ -1,34 +1,32 @@
-// src/lib/three/HeroBloomEffect.ts
+// src/lib/three/BloomEffect.ts
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
-export class HeroBloomEffect {
+export class BloomEffect {
     private renderer: THREE.WebGLRenderer;
     private scene: THREE.Scene;
-    // --- MODIFIED: Changed from PerspectiveCamera to the more general Camera type ---
-    private camera: THREE.Camera;
+    // MODIFIED: Camera type is now more generic to support Orthographic camera
+    private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
     
     public composer: EffectComposer;
     private renderPass: RenderPass;
     private bloomPass: UnrealBloomPass;
     private outputPass: OutputPass;
 
-    // Bloom Parameters (tweak these to control the glow)
+    // Bloom Parameters (shared default configuration)
     private bloomParams = {
-        threshold: 0.4,   // How bright a pixel needs to be to start blooming.
-                           // Adjusted because our bright symbols are around (0, 0.95, 0.05), luminance ~0.68.
-        strength: 0.15,     // Intensity of the bloom.
-        radius: 0.1,      // Radius/spread of the bloom. Smaller values keep it tighter.
+        threshold: 0.4,
+        strength: 0.15,
+        radius: 0.1,
     };
 
     constructor(
         renderer: THREE.WebGLRenderer, 
         scene: THREE.Scene, 
-        // --- MODIFIED: Now accepts any type of camera (Perspective or Orthographic) ---
-        camera: THREE.Camera, 
+        camera: THREE.PerspectiveCamera | THREE.OrthographicCamera,
         width: number, 
         height: number
     ) {
@@ -76,7 +74,5 @@ export class HeroBloomEffect {
     public dispose(): void {
         // EffectComposer automatically disposes its passes' render targets
         // if they were created internally by the composer or pass.
-        // If you manually created render targets for passes, dispose them here.
-        // The renderer itself is managed by the Environment class.
     }
 }

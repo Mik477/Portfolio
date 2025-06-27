@@ -1,7 +1,7 @@
 // src/lib/three/heroParticleLogic.ts
 import * as THREE from 'three';
 import type { Font } from 'three/examples/jsm/loaders/FontLoader.js';
-import { HeroBloomEffect } from './HeroBloomEffect';
+import { BloomEffect } from './BloomEffect';
 
 // Shaders (VERTEX_SHADER and FRAGMENT_SHADER remain the same)
 export const VERTEX_SHADER = `
@@ -73,7 +73,7 @@ export class Environment {
   private animationLoopCallback: (() => void) | null = null;
 
   private clock!: THREE.Clock; 
-  private bloomEffect!: HeroBloomEffect; 
+  private bloomEffect!: BloomEffect;
 
   constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
     this.font = font;
@@ -91,7 +91,7 @@ export class Environment {
     this.createCamera();
     this.createRenderer();
     
-    this.bloomEffect = new HeroBloomEffect(
+    this.bloomEffect = new BloomEffect(
         this.renderer, 
         this.scene, 
         this.camera, 
