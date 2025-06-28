@@ -54,8 +54,9 @@
   }
 </script>
 
+<!-- Add the 'gpu-prewarm-target' class here -->
 <div
-  class="card-wrap"
+  class="card-wrap gpu-prewarm-target"
   style:width
   style:height
   on:mousemove={handleMouseMove}
@@ -83,8 +84,6 @@
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    /* --- FIXED: The card itself is visible by default. --- */
-    /* Its parent (.card-click-wrapper) controls the entry animation. */
     opacity: 1;
     visibility: visible;
     will-change: transform;

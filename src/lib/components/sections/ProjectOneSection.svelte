@@ -1,6 +1,5 @@
 <!-- src/lib/components/sections/ProjectOneSection.svelte -->
 <script context="module" lang="ts">
-  // The instance type that the orchestrator (`+page.svelte`) will use.
   export type ProjectOneSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
@@ -8,12 +7,15 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { goto } from '$app/navigation';
   import { gsap } from 'gsap';
   import type { Project, ProjectCard } from '$lib/data/projectsData';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
   
+  // Create an event dispatcher to signal when animations are done.
+  const dispatch = createEventDispatcher();
+
   export let project: Project;
 
   let sectionEl: HTMLElement;
@@ -23,20 +25,24 @@
   let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
-    // Find the .card-wrap elements which are the visual root of the ParallaxCard component.
     cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
   });
   
   export function onEnterSection() {
     if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
 
-    // Set initial state for all elements
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
     gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
 
-    const tl = gsap.timeline();
+    const tl = gsap.timeline({
+      // Add an onComplete callback to the timeline.
+      onComplete: () => {
+        // Signal that the animation has finished.
+        dispatch('animationComplete');
+      }
+    });
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
       .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
       .to(cardWrapsToAnimate, { 
@@ -64,7 +70,6 @@
   
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
-    // This correctly navigates to the subpage, including the hash for scrolling.
     goto(`/projects/${project.slug}${aspectLink}`);
   }
 </script>
@@ -94,7 +99,6 @@
 </div>
 
 <style>
-    /* Styles are identical to the original ProjectSection.svelte */
     .project-section-wrapper { 
         width: 100%; 
         height: 100%; 
@@ -174,7 +178,6 @@
         outline: 2px solid rgb(99 102 241); 
         outline-offset: 4px; 
     }
-    /* We add opacity: 0 and visibility: hidden to the button so GSAP can control it */
     button.read-more-btn { 
         opacity: 0; 
         visibility: hidden;

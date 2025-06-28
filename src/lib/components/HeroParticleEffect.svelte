@@ -5,12 +5,13 @@
   import *  as THREE from 'three';
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
-  import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
+  // FIX: Import the new generic preloadAssets function
+  import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let activeSectionIndex: number;
   export let isTransitioning: boolean = false;
   export let transitionDuration: number = 1.1;
-  export let isInitialLoad: boolean = false; // This needs to be used
+  export let isInitialLoad: boolean = false;
 
   const dispatch = createEventDispatcher();
 
@@ -26,10 +27,8 @@
   let isThreeJsLoopRunning = false;
   let areInteractionsBound = false;
   let animationLoopPauseTimeoutId: number | undefined;
-
   
-   // Use isInitialLoad to control initial opacity
-  let initialOpacity = isInitialLoad ? '0' : '1'; // ADD THIS
+  let initialOpacity = isInitialLoad ? '0' : '1';
 
   const FONT_ASSET_PATH = '/fonts/Inter_18pt_ExtraLight.json';
   const PARTICLE_TEXTURE_ASSET_PATH = 'https://res.cloudinary.com/dfvtkoboz/image/upload/v1605013866/particle_a64uzf.png';
@@ -40,19 +39,36 @@
     if (currentStatus === 'loading') return;
 
     startLoadingTask(HERO_ASSETS_TASK_ID);
+
+    // FIX: Use the new generic preloader to manage asset status centrally.
+    try {
+      await preloadAssets([FONT_ASSET_PATH, PARTICLE_TEXTURE_ASSET_PATH]);
+    } catch (error) {
+      console.error("HPE: Asset preloading with preloadAssets failed:", error);
+      preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', (error as Error).message);
+      return;
+    }
+
+    // Still use a local LoadingManager to know when assets are ready for *this component*.
     const manager = new THREE.LoadingManager();
     manager.onLoad = () => preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
     manager.onError = (url) => {
-      console.error(`HPE: Error loading asset: ${url}`);
+      console.error(`HPE: Error loading asset for Three.js: ${url}`);
       preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', `Failed to load ${url}`);
     };
     const fontLoader = new FontLoader(manager);
     const textureLoader = new THREE.TextureLoader(manager);
+
     try {
-      loadedFontAsset = await fontLoader.loadAsync(FONT_ASSET_PATH);
-      loadedParticleTextureMap = await textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH);
+      // Use the loaders, which will now pull from the browser cache thanks to preloadAssets.
+      const [font, texture] = await Promise.all([
+        fontLoader.loadAsync(FONT_ASSET_PATH),
+        textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH)
+      ]);
+      loadedFontAsset = font;
+      loadedParticleTextureMap = texture;
     } catch (error) {
-      console.error("HPE: Asset loading promise failed:", error);
+      console.error("HPE: Asset loading promise for Three.js failed:", error);
       if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'error') {
         preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading failed.');
       }
@@ -102,7 +118,6 @@
   function _bindInteractionEvents() {
     if (particleSystemInstance?.createParticles && !areInteractionsBound) {
       particleSystemInstance.createParticles.bindInteractionEvents();
-      // Resetting state when interactions are bound ensures a fresh start for interaction
       particleSystemInstance.createParticles.resetParticleState(); 
       areInteractionsBound = true;
       console.log("HPE: Interaction events BOUND and particle state RESET.");
@@ -120,9 +135,7 @@
   function _fadeInVisuals() {
     if (threeContainerElement) {
       if (isInitialLoad) {
-        // For initial load, ensure we start from 0 opacity
         threeContainerElement.style.opacity = '0';
-        // Small delay to ensure the opacity is set before transitioning
         requestAnimationFrame(() => {
           if (threeContainerElement) {
             threeContainerElement.style.opacity = '1';
@@ -141,64 +154,54 @@
   // --- EXPORTED METHODS FOR +page.svelte ---
   export async function onTransitionToHeroStart() {
     console.log("HPE Method: onTransitionToHeroStart triggered.");
-    clearTimeout(animationLoopPauseTimeoutId); // Cancel any pending pause
-    await _ensureInstanceAndStartLoop(); // Resume/start animation loop immediately
-    _fadeInVisuals();                    // Start fading in visuals
-    _unbindInteractionEvents();          // Ensure interactions are off during slide-in (mouse neutralized)
+    clearTimeout(animationLoopPauseTimeoutId);
+    await _ensureInstanceAndStartLoop();
+    _fadeInVisuals();
+    _unbindInteractionEvents();
   }
 
   export function onTransitionToHeroComplete() {
     console.log("HPE Method: onTransitionToHeroComplete triggered.");
-    // Animation loop should be running, visuals faded in.
-    _bindInteractionEvents(); // Enable interactions now that Hero is fully in view (also resets particle state)
+    _bindInteractionEvents();
   }
 
   export function onTransitionFromHeroStart() {
     console.log("HPE Method: onTransitionFromHeroStart triggered.");
-    _unbindInteractionEvents(); // Disable interactions immediately, neutralizes mouse
-    _fadeOutVisuals();          // Start fading out visuals
-                                // Animation loop continues during fade-out.
+    _unbindInteractionEvents();
+    _fadeOutVisuals();
     clearTimeout(animationLoopPauseTimeoutId);
-    animationLoopPauseTimeoutId = setTimeout(() => {
-      // This block executes after `transitionDuration` (when visuals are faded out)
+    animationLoopPauseTimeoutId = window.setTimeout(() => {
       if (particleSystemInstance?.createParticles) {
         particleSystemInstance.createParticles.resetParticleState();
         console.log("HPE: Particle state RESET after fade out.");
       }
-      _pauseThreeJsLoop();      // Then pause the animation loop
+      _pauseThreeJsLoop();
     }, transitionDuration * 1000);
   }
 
   async function _handleSettledState() {
     if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) {
       console.log("HPE: Settled on Hero.");
-      clearTimeout(animationLoopPauseTimeoutId); // Cancel any pending pause
+      clearTimeout(animationLoopPauseTimeoutId);
       await _ensureInstanceAndStartLoop();
       _fadeInVisuals();
-      _bindInteractionEvents(); // Includes resetParticleState
+      _bindInteractionEvents();
     } else {
       console.log("HPE: Settled off Hero.");
-      _unbindInteractionEvents(); // Neutralizes mouse
+      _unbindInteractionEvents();
       _fadeOutVisuals();
 
-      // If the loop is still running and no pause is scheduled, schedule one with reset.
-      // This handles cases like initial load on a non-hero section or direct navigation.
-      if (isThreeJsLoopRunning && particleSystemInstance?.isLooping() && !animationLoopPauseTimeoutId) {
+      if (isThreeJsLoopRunning && particleSystemInstance?.isLooping() && animationLoopPauseTimeoutId === undefined) {
         console.log("HPE (SettledOff): Scheduling deferred pause and reset.");
-        animationLoopPauseTimeoutId = setTimeout(() => {
+        animationLoopPauseTimeoutId = window.setTimeout(() => {
           if (particleSystemInstance?.createParticles) {
             particleSystemInstance.createParticles.resetParticleState();
             console.log("HPE (SettledOff): Particle state RESET.");
           }
           _pauseThreeJsLoop();
-        }, transitionDuration * 1000); // Use transitionDuration for visual consistency with fade
-      } else if (!isThreeJsLoopRunning && particleSystemInstance && particleSystemInstance.isLooping()) {
-         // This case implies our isThreeJsLoopRunning flag is out of sync. Correct it and pause.
-         console.warn("HPE (SettledOff): Loop running but flag was false. Pausing.");
-        _pauseThreeJsLoop(); // Pause immediately
-      } else if (!particleSystemInstance?.isLooping() && particleSystemInstance?.createParticles) {
-        // Loop is already paused, but ensure state is reset if particles exist
-        // This might be if it was paused without reset previously.
+          animationLoopPauseTimeoutId = undefined;
+        }, transitionDuration * 1000);
+      } else if (!isThreeJsLoopRunning && particleSystemInstance?.createParticles) {
         console.log("HPE (SettledOff): Loop already paused. Ensuring particle state is reset.");
         particleSystemInstance.createParticles.resetParticleState();
       }
@@ -217,10 +220,8 @@
     await _preloadAssets();
     isMountedAndInitialized = true;
 
-    // Dispatch ready event
     dispatch('ready');
     
-    // Handle initial state differently if isInitialLoad is true
     if (!isTransitioning && !isInitialLoad) {
       _handleSettledState();
     }
@@ -228,12 +229,11 @@
 
   onDestroy(() => {
     clearTimeout(animationLoopPauseTimeoutId);
-    _unbindInteractionEvents(); // Ensure mouse is neutralized
-    // Ensure particle state is reset before final pause/dispose if instance exists
+    _unbindInteractionEvents();
     if (particleSystemInstance?.createParticles) {
         particleSystemInstance.createParticles.resetParticleState();
     }
-    _pauseThreeJsLoop(); // Ensure loop is stopped
+    _pauseThreeJsLoop();
     if (particleSystemInstance) {
       particleSystemInstance.dispose();
       particleSystemInstance = null;
@@ -243,8 +243,6 @@
 
   $: if (isMountedAndInitialized && typeof activeSectionIndex === 'number') {
     if (!isTransitioning) {
-        // This ensures that if activeSectionIndex changes directly (e.g. dev tools, future direct nav)
-        // and we are NOT in a GSAP transition, the state is correctly handled.
         _handleSettledState();
     }
   }
@@ -257,7 +255,6 @@
   id="magic"
   style="opacity: {initialOpacity}; transition: opacity {transitionDuration}s ease-in-out;"
 >
-  <!-- Three.js canvas will be appended here by heroParticleLogic.ts -->
 </div>
 
 <style>

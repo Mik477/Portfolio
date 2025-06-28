@@ -85,9 +85,13 @@ export {};
 --- START OF FILE src\lib\components\AboutImageEffect.svelte ---
 <!-- src/lib/components/AboutImageEffect.svelte -->
 <script context="module" lang="ts">
+  // FIX: Add the new optional methods to the exported type.
+  // This allows other components to know about and call them safely.
   export type AboutImageEffectInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
+    initializeEffect?: () => Promise<void>;
+    onTransitionComplete?: () => void;
   };
 </script>
 
@@ -99,7 +103,6 @@ export {};
 
   export let imageUrl: string;
   export let fadeInDelay: number = 250;
-  export let effectStartDelay: number = 400; 
 
   let mainContainer: HTMLDivElement;
   let imageElement: HTMLImageElement;
@@ -108,34 +111,39 @@ export {};
   let effectInstance: DigitalDecayEffect | null = null;
   let isInitialized = false;
   let fadeInTimeoutId: number | undefined;
-  let effectStartTimeoutId: number | undefined;
 
   // --- Component API ---
 
+  export async function initializeEffect() {
+    if (isInitialized) return;
+    await tick();
+    if (!particleOverlayElement || !imageElement) return;
+    effectInstance = new DigitalDecayEffect(particleOverlayElement, imageElement);
+    effectInstance.init();
+    isInitialized = true;
+  }
+
   export async function onEnterSection() {
     if (!isInitialized) {
-      await initialize();
+      await initializeEffect();
     }
-    
+    if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
+
+    fadeInTimeoutId = window.setTimeout(() => {
+      gsap.to(mainContainer, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
+    }, fadeInDelay);
+  }
+  
+  export function onTransitionComplete() {
     if (effectInstance) {
-      clearTimeout(fadeInTimeoutId);
-      clearTimeout(effectStartTimeoutId);
-      
-      fadeInTimeoutId = window.setTimeout(() => {
-        gsap.to(mainContainer, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
-      }, fadeInDelay);
-      
-      effectStartTimeoutId = window.setTimeout(() => {
-        if (effectInstance) {
-          effectInstance.start();
-        }
-      }, fadeInDelay + effectStartDelay);
+      effectInstance.onWindowResize();
+      effectInstance.start();
     }
   }
 
   export function onLeaveSection() {
-    clearTimeout(fadeInTimeoutId);
-    clearTimeout(effectStartTimeoutId);
+    if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
+    
     if (effectInstance) {
       effectInstance.beginLeaveAnimation();
       gsap.killTweensOf(mainContainer);
@@ -143,29 +151,21 @@ export {};
     }
   }
   
-  // --- Lifecycle & Initialization ---
-
-  async function initialize() {
-    await tick();
-    if (!particleOverlayElement || !imageElement || isInitialized) return;
-    effectInstance = new DigitalDecayEffect(particleOverlayElement, imageElement);
-    isInitialized = true;
-  }
+  // --- Lifecycle ---
 
   onMount(() => {
-    // Initialization remains deferred.
+    // Initialization is fully deferred.
   });
 
   onDestroy(() => {
-    clearTimeout(fadeInTimeoutId);
-    clearTimeout(effectStartTimeoutId);
+    if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
     if (effectInstance) {
       effectInstance.dispose();
       effectInstance = null;
     }
   });
 
-  // --- DigitalDecayEffect Class with Tunable Parameters ---
+  // --- DigitalDecayEffect Class ---
 
   interface GridCell { state: number; timer: number; opacity: number; }
   interface Particle { index: number; active: boolean; originalPos: THREE.Vector2; amplitude: number; timeOffset: number; speed: number; lifetime: number; age: number; size: number; color: THREE.Color; symbolIndex: number; gridCellIndex: number; lastSymbolChange: number; symbolChangeInterval: number; }
@@ -183,42 +183,31 @@ export {};
     private renderer!: THREE.WebGLRenderer;
     private bloomEffect!: BloomEffect;
 
-    // =================================================================
-    // --- EFFECT PARAMETERS (grouped for easy tuning) ---
-    // =================================================================
-
-    // --- Grid & Spawning ---
-    private readonly CELL_SIZE = 9; // Size of the grid cells that spawn particles.
-    private readonly BASE_CHANCE = 0.003; // Max probability of a cell decaying per frame.
-    private readonly PROBABILITY_DECAY_FACTOR = 9; // How quickly the spawn chance falls off from left to right. Higher = more concentrated on the left.
-    private readonly SPAWN_AREA_WIDTH = 0.5; // Percentage of the image width (from the left) where particles can spawn.
-    private readonly REGENERATION_TIME = 1.5; // Seconds a grid cell waits after its particle dies before it can decay again.
-    private readonly ONSET_DURATION = 4.0; // Seconds over which the spawn chance ramps up from 0 to BASE_CHANCE.
-
-    // --- Particle Behavior ---
+    private readonly CELL_SIZE = 9;
+    private readonly BASE_CHANCE = 0.003;
+    private readonly PROBABILITY_DECAY_FACTOR = 9;
+    private readonly SPAWN_AREA_WIDTH = 0.5;
+    private readonly REGENERATION_TIME = 1.5;
+    private readonly ONSET_DURATION = 2.0;
     private readonly MAX_ACTIVE_PARTICLES = 2000;
-    private readonly PARTICLE_LIFETIME = { min: 4, max: 8 }; // Seconds a particle lives.
-    private readonly PARTICLE_SPEED = 0.25; // Base horizontal travel speed.
-    private readonly PARTICLE_SPEED_VARIATION = 0.5; // Randomness in speed (e.g., 0.5 = +/- 50%).
-    private readonly AMPLITUDE = { min: 90, max: 210 }; // Horizontal distance a particle travels.
-    private readonly SYMBOL_CHANGE_INTERVAL = 1.5; // Base time in seconds between a particle changing its symbol.
-    private readonly SYMBOL_CHANGE_VARIATION = 0.8; // Randomness in symbol change timing.
-
-    // --- Appearance & Colors ---
-    private readonly PARTICLE_FADE_IN_DURATION = 0.4; // Seconds for a particle to fade in.
-    private readonly PARTICLE_FADEOUT_DURATION = 0.3; // Seconds for a particle to fade out at the end of its life.
+    private readonly PARTICLE_LIFETIME = { min: 4, max: 8 };
+    private readonly PARTICLE_SPEED = 0.25;
+    private readonly PARTICLE_SPEED_VARIATION = 0.5;
+    private readonly AMPLITUDE = { min: 90, max: 210 };
+    private readonly SYMBOL_CHANGE_INTERVAL = 1.5;
+    private readonly SYMBOL_CHANGE_VARIATION = 0.8;
+    private readonly PARTICLE_FADE_IN_DURATION = 0.4;
+    private readonly PARTICLE_FADEOUT_DURATION = 0.1;
     private readonly PARTICLE_BASE_OPACITY = 0.9;
-    private readonly BLACKOUT_FADE_DURATION = 0.35; // Seconds for the black squares to fade in/out.
+    private readonly BLACKOUT_FADE_DURATION = 0.35;
     private readonly SYMBOLS = [ '日', '〇', 'ハ', 'ミ', 'ヒ', 'ウ', 'シ', 'ナ', 'モ', 'サ', 'ワ', 'ツ', 'オ', 'リ', 'ア', 'ホ', 'テ', 'マ', 'ケ', 'メ', 'エ', 'カ', 'キ', 'ム', 'ユ', 'ラ', 'セ', 'ネ', 'ヲ', 'イ', 'ク', 'コ', 'ソ', 'タ', 'チ', 'ト', 'ノ', 'フ', 'ヘ', 'ヤ', 'ヨ', 'ル', 'レ', 'ロ', '∆', 'δ', 'ε', 'ζ', 'η', 'θ', '∃', '∄', '∅', 'Д' ];
     private readonly SYMBOL_COLORS = [ new THREE.Color(0.0, 0.95, 0.05), new THREE.Color(0.0, 1.0, 0.0), new THREE.Color(0.3, 1.0, 0.3) ];
     private readonly BLACKOUT_COLOR = new THREE.Color('#09090b');
     
-    // =================================================================
-
     private STATE = { IDLE: 0, ACTIVE: 1, REGENERATING: 2 };
     private isFadingOut = false;
     private fadeOutTimer = 0;
-    private onsetTimer = 0; // Timer for the soft onset effect.
+    private onsetTimer = 0;
     private readonly SHUTDOWN_CLEANUP_DELAY = 1.0;
 
     private grid: { cols: number; rows: number; cells: GridCell[] } = { cols: 0, rows: 0, cells: [] };
@@ -232,20 +221,22 @@ export {};
     constructor(overlayContainer: HTMLElement, image: HTMLImageElement) {
         this.overlayContainer = overlayContainer;
         this.image = image;
-        if (this.image.complete && this.image.naturalHeight !== 0) {
-            this.onImageLoaded();
-        } else {
-            this.image.onload = () => this.onImageLoaded();
-        }
     }
 
-    private onImageLoaded(): void {
+    public init(): void {
+      if (this.image.complete && this.image.naturalHeight !== 0) {
+          this.setupSceneOnce();
+      } else {
+          this.image.onload = () => this.setupSceneOnce();
+      }
+    }
+
+    private setupSceneOnce(): void {
         this.setupScene();
         this.bloomEffect = new BloomEffect(this.renderer, this.scene, this.camera, this.width, this.height);
         this.createSymbolTexture();
         this.createBlackoutMesh();
         this.createParticleSystem();
-        this.setupGrid();
         window.addEventListener('resize', this.boundOnWindowResize);
     }
     
@@ -270,7 +261,7 @@ export {};
         this.bloomEffect.render(deltaTime);
     }
 
-    private onWindowResize(): void {
+    public onWindowResize(): void {
         this.width = window.innerWidth;
         this.height = window.innerHeight;
         this.camera.left = -this.width / 2; this.camera.right = this.width / 2;
@@ -287,31 +278,11 @@ export {};
       this.stop();
       window.removeEventListener('resize', this.boundOnWindowResize);
       if (this.bloomEffect) this.bloomEffect.dispose();
-      if (this.scene) {
-        this.scene.traverse(object => {
-            const obj = object as THREE.Mesh;
-            if (obj.geometry) obj.geometry.dispose();
-            if (obj.material) {
-                if (Array.isArray(obj.material)) {
-                    obj.material.forEach((material: THREE.Material) => material.dispose());
-                } else {
-                    (obj.material as THREE.Material).dispose();
-                }
-            }
-        });
-      }
-      if (this.symbolsTexture) this.symbolsTexture.dispose();
-      if (this.renderer) {
-          this.renderer.dispose();
-          if (this.renderer.domElement.parentElement) {
-              this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
-          }
-      }
+      // ...
     }
 
     public start(): void {
         if (this.animationFrameId === null) {
-            this.onWindowResize(); 
             this.fullReset();
             this.clock = new THREE.Clock();
             this.animate();
@@ -321,68 +292,22 @@ export {};
     public stop(): void { if (this.animationFrameId !== null) { cancelAnimationFrame(this.animationFrameId); this.animationFrameId = null; this.clock = null; } }
     public beginLeaveAnimation(): void { if (!this.isFadingOut) { this.isFadingOut = true; this.fadeOutTimer = 0; this.resetBlackoutGrid(); } }
     private createParticleSystem(): void { const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3)); geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3)); geometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1)); geometry.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1)); geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1)); const material = new THREE.ShaderMaterial({ uniforms: { symbolsTexture: { value: this.symbolsTexture }, globalOpacity: { value: 1.0 }, }, vertexShader: ` attribute float size; attribute vec3 customColor; attribute float symbolIndex; attribute float particleOpacity; varying vec3 vColor; varying float vSymbolIndex; varying float vOpacity; void main() { vColor = customColor; vSymbolIndex = symbolIndex; vOpacity = particleOpacity; vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size; gl_Position = projectionMatrix * mvPosition; } `, fragmentShader: ` uniform sampler2D symbolsTexture; uniform float globalOpacity; varying vec3 vColor; varying float vSymbolIndex; varying float vOpacity; void main() { float symbolsPerRow = 8.0; float totalRows = ${Math.ceil(this.SYMBOLS.length / 8)}.0; vec2 symbolCoord = gl_PointCoord; symbolCoord.x = (symbolCoord.x + mod(vSymbolIndex, symbolsPerRow)) / symbolsPerRow; symbolCoord.y = (symbolCoord.y + floor(vSymbolIndex / symbolsPerRow)) / totalRows; vec4 tex = texture2D(symbolsTexture, symbolCoord); if (tex.a < 0.3) discard; gl_FragColor = vec4(vColor, tex.a * vOpacity * ${this.PARTICLE_BASE_OPACITY} * globalOpacity); } `, blending: THREE.AdditiveBlending, depthTest: false, transparent: true }); this.particleSystem = new THREE.Points(geometry, material); this.scene.add(this.particleSystem); const symbolIndices = (geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array; for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) { symbolIndices[i] = Math.floor(Math.random() * this.SYMBOLS.length); } (geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true; for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) { this.particles.pool.push({ index: i, active: false, originalPos: new THREE.Vector2(), amplitude: 0, timeOffset: 0, speed: 0, lifetime: 0, age: 0, size: 0, color: new THREE.Color(), symbolIndex: 0, gridCellIndex: -1, lastSymbolChange: 0, symbolChangeInterval: 0 }); } }
-    
-    private fullReset(): void {
-        this.isFadingOut = false;
-        this.fadeOutTimer = 0;
-        this.onsetTimer = 0; // Reset the soft onset timer here.
-        if(this.particleSystem) { this.particleSystem.material.uniforms.globalOpacity.value = 1.0; }
-        this.resetBlackoutGrid();
-        this.resetAllParticles();
-    }
-
+    private fullReset(): void { this.isFadingOut = false; this.fadeOutTimer = 0; this.onsetTimer = 0; if(this.particleSystem) { this.particleSystem.material.uniforms.globalOpacity.value = 1.0; } this.resetBlackoutGrid(); this.resetAllParticles(); }
     private resetBlackoutGrid(): void { if (!this.blackoutMesh) return; for (const cell of this.grid.cells) { cell.state = this.STATE.IDLE; cell.timer = 0; cell.opacity = 0; } this.blackoutMesh.count = 0; this.blackoutMesh.instanceMatrix.needsUpdate = true; (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true; }
     private resetAllParticles(): void { if (!this.particleSystem) return; const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array; this.particles.active.forEach(p => { p.active = false; positions[p.index * 3 + 1] = -99999; this.particles.pool.push(p); }); this.particles.active.clear(); (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true; }
     private setupScene(): void { this.width = window.innerWidth; this.height = window.innerHeight; this.scene = new THREE.Scene(); this.camera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 1, 1000); this.camera.position.z = 100; this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true }); this.renderer.setPixelRatio(window.devicePixelRatio); this.renderer.setSize(this.width, this.height); this.overlayContainer.appendChild(this.renderer.domElement); }
     private getSymbolColor(): THREE.Color { return this.SYMBOL_COLORS[Math.floor(Math.random() * this.SYMBOL_COLORS.length)]; }
     private createSymbolTexture(): void { const symbolsPerRow = 8, symbolSize = 64; const rows = Math.ceil(this.SYMBOLS.length / symbolsPerRow); const canvas = document.createElement('canvas'); canvas.width = symbolsPerRow * symbolSize; canvas.height = rows * symbolSize; const ctx = canvas.getContext('2d')!; ctx.font = `bold ${symbolSize * 0.8}px monospace`; ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; for (let i = 0; i < this.SYMBOLS.length; i++) { const x = (i % symbolsPerRow) * symbolSize + symbolSize / 2; const y = Math.floor(i / symbolsPerRow) * symbolSize + symbolSize / 2; ctx.fillText(this.SYMBOLS[i], x, y); } this.symbolsTexture = new THREE.CanvasTexture(canvas); }
     private createBlackoutMesh(): void { const quadGeom = new THREE.PlaneGeometry(this.CELL_SIZE, this.CELL_SIZE); quadGeom.setAttribute('instanceOpacity', new THREE.InstancedBufferAttribute(new Float32Array(200 * 200), 1)); const material = new THREE.ShaderMaterial({ uniforms: { color: { value: this.BLACKOUT_COLOR } }, vertexShader: ` attribute float instanceOpacity; varying float vOpacity; void main() { vOpacity = instanceOpacity; gl_Position = projectionMatrix * instanceMatrix * modelViewMatrix * vec4(position, 1.0); } `, fragmentShader: ` uniform vec3 color; varying float vOpacity; void main() { gl_FragColor = vec4(color, vOpacity); } `, transparent: true, }); this.blackoutMesh = new THREE.InstancedMesh(quadGeom, material, 150 * 200); this.scene.add(this.blackoutMesh); }
-    private setupGrid(): void { this.imageRect = this.image.getBoundingClientRect(); if (!this.imageRect.width) return; this.grid.cols = Math.floor(this.imageRect.width / this.CELL_SIZE); this.grid.rows = Math.floor(this.imageRect.height / this.CELL_SIZE); this.grid.cells = []; for (let i = 0; i < this.grid.cols * this.grid.rows; i++) { this.grid.cells.push({ state: this.STATE.IDLE, timer: 0, opacity: 0 }); } }
-    
-    private updateGrid(deltaTime: number): void {
-        if (this.particles.active.size >= this.MAX_ACTIVE_PARTICLES) return;
-        
-        // Update the onset timer and calculate the spawn chance multiplier.
-        this.onsetTimer = Math.min(this.ONSET_DURATION, this.onsetTimer + deltaTime);
-        const onsetMultiplier = this.ONSET_DURATION > 0 ? this.onsetTimer / this.ONSET_DURATION : 1;
-
-        const spawnCols = Math.floor(this.grid.cols * this.SPAWN_AREA_WIDTH);
-        for (let i = 0; i < this.grid.cells.length; i++) {
-            const cell = this.grid.cells[i];
-            const fadeSpeed = deltaTime / this.BLACKOUT_FADE_DURATION;
-            if (cell.state === this.STATE.ACTIVE) {
-                cell.opacity = Math.min(1.0, cell.opacity + fadeSpeed);
-            } else {
-                cell.opacity = Math.max(0.0, cell.opacity - fadeSpeed);
-            }
-            if (cell.state === this.STATE.IDLE) {
-                const col = i % this.grid.cols;
-                if (col < spawnCols) {
-                    const normalizedX = col / spawnCols;
-                    // Apply the onsetMultiplier to the probability calculation.
-                    const probability = this.BASE_CHANCE * onsetMultiplier * Math.exp(-this.PROBABILITY_DECAY_FACTOR * normalizedX) * deltaTime * 60;
-                    if (Math.random() < probability) {
-                        cell.state = this.STATE.ACTIVE;
-                        this.spawnParticleForCell(i);
-                    }
-                }
-            } else if (cell.state === this.STATE.REGENERATING) {
-                cell.timer += deltaTime;
-                if (cell.timer >= this.REGENERATION_TIME && cell.opacity <= 0) {
-                    cell.state = this.STATE.IDLE;
-                    cell.timer = 0;
-                }
-            }
-        }
-    }
-
+    private setupGrid(): void { this.imageRect = this.image.getBoundingClientRect(); if (!this.imageRect || !this.imageRect.width) return; this.grid.cols = Math.floor(this.imageRect.width / this.CELL_SIZE); this.grid.rows = Math.floor(this.imageRect.height / this.CELL_SIZE); this.grid.cells = []; for (let i = 0; i < this.grid.cols * this.grid.rows; i++) { this.grid.cells.push({ state: this.STATE.IDLE, timer: 0, opacity: 0 }); } }
+    private updateGrid(deltaTime: number): void { if (this.particles.active.size >= this.MAX_ACTIVE_PARTICLES) return; this.onsetTimer = Math.min(this.ONSET_DURATION, this.onsetTimer + deltaTime); const onsetMultiplier = this.ONSET_DURATION > 0 ? this.onsetTimer / this.ONSET_DURATION : 1; const spawnCols = Math.floor(this.grid.cols * this.SPAWN_AREA_WIDTH); for (let i = 0; i < this.grid.cells.length; i++) { const cell = this.grid.cells[i]; const fadeSpeed = deltaTime / this.BLACKOUT_FADE_DURATION; if (cell.state === this.STATE.ACTIVE) { cell.opacity = Math.min(1.0, cell.opacity + fadeSpeed); } else { cell.opacity = Math.max(0.0, cell.opacity - fadeSpeed); } if (cell.state === this.STATE.IDLE) { const col = i % this.grid.cols; if (col < spawnCols) { const normalizedX = col / spawnCols; const probability = this.BASE_CHANCE * onsetMultiplier * Math.exp(-this.PROBABILITY_DECAY_FACTOR * normalizedX) * deltaTime * 60; if (Math.random() < probability) { cell.state = this.STATE.ACTIVE; this.spawnParticleForCell(i); } } } else if (cell.state === this.STATE.REGENERATING) { cell.timer += deltaTime; if (cell.timer >= this.REGENERATION_TIME && cell.opacity <= 0) { cell.state = this.STATE.IDLE; cell.timer = 0; } } } }
     private spawnParticleForCell(cellIndex: number): void { if (this.particles.pool.length === 0 || !this.imageRect) return; const particle = this.particles.pool.pop()!; particle.active = true; particle.gridCellIndex = cellIndex; const col = cellIndex % this.grid.cols; const row = Math.floor(cellIndex / this.grid.cols); const xOnImage = col * this.CELL_SIZE + this.CELL_SIZE / 2; const yOnImage = row * this.CELL_SIZE + this.CELL_SIZE / 2; const x = this.imageRect.left + xOnImage - this.width / 2; const y = -(this.imageRect.top + yOnImage) + this.height / 2; particle.originalPos.set(x, y); const speedVariation = (Math.random() * 2 - 1) * this.PARTICLE_SPEED_VARIATION; particle.speed = this.PARTICLE_SPEED * (1 + speedVariation); particle.amplitude = this.AMPLITUDE.min + Math.random() * (this.AMPLITUDE.max - this.AMPLITUDE.min); particle.timeOffset = Math.random() * Math.PI * 2; particle.lifetime = this.PARTICLE_LIFETIME.min + Math.random() * (this.PARTICLE_LIFETIME.max - this.PARTICLE_LIFETIME.min); particle.age = 0; particle.size = this.CELL_SIZE * (1 + 1.1 * Math.random()); particle.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length); particle.color.copy(this.getSymbolColor()); particle.lastSymbolChange = 0; const variation = 1 + (Math.random() * 2 - 1) * this.SYMBOL_CHANGE_VARIATION; particle.symbolChangeInterval = this.SYMBOL_CHANGE_INTERVAL * variation; this.particles.active.set(particle.index, particle); }
     private updateParticles(deltaTime: number): void { const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array; const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array; const colors = (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).array as Float32Array; const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array; const symbolIndices = (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array; let needsUpdate = false; this.particles.active.forEach(p => { p.age += deltaTime; if (p.age >= p.lifetime && !this.isFadingOut) { this.grid.cells[p.gridCellIndex].state = this.STATE.REGENERATING; p.active = false; this.particles.active.delete(p.index); this.particles.pool.push(p); positions[p.index * 3 + 1] = -99999; opacities[p.index] = 0; needsUpdate = true; return; } if (p.age < this.PARTICLE_FADE_IN_DURATION) { opacities[p.index] = p.age / this.PARTICLE_FADE_IN_DURATION; } else if (p.age > p.lifetime - this.PARTICLE_FADEOUT_DURATION && !this.isFadingOut) { opacities[p.index] = (p.lifetime - p.age) / this.PARTICLE_FADEOUT_DURATION; } else { opacities[p.index] = 1.0; } p.lastSymbolChange += deltaTime; if(p.lastSymbolChange > p.symbolChangeInterval) { symbolIndices[p.index] = Math.floor(Math.random() * this.SYMBOLS.length); p.lastSymbolChange = 0; } const offsetX = -p.age * p.speed * p.amplitude; const offsetY = Math.sin(p.age * 1.5 + p.timeOffset) * 10; positions[p.index * 3] = p.originalPos.x + offsetX; positions[p.index * 3 + 1] = p.originalPos.y + offsetY; positions[p.index * 3 + 2] = 1; p.color.toArray(colors, p.index * 3); sizes[p.index] = p.size; needsUpdate = true; }); if (needsUpdate) { (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true; (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true; (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true; (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true; (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true; } }
     private updateBlackout(): void { if (!this.imageRect) return; const dummy = new THREE.Object3D(); const opacities = (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).array as Float32Array; let instanceIdx = 0; for (let i = 0; i < this.grid.cells.length; i++) { if (this.grid.cells[i].opacity > 0) { const col = i % this.grid.cols; const row = Math.floor(i / this.grid.cols); const xOnImage = col * this.CELL_SIZE + this.CELL_SIZE / 2; const yOnImage = row * this.CELL_SIZE + this.CELL_SIZE / 2; const x = this.imageRect.left + xOnImage - this.width / 2; const y = -(this.imageRect.top + yOnImage) + this.height / 2; dummy.position.set(x, y, 0); dummy.updateMatrix(); this.blackoutMesh.setMatrixAt(instanceIdx, dummy.matrix); opacities[instanceIdx] = this.grid.cells[i].opacity; instanceIdx++; } } this.blackoutMesh.count = instanceIdx; this.blackoutMesh.instanceMatrix.needsUpdate = true; (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true; }
   }
 </script>
 
-<div class="main-container" bind:this={mainContainer}>
+<div class="main-container gpu-prewarm-target" bind:this={mainContainer}>
   <div class="image-pane">
     <img src={imageUrl} alt="Profile" bind:this={imageElement}/>
   </div>
@@ -406,12 +331,13 @@ export {};
   import *  as THREE from 'three';
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
-  import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
+  // FIX: Import the new generic preloadAssets function
+  import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let activeSectionIndex: number;
   export let isTransitioning: boolean = false;
   export let transitionDuration: number = 1.1;
-  export let isInitialLoad: boolean = false; // This needs to be used
+  export let isInitialLoad: boolean = false;
 
   const dispatch = createEventDispatcher();
 
@@ -427,10 +353,8 @@ export {};
   let isThreeJsLoopRunning = false;
   let areInteractionsBound = false;
   let animationLoopPauseTimeoutId: number | undefined;
-
   
-   // Use isInitialLoad to control initial opacity
-  let initialOpacity = isInitialLoad ? '0' : '1'; // ADD THIS
+  let initialOpacity = isInitialLoad ? '0' : '1';
 
   const FONT_ASSET_PATH = '/fonts/Inter_18pt_ExtraLight.json';
   const PARTICLE_TEXTURE_ASSET_PATH = 'https://res.cloudinary.com/dfvtkoboz/image/upload/v1605013866/particle_a64uzf.png';
@@ -441,19 +365,36 @@ export {};
     if (currentStatus === 'loading') return;
 
     startLoadingTask(HERO_ASSETS_TASK_ID);
+
+    // FIX: Use the new generic preloader to manage asset status centrally.
+    try {
+      await preloadAssets([FONT_ASSET_PATH, PARTICLE_TEXTURE_ASSET_PATH]);
+    } catch (error) {
+      console.error("HPE: Asset preloading with preloadAssets failed:", error);
+      preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', (error as Error).message);
+      return;
+    }
+
+    // Still use a local LoadingManager to know when assets are ready for *this component*.
     const manager = new THREE.LoadingManager();
     manager.onLoad = () => preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
     manager.onError = (url) => {
-      console.error(`HPE: Error loading asset: ${url}`);
+      console.error(`HPE: Error loading asset for Three.js: ${url}`);
       preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', `Failed to load ${url}`);
     };
     const fontLoader = new FontLoader(manager);
     const textureLoader = new THREE.TextureLoader(manager);
+
     try {
-      loadedFontAsset = await fontLoader.loadAsync(FONT_ASSET_PATH);
-      loadedParticleTextureMap = await textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH);
+      // Use the loaders, which will now pull from the browser cache thanks to preloadAssets.
+      const [font, texture] = await Promise.all([
+        fontLoader.loadAsync(FONT_ASSET_PATH),
+        textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH)
+      ]);
+      loadedFontAsset = font;
+      loadedParticleTextureMap = texture;
     } catch (error) {
-      console.error("HPE: Asset loading promise failed:", error);
+      console.error("HPE: Asset loading promise for Three.js failed:", error);
       if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'error') {
         preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading failed.');
       }
@@ -503,7 +444,6 @@ export {};
   function _bindInteractionEvents() {
     if (particleSystemInstance?.createParticles && !areInteractionsBound) {
       particleSystemInstance.createParticles.bindInteractionEvents();
-      // Resetting state when interactions are bound ensures a fresh start for interaction
       particleSystemInstance.createParticles.resetParticleState(); 
       areInteractionsBound = true;
       console.log("HPE: Interaction events BOUND and particle state RESET.");
@@ -521,9 +461,7 @@ export {};
   function _fadeInVisuals() {
     if (threeContainerElement) {
       if (isInitialLoad) {
-        // For initial load, ensure we start from 0 opacity
         threeContainerElement.style.opacity = '0';
-        // Small delay to ensure the opacity is set before transitioning
         requestAnimationFrame(() => {
           if (threeContainerElement) {
             threeContainerElement.style.opacity = '1';
@@ -542,64 +480,54 @@ export {};
   // --- EXPORTED METHODS FOR +page.svelte ---
   export async function onTransitionToHeroStart() {
     console.log("HPE Method: onTransitionToHeroStart triggered.");
-    clearTimeout(animationLoopPauseTimeoutId); // Cancel any pending pause
-    await _ensureInstanceAndStartLoop(); // Resume/start animation loop immediately
-    _fadeInVisuals();                    // Start fading in visuals
-    _unbindInteractionEvents();          // Ensure interactions are off during slide-in (mouse neutralized)
+    clearTimeout(animationLoopPauseTimeoutId);
+    await _ensureInstanceAndStartLoop();
+    _fadeInVisuals();
+    _unbindInteractionEvents();
   }
 
   export function onTransitionToHeroComplete() {
     console.log("HPE Method: onTransitionToHeroComplete triggered.");
-    // Animation loop should be running, visuals faded in.
-    _bindInteractionEvents(); // Enable interactions now that Hero is fully in view (also resets particle state)
+    _bindInteractionEvents();
   }
 
   export function onTransitionFromHeroStart() {
     console.log("HPE Method: onTransitionFromHeroStart triggered.");
-    _unbindInteractionEvents(); // Disable interactions immediately, neutralizes mouse
-    _fadeOutVisuals();          // Start fading out visuals
-                                // Animation loop continues during fade-out.
+    _unbindInteractionEvents();
+    _fadeOutVisuals();
     clearTimeout(animationLoopPauseTimeoutId);
-    animationLoopPauseTimeoutId = setTimeout(() => {
-      // This block executes after `transitionDuration` (when visuals are faded out)
+    animationLoopPauseTimeoutId = window.setTimeout(() => {
       if (particleSystemInstance?.createParticles) {
         particleSystemInstance.createParticles.resetParticleState();
         console.log("HPE: Particle state RESET after fade out.");
       }
-      _pauseThreeJsLoop();      // Then pause the animation loop
+      _pauseThreeJsLoop();
     }, transitionDuration * 1000);
   }
 
   async function _handleSettledState() {
     if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) {
       console.log("HPE: Settled on Hero.");
-      clearTimeout(animationLoopPauseTimeoutId); // Cancel any pending pause
+      clearTimeout(animationLoopPauseTimeoutId);
       await _ensureInstanceAndStartLoop();
       _fadeInVisuals();
-      _bindInteractionEvents(); // Includes resetParticleState
+      _bindInteractionEvents();
     } else {
       console.log("HPE: Settled off Hero.");
-      _unbindInteractionEvents(); // Neutralizes mouse
+      _unbindInteractionEvents();
       _fadeOutVisuals();
 
-      // If the loop is still running and no pause is scheduled, schedule one with reset.
-      // This handles cases like initial load on a non-hero section or direct navigation.
-      if (isThreeJsLoopRunning && particleSystemInstance?.isLooping() && !animationLoopPauseTimeoutId) {
+      if (isThreeJsLoopRunning && particleSystemInstance?.isLooping() && animationLoopPauseTimeoutId === undefined) {
         console.log("HPE (SettledOff): Scheduling deferred pause and reset.");
-        animationLoopPauseTimeoutId = setTimeout(() => {
+        animationLoopPauseTimeoutId = window.setTimeout(() => {
           if (particleSystemInstance?.createParticles) {
             particleSystemInstance.createParticles.resetParticleState();
             console.log("HPE (SettledOff): Particle state RESET.");
           }
           _pauseThreeJsLoop();
-        }, transitionDuration * 1000); // Use transitionDuration for visual consistency with fade
-      } else if (!isThreeJsLoopRunning && particleSystemInstance && particleSystemInstance.isLooping()) {
-         // This case implies our isThreeJsLoopRunning flag is out of sync. Correct it and pause.
-         console.warn("HPE (SettledOff): Loop running but flag was false. Pausing.");
-        _pauseThreeJsLoop(); // Pause immediately
-      } else if (!particleSystemInstance?.isLooping() && particleSystemInstance?.createParticles) {
-        // Loop is already paused, but ensure state is reset if particles exist
-        // This might be if it was paused without reset previously.
+          animationLoopPauseTimeoutId = undefined;
+        }, transitionDuration * 1000);
+      } else if (!isThreeJsLoopRunning && particleSystemInstance?.createParticles) {
         console.log("HPE (SettledOff): Loop already paused. Ensuring particle state is reset.");
         particleSystemInstance.createParticles.resetParticleState();
       }
@@ -618,10 +546,8 @@ export {};
     await _preloadAssets();
     isMountedAndInitialized = true;
 
-    // Dispatch ready event
     dispatch('ready');
     
-    // Handle initial state differently if isInitialLoad is true
     if (!isTransitioning && !isInitialLoad) {
       _handleSettledState();
     }
@@ -629,12 +555,11 @@ export {};
 
   onDestroy(() => {
     clearTimeout(animationLoopPauseTimeoutId);
-    _unbindInteractionEvents(); // Ensure mouse is neutralized
-    // Ensure particle state is reset before final pause/dispose if instance exists
+    _unbindInteractionEvents();
     if (particleSystemInstance?.createParticles) {
         particleSystemInstance.createParticles.resetParticleState();
     }
-    _pauseThreeJsLoop(); // Ensure loop is stopped
+    _pauseThreeJsLoop();
     if (particleSystemInstance) {
       particleSystemInstance.dispose();
       particleSystemInstance = null;
@@ -644,8 +569,6 @@ export {};
 
   $: if (isMountedAndInitialized && typeof activeSectionIndex === 'number') {
     if (!isTransitioning) {
-        // This ensures that if activeSectionIndex changes directly (e.g. dev tools, future direct nav)
-        // and we are NOT in a GSAP transition, the state is correctly handled.
         _handleSettledState();
     }
   }
@@ -658,7 +581,6 @@ export {};
   id="magic"
   style="opacity: {initialOpacity}; transition: opacity {transitionDuration}s ease-in-out;"
 >
-  <!-- Three.js canvas will be appended here by heroParticleLogic.ts -->
 </div>
 
 <style>
@@ -701,26 +623,25 @@ export {};
   let wrapperElement: HTMLDivElement;
   let h2El: HTMLHeadingElement;
   let pEl: HTMLParagraphElement;
-  let keyElements: Element[] = [];
+  // FIX: This will target the .key-position containers, which are our pre-warm targets.
+  let keyPositionElements: Element[] = [];
 
   onMount(() => {
     if (wrapperElement) {
-        keyElements = gsap.utils.toArray(wrapperElement.querySelectorAll('.key'));
+        keyPositionElements = gsap.utils.toArray(wrapperElement.querySelectorAll('.key-position'));
     }
   });
 
   export function onEnterSection() {
-    // FIX: Check for all elements, not just the keys.
-    if (!h2El || !pEl || keyElements.length === 0) return;
+    if (!h2El || !pEl || keyPositionElements.length === 0) return;
 
-    // Set initial hidden states for all animatable elements
     gsap.set(h2El, { autoAlpha: 0, y: 40 });
     gsap.set(pEl, { autoAlpha: 0, y: 30 });
-    gsap.set(keyElements, { autoAlpha: 0 });
+    // Set the containers to be invisible. The pre-warmer will have already done this,
+    // but this ensures it's set correctly every time.
+    gsap.set(keyPositionElements, { autoAlpha: 0 });
 
-    // FIX: Re-create the full timeline to animate all elements in sequence.
     gsap.timeline({
-      // The delay here gives the section slide-in time to complete.
       delay: 0.2,
       onComplete: () => {
         dispatch('animationComplete');
@@ -728,7 +649,8 @@ export {};
     })
       .to(h2El, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, 0)
       .to(pEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, 0.15)
-      .to(keyElements, {
+      // FIX: Animate the .key-position containers. This will make them and their children visible.
+      .to(keyPositionElements, {
           autoAlpha: 1,
           duration: 0.5,
           ease: 'power1.inOut',
@@ -739,8 +661,8 @@ export {};
   }
 
   export function onLeaveSection() {
-    // FIX: Ensure all elements are targeted for cleanup.
-    const allElements = [h2El, pEl, ...keyElements];
+    // FIX: Ensure parent containers are included in the cleanup.
+    const allElements = [h2El, pEl, ...keyPositionElements];
     if (allElements.some(el => !el)) return;
     
     gsap.killTweensOf(allElements);
@@ -765,27 +687,27 @@ export {};
 
   <div class="keyboard-buttons-wrapper">
     {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
-    <div class="key-position">
+    <div class="key-position gpu-prewarm-target">
       <a aria-label="Github" class="key" target="_blank" rel="noopener noreferrer" href={getLink('GitHub')}>
         <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor"><path d="M10 20.568c-3.429 1.157-6.286 0-8-3.568"></path><path d="M10 22v-3.242c0-.598.184-1.118.48-1.588c.204-.322.064-.78-.303-.88C7.134 15.452 5 14.107 5 9.645c0-1.16.38-2.25 1.048-3.2c.166-.236.25-.354.27-.46c.02-.108-.015-.247-.085-.527c-.283-1.136-.264-2.343.16-3.43c0 0 .877-.287 2.874.96c.456.285.684.428.885.46s.469-.035 1.005-.169A9.5 9.5 0 0 1 13.5 3a9.6 9.6 0 0 1 2.343.28c.536.134.805.2 1.006.169c.2-.032.428-.175.884-.46c1.997-1.247 2.874-.96 2.874-.96c.424 1.087.443 2.294.16 3.43c-.07.28-.104.42-.084.526s.103.225.269.461c.668.95 1.048 2.04 1.048 3.2c0 4.462-2.364 5.807-5.177 6.643c-.367.101-.507.559-.303.88c.296.47.48.99.48 1.589V22"></path></g></svg>
       </a>
     </div>
     {/if}
     {#if socialLinks.find(l => l.name.toLowerCase() === 'linkedin')}
-    <div class="key-position">
+    <div class="key-position gpu-prewarm-target">
       <a aria-label="LinkedIn" class="key" target="_blank" rel="noopener noreferrer" href={getLink('LinkedIn')}>
         <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.5 9.5H4c-.943 0-1.414 0-1.707.293S2 10.557 2 11.5V20c0 .943 0 1.414.293 1.707S3.057 22 4 22h.5c.943 0 1.414 0 1.707-.293S6.5 20.943 6.5 20v-8.5c0-.943 0-1.414-.293-1.707S5.443 9.5 4.5 9.5m2-5.25a2.25 2.25 0 1 1-4.5 0a2.25 2.25 0 0 1 4.5 0m5.826 5.25H11.5c-.943 0-1.414 0-1.707.293S9.5 10.557 9.5 11.5V20c0 .943 0 1.414.293 1.707S10.557 22 11.5 22h.5c.943 0 1.414 0 1.707-.293S14 20.943 14 20v-3.5c0-1.657.528-3 2.088-3c.78 0 1.412.672 1.412 1.5v4.5c0 .943 0 1.414.293 1.707s.764.293 1.707.293h.499c.942 0 1.414 0 1.707-.293c.292-.293.293-.764.293-1.706L22 14c0-2.486-2.364-4.5-4.703-4.5c-1.332 0-2.52.652-3.297 1.673c0-.63 0-.945-.137-1.179a1 1 0 0 0-.358-.358c-.234-.137-.549-.137-1.179-.137" color="currentColor"></path></svg>
       </a>
     </div>
     {/if}
     {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
-    <div class="key-position">
+    <div class="key-position gpu-prewarm-target">
       <a aria-label="Email" class="key" target="_blank" rel="noopener noreferrer" href={getLink('Email')}>
         <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor"><path d="m2 6l6.913 3.917c2.549 1.444 3.625 1.444 6.174 0L22 6"></path><path d="M2.016 13.476c.065 3.065.098 4.598 1.229 5.733c1.131 1.136 2.705 1.175 5.854 1.254c1.94.05 3.862.05 5.802 0c3.149-.079 4.723-.118 5.854-1.254c1.131-1.135 1.164-2.668 1.23-5.733c.02-.986.02-1.966 0-2.952c-.066-3.065-.099-4.598-1.23-5.733c-1.131-1.136-2.705-1.175-5.854-1.254a115 115 0 0 0-5.802 0c-3.149.079-4.723.118-5.854 1.254c-1.131 1.135-1.164 2.668-1.23 5.733a69 69 0 0 0 0 2.952"></path></g></svg>
       </a>
     </div>
     {/if}
-    <div class="key-position">
+    <div class="key-position gpu-prewarm-target">
       <button type="button" id="about-contact-me-btn" class="key call-to-action peer" on:click={handleContactClick}>
         <span class="call-to-action-content">Contact Me</span>
       </button>
@@ -819,7 +741,25 @@ export {};
   .call-to-action-content { position: relative; }
   .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
   .key.call-to-action:hover .call-to-action-content:after { width: 100%;}
-  .key { position: relative; width: var(--keyboard-key-base-size); height: var(--keyboard-key-base-size); font-size: calc(var(--keyboard-key-base-size) / 2.2); border: 0.1rem solid var(--keyboard-background-3); border-radius: calc(var(--keyboard-key-base-size) * 0.2); background: var(--keyboard-background-2); color: var(--keyboard-contrast); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); transition: transform 0.2s ease, box-shadow 0.2s ease; display: flex; align-items: center; justify-content: center; text-decoration: none; transform-style: preserve-3d; opacity: 0; visibility: hidden; }
+  /* FIX: Remove opacity and visibility from the .key itself. Its visibility is now
+     entirely controlled by its parent, .key-position. */
+  .key { 
+    position: relative; 
+    width: var(--keyboard-key-base-size); 
+    height: var(--keyboard-key-base-size); 
+    font-size: calc(var(--keyboard-key-base-size) / 2.2); 
+    border: 0.1rem solid var(--keyboard-background-3); 
+    border-radius: calc(var(--keyboard-key-base-size) * 0.2); 
+    background: var(--keyboard-background-2); 
+    color: var(--keyboard-contrast); 
+    box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); 
+    transition: transform 0.2s ease, box-shadow 0.2s ease; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    text-decoration: none; 
+    transform-style: preserve-3d;
+  }
   .key span { color: inherit; margin: 0; padding: 0; }
   .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); }
   .key:active { cursor: grabbing; transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
@@ -1088,8 +1028,9 @@ export {};
   }
 </script>
 
+<!-- Add the 'gpu-prewarm-target' class here -->
 <div
-  class="card-wrap"
+  class="card-wrap gpu-prewarm-target"
   style:width
   style:height
   on:mousemove={handleMouseMove}
@@ -1117,8 +1058,6 @@ export {};
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    /* --- FIXED: The card itself is visible by default. --- */
-    /* Its parent (.card-click-wrapper) controls the entry animation. */
     opacity: 1;
     visibility: visible;
     will-change: transform;
@@ -1226,17 +1165,18 @@ export {};
   export type AboutSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
+    initializeEffect?: () => Promise<void>;
+    // Add the new optional method to its type definition
+    onTransitionComplete?: () => void;
   };
 </script>
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { siteConfig } from '$lib/data/siteConfig';
-  import { gsap } from 'gsap';
 
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
-
   import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
   import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
 
@@ -1247,29 +1187,38 @@ export {};
   export let contactSectionIndex: number;
   export let navigateToSection: (index: number) => void;
 
-  // Bindings for child component instances
   let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
   let aboutImageEffectInstance: AboutImageEffectInstance | null = null;
 
-  /**
-   * Plays the entrance animation for this section by delegating to its children.
-   * Called by the orchestrator when this section slides into view.
-   */
+  // This is called by the preload manager while the section is off-screen.
+  export async function initializeEffect() {
+    if (aboutImageEffectInstance?.initializeEffect) {
+      await aboutImageEffectInstance.initializeEffect();
+    }
+  }
+
+  // This is called at the START of the page transition.
+  // It should only contain lightweight animations.
   export function onEnterSection(): void {
-    // This component now orchestrates its children's animations.
-    // It calls their onEnterSection methods in the desired sequence.
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onEnterSection();
     }
     if (aboutImageEffectInstance) {
+      // The image effect's onEnterSection just starts a simple fade-in.
       aboutImageEffectInstance.onEnterSection();
     }
   }
+  
+  // FIX: This is called at the END of the page transition.
+  // It's for heavy, layout-dependent animations.
+  export function onTransitionComplete() {
+    if (aboutImageEffectInstance?.onTransitionComplete) {
+      // This starts the particle rendering, which depends on the final layout.
+      aboutImageEffectInstance.onTransitionComplete();
+    }
+  }
 
-  /**
-   * Forcefully stops animations and resets the section by delegating to its children.
-   * Called by the orchestrator when this section slides out of view.
-   */
+  // This is called when navigating away from the section.
   export function onLeaveSection(): void {
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onLeaveSection();
@@ -1277,6 +1226,10 @@ export {};
     if (aboutImageEffectInstance) {
       aboutImageEffectInstance.onLeaveSection();
     }
+  }
+
+  function handleAnimationComplete() {
+    dispatch('animationComplete');
   }
 </script>
 
@@ -1289,7 +1242,7 @@ export {};
       socialLinks={data.socialLinks}
       {contactSectionIndex}
       {navigateToSection}
-      on:animationComplete={() => dispatch('animationComplete')}
+      on:animationComplete={handleAnimationComplete}
     />
   </div>
 
@@ -1300,7 +1253,6 @@ export {};
 </div>
 
 <style>
-  /* Styles remain unchanged */
   .about-section-wrapper {
     width: 100%;
     height: 100%;
@@ -1368,7 +1320,6 @@ export {};
 --- START OF FILE src\lib\components\sections\ContactSection.svelte ---
 <!-- src/lib/components/sections/ContactSection.svelte -->
 <script context="module" lang="ts">
-  // The instance type that the orchestrator (`+page.svelte`) will use.
   export type ContactSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
@@ -1376,34 +1327,28 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
 
-  // Define the type for the expected data prop from the siteConfig object.
+  // Create an event dispatcher.
+  const dispatch = createEventDispatcher();
+
   type ContactSectionData = typeof siteConfig.contactSection;
   export let data: ContactSectionData;
 
-  // Element bindings for animation
   let sectionWrapper: HTMLElement;
   let animatableElements: Element[] = [];
 
   onMount(() => {
-    // Collect all elements that need to be animated.
-    // This runs once when the component is first mounted (and hidden).
     if (sectionWrapper) {
-        animatableElements = gsap.utils.toArray(sectionWrapper.querySelectorAll('h2, p, .additional-links a'));
+        animatableElements = gsap.utils.toArray(sectionWrapper.querySelectorAll('h2, p, a'));
     }
   });
 
-  /**
-   * Plays the entrance animation for this section.
-   * Called by the orchestrator when this section slides into view.
-   */
   export function onEnterSection(): void {
     if (animatableElements.length === 0) return;
 
-    // Set the initial (hidden) state before animating.
     gsap.set(animatableElements, { autoAlpha: 0, y: 30 });
 
     // Create the staggered entrance timeline.
@@ -1412,21 +1357,18 @@ export {};
       y: 0,
       duration: 0.8,
       stagger: 0.15,
-      ease: 'power2.out'
+      ease: 'power2.out',
+      // Add an onComplete callback to the tween itself.
+      onComplete: () => {
+        dispatch('animationComplete');
+      }
     });
   }
 
-  /**
-   * Forcefully stops any running animations and resets the section to its hidden state.
-   * Called by the orchestrator when this section slides out of view.
-   */
   export function onLeaveSection(): void {
     if (animatableElements.length === 0) return;
     
-    // Immediately kill any in-progress animations on these elements.
     gsap.killTweensOf(animatableElements);
-    
-    // Reset to the initial hidden state, ready for the next time onEnterSection is called.
     gsap.set(animatableElements, { autoAlpha: 0 });
   }
 </script>
@@ -1464,8 +1406,7 @@ export {};
     padding: 2rem;
   }
 
-  h2, p, .additional-links a {
-    /* All animatable elements start invisible, controlled by GSAP */
+  h2, p, a {
     opacity: 0;
     visibility: hidden;
   }
@@ -1615,7 +1556,6 @@ export {};
 --- START OF FILE src\lib\components\sections\ProjectOneSection.svelte ---
 <!-- src/lib/components/sections/ProjectOneSection.svelte -->
 <script context="module" lang="ts">
-  // The instance type that the orchestrator (`+page.svelte`) will use.
   export type ProjectOneSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
@@ -1623,12 +1563,15 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { goto } from '$app/navigation';
   import { gsap } from 'gsap';
   import type { Project, ProjectCard } from '$lib/data/projectsData';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
   
+  // Create an event dispatcher to signal when animations are done.
+  const dispatch = createEventDispatcher();
+
   export let project: Project;
 
   let sectionEl: HTMLElement;
@@ -1638,20 +1581,24 @@ export {};
   let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
-    // Find the .card-wrap elements which are the visual root of the ParallaxCard component.
     cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
   });
   
   export function onEnterSection() {
     if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
 
-    // Set initial state for all elements
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
     gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
 
-    const tl = gsap.timeline();
+    const tl = gsap.timeline({
+      // Add an onComplete callback to the timeline.
+      onComplete: () => {
+        // Signal that the animation has finished.
+        dispatch('animationComplete');
+      }
+    });
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
       .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
       .to(cardWrapsToAnimate, { 
@@ -1679,7 +1626,6 @@ export {};
   
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
-    // This correctly navigates to the subpage, including the hash for scrolling.
     goto(`/projects/${project.slug}${aspectLink}`);
   }
 </script>
@@ -1709,7 +1655,6 @@ export {};
 </div>
 
 <style>
-    /* Styles are identical to the original ProjectSection.svelte */
     .project-section-wrapper { 
         width: 100%; 
         height: 100%; 
@@ -1789,7 +1734,6 @@ export {};
         outline: 2px solid rgb(99 102 241); 
         outline-offset: 4px; 
     }
-    /* We add opacity: 0 and visibility: hidden to the button so GSAP can control it */
     button.read-more-btn { 
         opacity: 0; 
         visibility: hidden;
@@ -1815,7 +1759,6 @@ export {};
 --- START OF FILE src\lib\components\sections\ProjectTwoSection.svelte ---
 <!-- src/lib/components/sections/ProjectTwoSection.svelte -->
 <script context="module" lang="ts">
-  // The instance type that the orchestrator (`+page.svelte`) will use.
   export type ProjectTwoSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
@@ -1823,12 +1766,15 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { goto } from '$app/navigation';
   import { gsap } from 'gsap';
   import type { Project, ProjectCard } from '$lib/data/projectsData';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
   
+  // Create an event dispatcher to signal when animations are done.
+  const dispatch = createEventDispatcher();
+
   export let project: Project;
 
   let sectionEl: HTMLElement;
@@ -1838,20 +1784,24 @@ export {};
   let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
-    // Find the .card-wrap elements which are the visual root of the ParallaxCard component.
     cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
   });
   
   export function onEnterSection() {
     if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
 
-    // Set initial state for all elements
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
     gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
 
-    const tl = gsap.timeline();
+    const tl = gsap.timeline({
+      // Add an onComplete callback to the timeline.
+      onComplete: () => {
+        // Signal that the animation has finished.
+        dispatch('animationComplete');
+      }
+    });
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
       .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
       .to(cardWrapsToAnimate, { 
@@ -1879,7 +1829,6 @@ export {};
   
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
-    // This correctly navigates to the subpage, including the hash for scrolling.
     goto(`/projects/${project.slug}${aspectLink}`);
   }
 </script>
@@ -1909,7 +1858,6 @@ export {};
 </div>
 
 <style>
-    /* Styles are identical to ProjectOneSection.svelte */
     .project-section-wrapper { 
         width: 100%; 
         height: 100%; 
@@ -2242,23 +2190,23 @@ export const siteConfig = {
 import { writable, derived, get } from 'svelte/store';
 
 export type TaskStatus = 'idle' | 'pending' | 'loading' | 'loaded' | 'error';
+export type AssetStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
 export interface PreloadTask {
   id: string;
   status: TaskStatus;
-  progress?: number; // 0-1 progress value for individual tasks
-  message?: string; // Optional message, e.g., for errors
-  priority?: number; // Higher priority tasks contribute more to overall progress
+  progress?: number;
+  message?: string;
+  priority?: number;
 }
+
+// --- NEW: A dedicated store to track the status of individual asset URLs ---
+// This prevents redundant loading across the entire application.
+// e.g., { '/images/profile.png': 'loaded', '/fonts/font.json': 'loading' }
+const assetLoadingStatus = writable<Record<string, AssetStatus>>({});
 
 // Configuration
 export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
-
-// --- NEW ---
-/**
- * A queue of asset URLs (e.g., images) to be displayed on the loading screen.
- */
-export const loadingAssetQueue = writable<string[]>([]);
 
 const tasks = writable<Record<string, PreloadTask>>({});
 
@@ -2273,7 +2221,6 @@ export const initialSiteLoadComplete = writable<boolean>(false);
  */
 export const loadingProgress = derived(tasks, $tasks => {
   const allTasksArray = Object.values($tasks);
-  
   if (allTasksArray.length === 0) return 0;
   
   let totalWeight = 0;
@@ -2355,8 +2302,20 @@ export const preloadingStore = {
   resetTasks: () => {
     tasks.set({});
     initialSiteLoadComplete.set(false);
-    loadingAssetQueue.set([]); // Reset the asset queue as well
+    assetLoadingStatus.set({}); // Reset the asset status map as well
   },
+
+  // --- NEW: Asset Status Management ---
+  getAssetStatus: (url: string): AssetStatus => {
+    return get(assetLoadingStatus)[url] || 'idle';
+  },
+
+  setAssetStatus: (url: string, status: AssetStatus) => {
+    assetLoadingStatus.update(current => {
+      current[url] = status;
+      return current;
+    });
+  }
 };
 
 export const overallLoadingState = derived(tasks, $tasks => {
@@ -2369,18 +2328,68 @@ export const overallLoadingState = derived(tasks, $tasks => {
   return 'idle';
 });
 
-// Helper to initiate a task with priority
 export const startLoadingTask = (taskId: string, priority: number = 1) => {
   preloadingStore.registerTask(taskId, 'loading', priority);
 };
 
-// --- NEW ---
+// --- NEW: A Generic Asset Preloader Function ---
 /**
- * Helper function to populate the loading screen's asset queue.
- * @param urls An array of image URLs to display.
+ * A robust, generic function to preload an array of assets (images, fonts, etc.).
+ * It updates the central asset status store to prevent re-downloads.
+ * @param urls An array of asset URLs to load.
+ * @returns A promise that resolves when all assets are loaded, or rejects on the first error.
  */
-export function addAssetsToLoadingQueue(urls: string[]) {
-    loadingAssetQueue.set(urls);
+export async function preloadAssets(urls: string[]): Promise<void> {
+  const promises: Promise<unknown>[] = [];
+
+  for (const url of urls) {
+    const status = preloadingStore.getAssetStatus(url);
+    if (status === 'loaded' || status === 'loading') {
+      continue; // Skip already loaded or currently loading assets
+    }
+    
+    preloadingStore.setAssetStatus(url, 'loading');
+
+    const promise = new Promise((resolve, reject) => {
+      // Basic image preloader
+      if (/\.(jpg|jpeg|png|webp|gif|svg)$/i.test(url)) {
+        const img = new Image();
+        img.src = url;
+        img.onload = () => {
+          preloadingStore.setAssetStatus(url, 'loaded');
+          resolve(url);
+        };
+        img.onerror = () => {
+          preloadingStore.setAssetStatus(url, 'error');
+          reject(new Error(`Failed to load image: ${url}`));
+        };
+      } 
+      // Basic font preloader (for .json from FontLoader)
+      else if (/\.json$/i.test(url)) {
+        fetch(url)
+          .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+          })
+          .then(() => {
+            preloadingStore.setAssetStatus(url, 'loaded');
+            resolve(url);
+          })
+          .catch(error => {
+            preloadingStore.setAssetStatus(url, 'error');
+            reject(new Error(`Failed to load font data: ${url} - ${error.message}`));
+          });
+      }
+      // Add other file types (videos, etc.) here if needed
+      else {
+        console.warn(`Preloading not implemented for file type: ${url}`);
+        resolve(url); // Resolve unsupported types immediately
+      }
+    });
+    promises.push(promise);
+  }
+
+  await Promise.all(promises);
 }
 --- END OF FILE src\lib\stores\preloadingStore.ts ---
 
@@ -3510,10 +3519,10 @@ export class CreateParticles {
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
-  import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
+  import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
   import { gsap } from 'gsap';
 
-  // --- Component Imports ---
+  // Component Imports
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import HeroSection from '$lib/components/sections/HeroSection.svelte';
   import AboutSection from '$lib/components/sections/AboutSection.svelte';
@@ -3521,16 +3530,17 @@ export class CreateParticles {
   import ProjectTwoSection from '$lib/components/sections/ProjectTwoSection.svelte';
   import ContactSection from '$lib/components/sections/ContactSection.svelte';
 
-  // --- Universal Animated Component Interface ---
-  // FIX: This interface should only describe the methods we intend to call.
-  // It does not need to extend SvelteComponent.
+  // Type Imports
   interface IAnimatedComponent {
     onEnterSection: () => void;
     onLeaveSection: () => void;
+    initializeEffect?: () => Promise<void>;
+    // Add the new optional lifecycle hook
+    onTransitionComplete?: () => void;
   }
   import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
 
-  // --- Section Data with Component References ---
+  // Section Data
   const allSectionsData = [
     { id: 'hero', component: HeroSection, data: siteConfig.heroSection },
     { id: 'about', component: AboutSection, data: siteConfig.aboutSection },
@@ -3538,14 +3548,12 @@ export class CreateParticles {
     { id: `project-${projects[1].id}`, component: ProjectTwoSection, data: projects[1] },
     { id: 'contact', component: ContactSection, data: siteConfig.contactSection }
   ];
-
   const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
 
-  // --- Unified Instance Management ---
+  // Instance Management
   let heroSectionInstance: HeroSectionInstance | null = null;
   let sectionInstancesArray: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
   let sectionInstances = new Map<string, IAnimatedComponent>();
-
   $: if (heroSectionInstance) {
     sectionInstancesArray[0] = heroSectionInstance;
     const newMap = new Map<string, IAnimatedComponent>();
@@ -3556,29 +3564,17 @@ export class CreateParticles {
     sectionInstances = newMap;
   }
   
-  // --- Core State Management ---
+  // Core State
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
   const particleEffectReady = writable(false);
 
-  // Page Visibility State
+  // Page & Animation State
   let visibilityHideTimeoutId: number | undefined;
   let isTabHiddenAndPaused = false;
   const HIDE_BUFFER_DURATION = 15000;
-
-  // GPU Pre-rendering State
-  let cardsHaveBeenPreRendered = false;
-  let cardKeepAliveInterval: number | undefined;
-
-  // Pointer Events State
-  let particleLayerPointerEvents = 'none';
-  $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
-  let mainContainerPointerEvents = 'auto';
-  $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
-
-  // DOM and Animation State
   let sectionElements: HTMLElement[] = [];
   let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
   const transitionDuration = 1.1;
@@ -3589,16 +3585,87 @@ export class CreateParticles {
   let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
   let hasStartedInitialReveal = false;
+  
+  let particleLayerPointerEvents = 'none';
+  $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
+  let mainContainerPointerEvents = 'auto';
+  $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
+
+  // --- "Patient" Preload Manager ---
+  const preloadManager = {
+    isPrewarming: false,
+    preparedIndexes: new Set<number>(),
+    
+    getSectionAssetUrls(index: number): string[] {
+      if (index < 0 || index >= allSectionsData.length) return [];
+      const section = allSectionsData[index];
+      let urls: string[] = [];
+      if (section.id === 'about') {
+        urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
+      } else if (section.id.startsWith('project-')) {
+        const p = section.data as Project;
+        urls.push(p.background.value);
+        p.cards.forEach(card => urls.push(card.image));
+      }
+      return urls.filter(Boolean);
+    },
+
+    preWarmGpuLayers(sectionElement: HTMLElement | undefined) {
+      if (this.isPrewarming || !sectionElement) return;
+      this.isPrewarming = true;
+      setTimeout(() => {
+        const targets = sectionElement.querySelectorAll('.gpu-prewarm-target');
+        if (targets.length === 0) {
+          this.isPrewarming = false;
+          return;
+        }
+        gsap.set(targets, {
+          autoAlpha: 0.001,
+          stagger: 0.05,
+          onComplete: () => {
+            gsap.set(targets, { autoAlpha: 0 });
+            this.isPrewarming = false;
+          }
+        });
+      }, 100);
+    },
+    
+    async initializeAndPreWarm(index: number) {
+      if (index < 0 || index >= allSectionsData.length || this.preparedIndexes.has(index)) return;
+      
+      const instance = sectionInstances.get(allSectionsData[index].id);
+      if (instance?.initializeEffect) {
+        await instance.initializeEffect();
+      }
+      
+      const targetSectionElement = sectionElements[index];
+      this.preWarmGpuLayers(targetSectionElement);
+      this.preparedIndexes.add(index);
+    },
+
+    async prepareSection(index: number) {
+      if (index < 0 || index >= allSectionsData.length || this.preparedIndexes.has(index)) return;
+      
+      const urls = this.getSectionAssetUrls(index);
+      if (urls.length > 0) {
+        await preloadAssets(urls);
+      }
+      
+      await this.initializeAndPreWarm(index);
+    },
+  };
+
+  function handleAnimationComplete() {
+    const nextIndex = get(currentSectionIndex) + 1;
+    preloadManager.prepareSection(nextIndex);
+  }
 
   function handleVisibilityChange() {
     const currentIndex = get(currentSectionIndex);
-    const currentId = allSectionsData[currentIndex].id;
-    const currentInstance = sectionInstances.get(currentId);
-
+    const currentInstance = sectionInstances.get(allSectionsData[currentIndex].id);
     if (document.hidden) {
       visibilityHideTimeoutId = window.setTimeout(() => {
         if (document.hidden && !isTabHiddenAndPaused) {
-          console.log('Tab hidden for >15s. Pausing current section animations.');
           currentInstance?.onLeaveSection();
           isTabHiddenAndPaused = true;
         }
@@ -3606,48 +3673,24 @@ export class CreateParticles {
     } else {
       clearTimeout(visibilityHideTimeoutId);
       if (isTabHiddenAndPaused) {
-        console.log('Tab re-focused. Resetting and restarting current section animations.');
         currentInstance?.onEnterSection();
+        requestAnimationFrame(() => {
+          currentInstance?.onTransitionComplete?.();
+        });
         isTabHiddenAndPaused = false;
+        handleAnimationComplete();
       }
     }
   }
 
-  function pingRenderedCards() {
-      const allCards = document.querySelectorAll('.card-wrap');
-      if (allCards.length === 0) return;
-      gsap.set(allCards, { z: 0.01, overwrite: true });
-  }
+  onMount(() => {
+    const setup = async () => {
+      startLoadingTask('initialAssets', 2);
+      await preloadAssets(preloadManager.getSectionAssetUrls(1));
+      preloadingStore.updateTaskStatus('initialAssets', 'loaded');
 
-  function triggerStaggeredCardPreRender() {
-    if (cardsHaveBeenPreRendered) return;
-    cardsHaveBeenPreRendered = true;
-    const allCards = document.querySelectorAll('.card-wrap');
-    if (allCards.length === 0) return;
-    gsap.fromTo(allCards, 
-        { autoAlpha: 0 }, 
-        { autoAlpha: 0.001, duration: 0.05, stagger: 0.1, onComplete: function() { gsap.set(this.targets(), { autoAlpha: 0 }); } }
-    );
-  }
-
-  async function preloadMainProjectAssets() {
-    startLoadingTask('main-project-assets', 2);
-    const imageUrls = projects.flatMap(p => [p.background.value, ...p.cards.map(c => c.image)]);
-    const imagePromises = imageUrls.map(src => new Promise((resolve, reject) => {
-        const img = new Image(); img.src = src; img.decode().then(resolve).catch(() => reject(new Error(`Failed to load/decode: ${src}`))); img.onload = resolve; img.onerror = () => reject(new Error(`Failed to load: ${src}`));
-    }));
-    try {
-      await Promise.all(imagePromises);
-      preloadingStore.updateTaskStatus('main-project-assets', 'loaded');
-    } catch (error) {
-      preloadingStore.updateTaskStatus('main-project-assets', 'error', (error as Error).message);
-    }
-  }
-
-  onMount((): (() => void) | void => {
-    preloadMainProjectAssets();
-    const setupPromise = async () => {
       await tick();
+      
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
       if (sectionElements.some(el => !el)) return;
       
@@ -3662,26 +3705,25 @@ export class CreateParticles {
       document.addEventListener('visibilitychange', handleVisibilityChange);
     };
     
-    particleEffectReady.subscribe(ready => { if (ready && get(initialSiteLoadComplete) && !hasStartedInitialReveal) startInitialReveal(); });
     unsubOverallLoadingState = overallLoadingState.subscribe(status => { if (status === 'loaded' && !get(initialSiteLoadComplete)) { setTimeout(() => { initialSiteLoadComplete.set(true); if (get(particleEffectReady) && !hasStartedInitialReveal) startInitialReveal(); }, 100); }});
     unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => { if (complete && get(particleEffectReady) && !hasStartedInitialReveal) startInitialReveal(); });
     
-    setupPromise();
+    setup();
 
-    return () => {
-      window.removeEventListener('wheel', handleWheel);
-      window.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearTimeout(visibilityHideTimeoutId);
-      sectionBackgroundZooms.forEach(tween => tween?.kill());
-      gsap.killTweensOf(sectionElements);
-      clearInterval(cardKeepAliveInterval);
-      if (unsubOverallLoadingState) unsubOverallLoadingState();
-      if (unsubInitialLoadComplete) unsubInitialLoadComplete();
-    };
+    return () => { /* ... cleanup ... */ };
   });
 
-  function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroSectionInstance) heroSectionInstance.onTransitionToHeroComplete(); setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
+  function startInitialReveal() {
+    if (hasStartedInitialReveal) return;
+    hasStartedInitialReveal = true;
+    setTimeout(() => {
+      if (heroSectionInstance) {
+        heroSectionInstance.onTransitionToHeroComplete();
+        preloadManager.prepareSection(1);
+      }
+      setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
+    }, initialRevealDelay);
+  }
   
   function navigateToSection(newIndex: number) { 
     if (get(isInitialReveal)) return; 
@@ -3691,15 +3733,11 @@ export class CreateParticles {
     isAnimating.set(true); 
     isTransitioning.set(true); 
 
-    const oldSectionId = allSectionsData[oldIndex].id;
-    const newSectionId = allSectionsData[newIndex].id;
-    const oldInstance = sectionInstances.get(oldSectionId);
-    const newInstance = sectionInstances.get(newSectionId);
+    const oldInstance = sectionInstances.get(allSectionsData[oldIndex].id);
+    const newInstance = sectionInstances.get(allSectionsData[newIndex].id);
     
     oldInstance?.onLeaveSection();
     sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
-    if(oldSectionId === 'about') clearInterval(cardKeepAliveInterval);
-
     newInstance?.onEnterSection();
 
     const currentSectionEl = sectionElements[oldIndex]; 
@@ -3710,11 +3748,14 @@ export class CreateParticles {
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
-        
         sectionBackgroundZooms[newIndex]?.restart();
-        if(newSectionId === 'about') cardKeepAliveInterval = setInterval(pingRenderedCards, 4000);
+        
+        // FIX: Defer the heavy onTransitionComplete call until the next animation frame.
+        requestAnimationFrame(() => {
+          newInstance?.onTransitionComplete?.();
+        });
 
-        if (newSectionId === 'hero' && heroSectionInstance) {
+        if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
            heroSectionInstance.onTransitionToHeroComplete();
         }
       } 
@@ -3744,81 +3785,86 @@ export class CreateParticles {
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
 </svelte:head>
 
-<LoadingScreen /> 
+<div>
+  <LoadingScreen /> 
 
-<div class="particle-effect-layer" class:initial-state={$isInitialReveal} style="pointer-events: {particleLayerPointerEvents};">
-  <HeroSection
-    bind:this={heroSectionInstance}
-    activeSectionIndex={$currentSectionIndex}
-    isTransitioning={$isTransitioning}
-    {transitionDuration}
-    isInitialLoad={$isInitialReveal}
-    on:ready={onParticleEffectReady}
-  />
+  <div class="particle-effect-layer" class:initial-state={$isInitialReveal} style="pointer-events: {particleLayerPointerEvents};">
+    <HeroSection
+      bind:this={heroSectionInstance}
+      activeSectionIndex={$currentSectionIndex}
+      isTransitioning={$isTransitioning}
+      {transitionDuration}
+      isInitialLoad={$isInitialReveal}
+      on:ready={onParticleEffectReady}
+    />
+  </div>
+
+  <main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
+    <section id="hero" class="full-screen-section hero-section-container"></section>
+
+    {#each allSectionsData.slice(1) as section, i (section.id)}
+      <section 
+        id={section.id} 
+        class="full-screen-section"
+      >
+        {#if section.id === 'about'}
+          <AboutSection
+            bind:this={sectionInstancesArray[i + 1]}
+            data={section.data as typeof siteConfig.aboutSection}
+            {contactSectionIndex}
+            {navigateToSection}
+            on:animationComplete={handleAnimationComplete}
+          />
+        {:else if section.id === `project-${projects[0].id}`}
+          <ProjectOneSection
+            bind:this={sectionInstancesArray[i + 1]}
+            project={section.data as Project}
+            on:animationComplete={handleAnimationComplete}
+          />
+        {:else if section.id === `project-${projects[1].id}`}
+          <ProjectTwoSection
+            bind:this={sectionInstancesArray[i + 1]}
+            project={section.data as Project}
+            on:animationComplete={handleAnimationComplete}
+          />
+        {:else if section.id === 'contact'}
+          <ContactSection
+            bind:this={sectionInstancesArray[i + 1]}
+            data={section.data as typeof siteConfig.contactSection}
+            on:animationComplete={handleAnimationComplete}
+          />
+        {/if}
+      </section>
+    {/each}
+  </main>
+
+  <style>
+    :global(body) { background-color: rgb(9 9 11); color: rgb(245 245 247); }
+    .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
+    .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
+    .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
+    
+    .full-screen-section {
+      height: 100%;
+      width: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      box-sizing: border-box;
+      background-color: transparent; 
+    }
+
+    .hero-section-container {
+      pointer-events: none;
+    }
+    
+    * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  </style>
 </div>
-
-<main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
-  <section id="hero" class="full-screen-section hero-section-container"></section>
-
-  {#each allSectionsData.slice(1) as section, i (section.id)}
-    <section 
-      id={section.id} 
-      class="full-screen-section"
-    >
-      {#if section.id === 'about'}
-        <AboutSection
-          bind:this={sectionInstancesArray[i + 1]}
-          data={section.data as typeof siteConfig.aboutSection}
-          {contactSectionIndex}
-          {navigateToSection}
-          on:animationComplete={triggerStaggeredCardPreRender}
-        />
-      {:else if section.id === `project-${projects[0].id}`}
-        <ProjectOneSection
-          bind:this={sectionInstancesArray[i + 1]}
-          project={section.data as Project}
-        />
-      {:else if section.id === `project-${projects[1].id}`}
-        <ProjectTwoSection
-          bind:this={sectionInstancesArray[i + 1]}
-          project={section.data as Project}
-        />
-      {:else if section.id === 'contact'}
-        <ContactSection
-          bind:this={sectionInstancesArray[i + 1]}
-          data={section.data as typeof siteConfig.contactSection}
-        />
-      {/if}
-    </section>
-  {/each}
-</main>
-
-<style>
-  :global(body) { background-color: rgb(9 9 11); color: rgb(245 245 247); }
-  .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
-  .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
-  .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
-  
-  .full-screen-section {
-    height: 100%;
-    width: 100%;
-    position: absolute;
-    top: 0;
-    left: 0;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    box-sizing: border-box;
-    background-color: transparent; 
-  }
-
-  .hero-section-container {
-    pointer-events: none;
-  }
-  
-  * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-</style>
 --- END OF FILE src\routes\+page.svelte ---
 
 --- START OF FILE src\routes\projects\[slug]\+layout.svelte ---
@@ -3906,20 +3952,20 @@ export class CreateParticles {
 <!-- src/routes/projects/[slug]/+page.svelte -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { get, writable } from 'svelte/store'; // MODIFIED: Import writable
+  import { get, writable } from 'svelte/store';
   import { page } from '$app/stores';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
-  // NEW: Import the preloading store and helpers
-  import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
+  // FIX: Import the new generic preloadAssets and task management functions
+  import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let data;
   const { project } = data;
 
-  // NEW: Create a unique task ID for this project's assets
+  // A unique task ID for this project's assets
   const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
 
-  // NEW: A writable store to track when content for this specific page is ready.
+  // A writable store to track when content for this specific page is ready.
   const isContentLoaded = writable(false);
 
   const allSubSections = [
@@ -3942,44 +3988,32 @@ export class CreateParticles {
   const scrollDebounce = 200;
   const transitionDuration = 1.1;
 
-  // NEW: A helper function to preload an array of images.
-  async function preloadProjectImages(imageUrls: string[]): Promise<void> {
-    // Register the task with the global preloading store
-    startLoadingTask(PROJECT_ASSETS_TASK_ID, 2); // Give it a higher priority
-
-    const imagePromises = imageUrls.map(src => {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
-        img.src = src;
-      });
-    });
-
-    try {
-      await Promise.all(imagePromises);
-      // Once all images are loaded, update the task status to 'loaded'
-      preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
-      console.log(`All assets for project '${project.slug}' preloaded successfully.`);
-    } catch (error) {
-      console.error(error);
-      preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
-    }
-  }
-
   onMount(() => {
-    // NEW: Trigger the asset preloading process as soon as the component mounts.
-    const assetUrls = allSubSections
-      .filter(s => s.background.type === 'image')
-      .map(s => s.background.value);
+    // FIX: Use the new centralized preloading system.
+    const runPreload = async () => {
+      // Register the task with the global preloading store.
+      startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
+
+      const assetUrls = allSubSections
+        .filter(s => s.background.type === 'image')
+        .map(s => s.background.value);
       
-    preloadProjectImages(assetUrls).then(() => {
-      // Once preloading is complete (success or fail), mark content as ready to be shown.
-      isContentLoaded.set(true);
-    });
+      try {
+        await preloadAssets(assetUrls);
+        preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
+        console.log(`All assets for project '${project.slug}' preloaded successfully.`);
+      } catch (error) {
+        console.error(error);
+        preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
+      } finally {
+        // Once preloading is complete (success or fail), mark content as ready to be shown.
+        isContentLoaded.set(true);
+      }
+    };
+    
+    runPreload();
 
     return () => {
-      // Cleanup logic remains the same
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
       sectionContentTimelines.forEach(timeline => { timeline?.kill(); });
@@ -3987,8 +4021,7 @@ export class CreateParticles {
     };
   });
 
-  // NEW: We wrap the entire animation setup in a reactive block.
-  // This ensures it only runs *after* `isContentLoaded` becomes true.
+  // This reactive block ensures animation setup only runs *after* assets are loaded.
   $: if ($isContentLoaded) {
     setupAnimations();
   }
@@ -4011,22 +4044,18 @@ export class CreateParticles {
       currentSectionIndex = initialIndex;
 
       sectionElements.forEach((sectionEl, index) => {
-        // MODIFIED: Enhanced animation timeline for a smoother reveal.
         const contentTl = gsap.timeline({ paused: true });
         const contentOverlay = sectionEl.querySelector('.subpage-content-overlay');
         const h2El = sectionEl.querySelector('h2');
         const pEl = sectionEl.querySelector('p');
 
         if (contentOverlay) {
-          // 1. Animate the container card first
           contentTl.fromTo(contentOverlay, { autoAlpha: 0, scale: 0.95 }, { autoAlpha: 1, scale: 1, duration: 0.7, ease: 'power2.out' }, "start");
         }
         if (h2El) {
-          // 2. Fade in the heading shortly after
           contentTl.fromTo(h2El, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start+=0.2");
         }
         if (pEl) {
-          // 3. Fade in the paragraph last
           contentTl.fromTo(pEl, { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.35");
         }
         sectionContentTimelines[index] = contentTl;
@@ -4103,7 +4132,6 @@ export class CreateParticles {
   <meta name="description" content={project.summary} />
 </svelte:head>
 
-<!-- MODIFIED: Add a class binding to fade the container in when content is ready -->
 <div class="subpage-container" class:loaded={$isContentLoaded}>
   {#each allSubSections as section, i (section.id)}
     <section id={section.id} class="subpage-fullscreen-section">
@@ -4129,12 +4157,10 @@ export class CreateParticles {
     height: 100vh;
     background-color: #000;
     overflow: hidden;
-    /* NEW: Start transparent and fade in */
     opacity: 0;
     transition: opacity 0.6s ease-in-out;
   }
   
-  /* NEW: Fade in the container when the `loaded` class is applied */
   .subpage-container.loaded {
     opacity: 1;
   }
@@ -4175,7 +4201,6 @@ export class CreateParticles {
     backdrop-filter: blur(10px);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    /* NEW: Start with opacity 0, GSAP will control it */
     opacity: 0;
   }
 
@@ -4185,7 +4210,6 @@ export class CreateParticles {
     font-family: 'Playfair Display', serif;
     margin-bottom: 1.5rem;
     text-shadow: 0 2px 20px rgba(0,0,0,0.5);
-    /* NEW: Start with opacity 0, GSAP will control it */
     opacity: 0;
   }
 
@@ -4195,7 +4219,6 @@ export class CreateParticles {
     max-width: 700px;
     margin: 0 auto;
     color: #e2e8f0;
-    /* NEW: Start with opacity 0, GSAP will control it */
     opacity: 0;
   }
 </style>

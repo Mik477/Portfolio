@@ -3,17 +3,18 @@
   export type AboutSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
+    initializeEffect?: () => Promise<void>;
+    // Add the new optional method to its type definition
+    onTransitionComplete?: () => void;
   };
 </script>
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import { siteConfig } from '$lib/data/siteConfig';
-  import { gsap } from 'gsap';
 
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
-
   import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
   import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
 
@@ -24,29 +25,38 @@
   export let contactSectionIndex: number;
   export let navigateToSection: (index: number) => void;
 
-  // Bindings for child component instances
   let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
   let aboutImageEffectInstance: AboutImageEffectInstance | null = null;
 
-  /**
-   * Plays the entrance animation for this section by delegating to its children.
-   * Called by the orchestrator when this section slides into view.
-   */
+  // This is called by the preload manager while the section is off-screen.
+  export async function initializeEffect() {
+    if (aboutImageEffectInstance?.initializeEffect) {
+      await aboutImageEffectInstance.initializeEffect();
+    }
+  }
+
+  // This is called at the START of the page transition.
+  // It should only contain lightweight animations.
   export function onEnterSection(): void {
-    // This component now orchestrates its children's animations.
-    // It calls their onEnterSection methods in the desired sequence.
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onEnterSection();
     }
     if (aboutImageEffectInstance) {
+      // The image effect's onEnterSection just starts a simple fade-in.
       aboutImageEffectInstance.onEnterSection();
     }
   }
+  
+  // FIX: This is called at the END of the page transition.
+  // It's for heavy, layout-dependent animations.
+  export function onTransitionComplete() {
+    if (aboutImageEffectInstance?.onTransitionComplete) {
+      // This starts the particle rendering, which depends on the final layout.
+      aboutImageEffectInstance.onTransitionComplete();
+    }
+  }
 
-  /**
-   * Forcefully stops animations and resets the section by delegating to its children.
-   * Called by the orchestrator when this section slides out of view.
-   */
+  // This is called when navigating away from the section.
   export function onLeaveSection(): void {
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onLeaveSection();
@@ -54,6 +64,10 @@
     if (aboutImageEffectInstance) {
       aboutImageEffectInstance.onLeaveSection();
     }
+  }
+
+  function handleAnimationComplete() {
+    dispatch('animationComplete');
   }
 </script>
 
@@ -66,7 +80,7 @@
       socialLinks={data.socialLinks}
       {contactSectionIndex}
       {navigateToSection}
-      on:animationComplete={() => dispatch('animationComplete')}
+      on:animationComplete={handleAnimationComplete}
     />
   </div>
 
@@ -77,7 +91,6 @@
 </div>
 
 <style>
-  /* Styles remain unchanged */
   .about-section-wrapper {
     width: 100%;
     height: 100%;

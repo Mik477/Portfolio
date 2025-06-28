@@ -2,23 +2,23 @@
 import { writable, derived, get } from 'svelte/store';
 
 export type TaskStatus = 'idle' | 'pending' | 'loading' | 'loaded' | 'error';
+export type AssetStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
 export interface PreloadTask {
   id: string;
   status: TaskStatus;
-  progress?: number; // 0-1 progress value for individual tasks
-  message?: string; // Optional message, e.g., for errors
-  priority?: number; // Higher priority tasks contribute more to overall progress
+  progress?: number;
+  message?: string;
+  priority?: number;
 }
+
+// --- NEW: A dedicated store to track the status of individual asset URLs ---
+// This prevents redundant loading across the entire application.
+// e.g., { '/images/profile.png': 'loaded', '/fonts/font.json': 'loading' }
+const assetLoadingStatus = writable<Record<string, AssetStatus>>({});
 
 // Configuration
 export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
-
-// --- NEW ---
-/**
- * A queue of asset URLs (e.g., images) to be displayed on the loading screen.
- */
-export const loadingAssetQueue = writable<string[]>([]);
 
 const tasks = writable<Record<string, PreloadTask>>({});
 
@@ -33,7 +33,6 @@ export const initialSiteLoadComplete = writable<boolean>(false);
  */
 export const loadingProgress = derived(tasks, $tasks => {
   const allTasksArray = Object.values($tasks);
-  
   if (allTasksArray.length === 0) return 0;
   
   let totalWeight = 0;
@@ -115,8 +114,20 @@ export const preloadingStore = {
   resetTasks: () => {
     tasks.set({});
     initialSiteLoadComplete.set(false);
-    loadingAssetQueue.set([]); // Reset the asset queue as well
+    assetLoadingStatus.set({}); // Reset the asset status map as well
   },
+
+  // --- NEW: Asset Status Management ---
+  getAssetStatus: (url: string): AssetStatus => {
+    return get(assetLoadingStatus)[url] || 'idle';
+  },
+
+  setAssetStatus: (url: string, status: AssetStatus) => {
+    assetLoadingStatus.update(current => {
+      current[url] = status;
+      return current;
+    });
+  }
 };
 
 export const overallLoadingState = derived(tasks, $tasks => {
@@ -129,16 +140,66 @@ export const overallLoadingState = derived(tasks, $tasks => {
   return 'idle';
 });
 
-// Helper to initiate a task with priority
 export const startLoadingTask = (taskId: string, priority: number = 1) => {
   preloadingStore.registerTask(taskId, 'loading', priority);
 };
 
-// --- NEW ---
+// --- NEW: A Generic Asset Preloader Function ---
 /**
- * Helper function to populate the loading screen's asset queue.
- * @param urls An array of image URLs to display.
+ * A robust, generic function to preload an array of assets (images, fonts, etc.).
+ * It updates the central asset status store to prevent re-downloads.
+ * @param urls An array of asset URLs to load.
+ * @returns A promise that resolves when all assets are loaded, or rejects on the first error.
  */
-export function addAssetsToLoadingQueue(urls: string[]) {
-    loadingAssetQueue.set(urls);
+export async function preloadAssets(urls: string[]): Promise<void> {
+  const promises: Promise<unknown>[] = [];
+
+  for (const url of urls) {
+    const status = preloadingStore.getAssetStatus(url);
+    if (status === 'loaded' || status === 'loading') {
+      continue; // Skip already loaded or currently loading assets
+    }
+    
+    preloadingStore.setAssetStatus(url, 'loading');
+
+    const promise = new Promise((resolve, reject) => {
+      // Basic image preloader
+      if (/\.(jpg|jpeg|png|webp|gif|svg)$/i.test(url)) {
+        const img = new Image();
+        img.src = url;
+        img.onload = () => {
+          preloadingStore.setAssetStatus(url, 'loaded');
+          resolve(url);
+        };
+        img.onerror = () => {
+          preloadingStore.setAssetStatus(url, 'error');
+          reject(new Error(`Failed to load image: ${url}`));
+        };
+      } 
+      // Basic font preloader (for .json from FontLoader)
+      else if (/\.json$/i.test(url)) {
+        fetch(url)
+          .then(response => {
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return response.json();
+          })
+          .then(() => {
+            preloadingStore.setAssetStatus(url, 'loaded');
+            resolve(url);
+          })
+          .catch(error => {
+            preloadingStore.setAssetStatus(url, 'error');
+            reject(new Error(`Failed to load font data: ${url} - ${error.message}`));
+          });
+      }
+      // Add other file types (videos, etc.) here if needed
+      else {
+        console.warn(`Preloading not implemented for file type: ${url}`);
+        resolve(url); // Resolve unsupported types immediately
+      }
+    });
+    promises.push(promise);
+  }
+
+  await Promise.all(promises);
 }

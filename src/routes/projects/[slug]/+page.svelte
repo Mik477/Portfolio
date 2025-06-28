@@ -1,20 +1,20 @@
 <!-- src/routes/projects/[slug]/+page.svelte -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { get, writable } from 'svelte/store'; // MODIFIED: Import writable
+  import { get, writable } from 'svelte/store';
   import { page } from '$app/stores';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
-  // NEW: Import the preloading store and helpers
-  import { preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
+  // FIX: Import the new generic preloadAssets and task management functions
+  import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let data;
   const { project } = data;
 
-  // NEW: Create a unique task ID for this project's assets
+  // A unique task ID for this project's assets
   const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
 
-  // NEW: A writable store to track when content for this specific page is ready.
+  // A writable store to track when content for this specific page is ready.
   const isContentLoaded = writable(false);
 
   const allSubSections = [
@@ -37,44 +37,32 @@
   const scrollDebounce = 200;
   const transitionDuration = 1.1;
 
-  // NEW: A helper function to preload an array of images.
-  async function preloadProjectImages(imageUrls: string[]): Promise<void> {
-    // Register the task with the global preloading store
-    startLoadingTask(PROJECT_ASSETS_TASK_ID, 2); // Give it a higher priority
-
-    const imagePromises = imageUrls.map(src => {
-      return new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve(img);
-        img.onerror = () => reject(new Error(`Failed to load image: ${src}`));
-        img.src = src;
-      });
-    });
-
-    try {
-      await Promise.all(imagePromises);
-      // Once all images are loaded, update the task status to 'loaded'
-      preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
-      console.log(`All assets for project '${project.slug}' preloaded successfully.`);
-    } catch (error) {
-      console.error(error);
-      preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
-    }
-  }
-
   onMount(() => {
-    // NEW: Trigger the asset preloading process as soon as the component mounts.
-    const assetUrls = allSubSections
-      .filter(s => s.background.type === 'image')
-      .map(s => s.background.value);
+    // FIX: Use the new centralized preloading system.
+    const runPreload = async () => {
+      // Register the task with the global preloading store.
+      startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
+
+      const assetUrls = allSubSections
+        .filter(s => s.background.type === 'image')
+        .map(s => s.background.value);
       
-    preloadProjectImages(assetUrls).then(() => {
-      // Once preloading is complete (success or fail), mark content as ready to be shown.
-      isContentLoaded.set(true);
-    });
+      try {
+        await preloadAssets(assetUrls);
+        preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
+        console.log(`All assets for project '${project.slug}' preloaded successfully.`);
+      } catch (error) {
+        console.error(error);
+        preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
+      } finally {
+        // Once preloading is complete (success or fail), mark content as ready to be shown.
+        isContentLoaded.set(true);
+      }
+    };
+    
+    runPreload();
 
     return () => {
-      // Cleanup logic remains the same
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
       sectionContentTimelines.forEach(timeline => { timeline?.kill(); });
@@ -82,8 +70,7 @@
     };
   });
 
-  // NEW: We wrap the entire animation setup in a reactive block.
-  // This ensures it only runs *after* `isContentLoaded` becomes true.
+  // This reactive block ensures animation setup only runs *after* assets are loaded.
   $: if ($isContentLoaded) {
     setupAnimations();
   }
@@ -106,22 +93,18 @@
       currentSectionIndex = initialIndex;
 
       sectionElements.forEach((sectionEl, index) => {
-        // MODIFIED: Enhanced animation timeline for a smoother reveal.
         const contentTl = gsap.timeline({ paused: true });
         const contentOverlay = sectionEl.querySelector('.subpage-content-overlay');
         const h2El = sectionEl.querySelector('h2');
         const pEl = sectionEl.querySelector('p');
 
         if (contentOverlay) {
-          // 1. Animate the container card first
           contentTl.fromTo(contentOverlay, { autoAlpha: 0, scale: 0.95 }, { autoAlpha: 1, scale: 1, duration: 0.7, ease: 'power2.out' }, "start");
         }
         if (h2El) {
-          // 2. Fade in the heading shortly after
           contentTl.fromTo(h2El, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start+=0.2");
         }
         if (pEl) {
-          // 3. Fade in the paragraph last
           contentTl.fromTo(pEl, { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.35");
         }
         sectionContentTimelines[index] = contentTl;
@@ -198,7 +181,6 @@
   <meta name="description" content={project.summary} />
 </svelte:head>
 
-<!-- MODIFIED: Add a class binding to fade the container in when content is ready -->
 <div class="subpage-container" class:loaded={$isContentLoaded}>
   {#each allSubSections as section, i (section.id)}
     <section id={section.id} class="subpage-fullscreen-section">
@@ -224,12 +206,10 @@
     height: 100vh;
     background-color: #000;
     overflow: hidden;
-    /* NEW: Start transparent and fade in */
     opacity: 0;
     transition: opacity 0.6s ease-in-out;
   }
   
-  /* NEW: Fade in the container when the `loaded` class is applied */
   .subpage-container.loaded {
     opacity: 1;
   }
@@ -270,7 +250,6 @@
     backdrop-filter: blur(10px);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    /* NEW: Start with opacity 0, GSAP will control it */
     opacity: 0;
   }
 
@@ -280,7 +259,6 @@
     font-family: 'Playfair Display', serif;
     margin-bottom: 1.5rem;
     text-shadow: 0 2px 20px rgba(0,0,0,0.5);
-    /* NEW: Start with opacity 0, GSAP will control it */
     opacity: 0;
   }
 
@@ -290,7 +268,6 @@
     max-width: 700px;
     margin: 0 auto;
     color: #e2e8f0;
-    /* NEW: Start with opacity 0, GSAP will control it */
     opacity: 0;
   }
 </style>

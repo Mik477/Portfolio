@@ -1,6 +1,5 @@
 <!-- src/lib/components/sections/ContactSection.svelte -->
 <script context="module" lang="ts">
-  // The instance type that the orchestrator (`+page.svelte`) will use.
   export type ContactSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
@@ -8,34 +7,28 @@
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
 
-  // Define the type for the expected data prop from the siteConfig object.
+  // Create an event dispatcher.
+  const dispatch = createEventDispatcher();
+
   type ContactSectionData = typeof siteConfig.contactSection;
   export let data: ContactSectionData;
 
-  // Element bindings for animation
   let sectionWrapper: HTMLElement;
   let animatableElements: Element[] = [];
 
   onMount(() => {
-    // Collect all elements that need to be animated.
-    // This runs once when the component is first mounted (and hidden).
     if (sectionWrapper) {
-        animatableElements = gsap.utils.toArray(sectionWrapper.querySelectorAll('h2, p, .additional-links a'));
+        animatableElements = gsap.utils.toArray(sectionWrapper.querySelectorAll('h2, p, a'));
     }
   });
 
-  /**
-   * Plays the entrance animation for this section.
-   * Called by the orchestrator when this section slides into view.
-   */
   export function onEnterSection(): void {
     if (animatableElements.length === 0) return;
 
-    // Set the initial (hidden) state before animating.
     gsap.set(animatableElements, { autoAlpha: 0, y: 30 });
 
     // Create the staggered entrance timeline.
@@ -44,21 +37,18 @@
       y: 0,
       duration: 0.8,
       stagger: 0.15,
-      ease: 'power2.out'
+      ease: 'power2.out',
+      // Add an onComplete callback to the tween itself.
+      onComplete: () => {
+        dispatch('animationComplete');
+      }
     });
   }
 
-  /**
-   * Forcefully stops any running animations and resets the section to its hidden state.
-   * Called by the orchestrator when this section slides out of view.
-   */
   export function onLeaveSection(): void {
     if (animatableElements.length === 0) return;
     
-    // Immediately kill any in-progress animations on these elements.
     gsap.killTweensOf(animatableElements);
-    
-    // Reset to the initial hidden state, ready for the next time onEnterSection is called.
     gsap.set(animatableElements, { autoAlpha: 0 });
   }
 </script>
@@ -96,8 +86,7 @@
     padding: 2rem;
   }
 
-  h2, p, .additional-links a {
-    /* All animatable elements start invisible, controlled by GSAP */
+  h2, p, a {
     opacity: 0;
     visibility: hidden;
   }
