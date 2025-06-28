@@ -12,7 +12,6 @@
   import { gsap } from 'gsap';
   import type { SocialLink } from '$lib/data/siteConfig';
 
-  // --- NEW: Create an event dispatcher ---
   const dispatch = createEventDispatcher();
 
   export let title: string;
@@ -24,23 +23,28 @@
   let wrapperElement: HTMLDivElement;
   let h2El: HTMLHeadingElement;
   let pEl: HTMLParagraphElement;
-  let keyElements: NodeListOf<Element> | null = null;
+  let keyElements: Element[] = [];
 
   onMount(() => {
-    keyElements = wrapperElement.querySelectorAll('.key');
+    if (wrapperElement) {
+        keyElements = gsap.utils.toArray(wrapperElement.querySelectorAll('.key'));
+    }
   });
 
   export function onEnterSection() {
-    if (!keyElements || !h2El || !pEl) return;
+    // FIX: Check for all elements, not just the keys.
+    if (!h2El || !pEl || keyElements.length === 0) return;
 
+    // Set initial hidden states for all animatable elements
     gsap.set(h2El, { autoAlpha: 0, y: 40 });
     gsap.set(pEl, { autoAlpha: 0, y: 30 });
     gsap.set(keyElements, { autoAlpha: 0 });
 
+    // FIX: Re-create the full timeline to animate all elements in sequence.
     gsap.timeline({
-      // --- NEW: Add an onComplete callback to the timeline ---
+      // The delay here gives the section slide-in time to complete.
+      delay: 0.2,
       onComplete: () => {
-        // Signal that the animation has finished.
         dispatch('animationComplete');
       }
     })
@@ -57,10 +61,12 @@
   }
 
   export function onLeaveSection() {
-    if (!keyElements || !h2El || !pEl) return;
+    // FIX: Ensure all elements are targeted for cleanup.
+    const allElements = [h2El, pEl, ...keyElements];
+    if (allElements.some(el => !el)) return;
     
-    gsap.killTweensOf([h2El, pEl, keyElements]);
-    gsap.set([h2El, pEl, keyElements], { autoAlpha: 0 });
+    gsap.killTweensOf(allElements);
+    gsap.set(allElements, { autoAlpha: 0 });
   }
 
   const getLink = (name: string): string => {
@@ -116,9 +122,18 @@
     line-height: 1.8; 
     margin-bottom: 2.5rem; 
     color: rgb(212 212 216); 
-    opacity: 0; 
+    opacity: 0;
+    visibility: hidden;
   }
-  .about-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; }
+  .about-text-block h2 {
+    font-size: clamp(2.2rem, 4.5vw, 3rem);
+    margin-bottom: 1.5rem;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    color: rgb(245 245 247);
+    opacity: 0;
+    visibility: hidden;
+  }
   .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
   .keyboard-buttons-wrapper { display: flex; align-items: flex-start; text-align: center; gap: calc(var(--keyboard-key-base-size) * 0.01); }
   .key-position { perspective: 800px; transform: rotateY(0.05turn) rotateX(-0.1turn); }

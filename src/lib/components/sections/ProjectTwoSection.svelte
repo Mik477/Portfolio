@@ -1,6 +1,7 @@
-<!-- src/lib/components/ProjectSection.svelte -->
+<!-- src/lib/components/sections/ProjectTwoSection.svelte -->
 <script context="module" lang="ts">
-  export type ProjectSectionInstance = {
+  // The instance type that the orchestrator (`+page.svelte`) will use.
+  export type ProjectTwoSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
   };
@@ -19,8 +20,6 @@
   let headlineEl: HTMLHeadingElement;
   let summaryEl: HTMLParagraphElement;
   let readMoreBtn: HTMLButtonElement | null = null;
-  
-  // --- FIXED: We will now target the .card-wrap elements directly for animation ---
   let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
@@ -29,32 +28,24 @@
   });
   
   export function onEnterSection() {
-    if (!headlineEl || !summaryEl || !cardWrapsToAnimate) return;
+    if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
 
-    // Set initial state for text elements
+    // Set initial state for all elements
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
+    gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
-
-    // The cards (.card-wrap) are already at autoAlpha: 0 due to our pre-renderer.
-    // We just need to set their starting scale for the animation.
-    gsap.set(cardWrapsToAnimate, { scale: 0.97 });
-
 
     const tl = gsap.timeline();
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
-      .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1");
-      
-    if (cardWrapsToAnimate.length > 0) {
-        // --- FIXED: Animate the .card-wrap elements directly ---
-        tl.to(cardWrapsToAnimate, { 
-            autoAlpha: 1, // This is the crucial change that makes them visible
-            scale: 1, 
-            duration: 2.8, 
-            stagger: 0.15, 
-            ease: 'expo.out' 
-        }, "start+=0.2");
-    }
+      .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
+      .to(cardWrapsToAnimate, { 
+          autoAlpha: 1,
+          scale: 1, 
+          duration: 2.8, 
+          stagger: 0.15, 
+          ease: 'expo.out' 
+      }, "start+=0.2");
 
     if (readMoreBtn) {
       tl.to(readMoreBtn, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
@@ -62,9 +53,8 @@
   }
 
   export function onLeaveSection() {
-    if (!headlineEl || !summaryEl || !cardWrapsToAnimate) return;
+    if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
     
-    // --- FIXED: Ensure we are targeting the correct elements for cleanup ---
     const allElements = [headlineEl, summaryEl, ...cardWrapsToAnimate];
     if (readMoreBtn) allElements.push(readMoreBtn);
     
@@ -74,6 +64,7 @@
   
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
+    // This correctly navigates to the subpage, including the hash for scrolling.
     goto(`/projects/${project.slug}${aspectLink}`);
   }
 </script>
@@ -87,7 +78,6 @@
       
       <div class="project-cards-container">
         {#each project.cards as card (card.id)}
-          <!-- The wrapper is now just a layout element, not an animation target -->
           <button type="button" class="card-click-wrapper" on:click={() => handleCardClick(card)}>
             <ParallaxCard cardData={card} width="220px" height="290px" />
           </button>
@@ -104,6 +94,7 @@
 </div>
 
 <style>
+    /* Styles are identical to ProjectOneSection.svelte */
     .project-section-wrapper { 
         width: 100%; 
         height: 100%; 
@@ -142,12 +133,15 @@
     }
     h2 { 
         opacity: 0; 
+        visibility: hidden;
         font-size: 2.5rem; 
         font-weight: 300; 
         margin-bottom: 1rem; 
         letter-spacing: -0.02em; 
     }
     p.project-summary { 
+        opacity: 0; 
+        visibility: hidden;
         font-size: 1.15rem; 
         color: rgb(212 212 216); 
         line-height: 1.7; 
@@ -155,7 +149,6 @@
         max-width: 800px; 
         margin-left: auto; 
         margin-right: auto; 
-        opacity: 0; 
     }
     .project-cards-container { 
         display: flex; 
@@ -165,7 +158,6 @@
         margin-bottom: 2rem; 
         flex-wrap: wrap; 
     }
-    /* --- FIXED: The wrapper no longer needs to be hidden by default --- */
     .card-click-wrapper { 
         background: none; 
         border: none; 
@@ -184,6 +176,7 @@
     }
     button.read-more-btn { 
         opacity: 0; 
+        visibility: hidden;
         padding: 0.875rem 2rem; 
         background-color: rgb(99 102 241); 
         color: white; 

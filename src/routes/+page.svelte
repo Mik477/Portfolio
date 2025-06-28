@@ -2,129 +2,106 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import { writable, get } from 'svelte/store';
-  import { goto } from '$app/navigation';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
-  import HeroParticleEffect from '$lib/components/HeroParticleEffect.svelte';
-  import type { SvelteComponent } from 'svelte';
-  import LoadingScreen from '$lib/components/LoadingScreen.svelte';
-  import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
-  import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
-  import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
-  import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
-  import ProjectSection from '$lib/components/ProjectSection.svelte';
   import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask } from '$lib/stores/preloadingStore';
   import { gsap } from 'gsap';
 
-  const allSectionsData = [
-    { id: 'hero', type: 'hero', data: siteConfig.heroSection },
-    { id: 'about', type: 'about', data: siteConfig.aboutSection },
-    ...projects.map(p => ({ id: `project-${p.id}`, type: 'project', data: p })),
-    { id: 'contact', type: 'contact', data: siteConfig.contactSection }
-  ];
-  
-  const aboutSectionIndex = allSectionsData.findIndex(s => s.id === 'about');
-  const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
+  // --- Component Imports ---
+  import LoadingScreen from '$lib/components/LoadingScreen.svelte';
+  import HeroSection from '$lib/components/sections/HeroSection.svelte';
+  import AboutSection from '$lib/components/sections/AboutSection.svelte';
+  import ProjectOneSection from '$lib/components/sections/ProjectOneSection.svelte';
+  import ProjectTwoSection from '$lib/components/sections/ProjectTwoSection.svelte';
+  import ContactSection from '$lib/components/sections/ContactSection.svelte';
 
+  // --- Universal Animated Component Interface ---
+  // FIX: This interface should only describe the methods we intend to call.
+  // It does not need to extend SvelteComponent.
   interface IAnimatedComponent {
     onEnterSection: () => void;
     onLeaveSection: () => void;
   }
-  
-  interface HeroParticleEffectInstance extends SvelteComponent {
-    onTransitionToHeroStart: () => Promise<void>;
-    onTransitionToHeroComplete: () => void;
-    onTransitionFromHeroStart: () => void;
+  import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
+
+  // --- Section Data with Component References ---
+  const allSectionsData = [
+    { id: 'hero', component: HeroSection, data: siteConfig.heroSection },
+    { id: 'about', component: AboutSection, data: siteConfig.aboutSection },
+    { id: `project-${projects[0].id}`, component: ProjectOneSection, data: projects[0] },
+    { id: `project-${projects[1].id}`, component: ProjectTwoSection, data: projects[1] },
+    { id: 'contact', component: ContactSection, data: siteConfig.contactSection }
+  ];
+
+  const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
+
+  // --- Unified Instance Management ---
+  let heroSectionInstance: HeroSectionInstance | null = null;
+  let sectionInstancesArray: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
+  let sectionInstances = new Map<string, IAnimatedComponent>();
+
+  $: if (heroSectionInstance) {
+    sectionInstancesArray[0] = heroSectionInstance;
+    const newMap = new Map<string, IAnimatedComponent>();
+    allSectionsData.forEach((section, index) => {
+      const instance = sectionInstancesArray[index];
+      if (instance) newMap.set(section.id, instance);
+    });
+    sectionInstances = newMap;
   }
   
-  // Component Instances
-  let heroParticleEffectInstance: HeroParticleEffectInstance | null = null;
-  let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
-  let aboutImageEffectInstance: AboutImageEffectInstance | null = null;
-  let animatedComponentInstances: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
-  
+  // --- Core State Management ---
   const isAnimating = writable(false);
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
   const particleEffectReady = writable(false);
 
-  // --- NEW: Page Visibility State ---
+  // Page Visibility State
   let visibilityHideTimeoutId: number | undefined;
   let isTabHiddenAndPaused = false;
-  const HIDE_BUFFER_DURATION =5000; // 15 seconds
+  const HIDE_BUFFER_DURATION = 15000;
 
+  // GPU Pre-rendering State
   let cardsHaveBeenPreRendered = false;
   let cardKeepAliveInterval: number | undefined;
 
+  // Pointer Events State
   let particleLayerPointerEvents = 'none';
   $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
-
   let mainContainerPointerEvents = 'auto';
   $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
 
+  // DOM and Animation State
   let sectionElements: HTMLElement[] = [];
   let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
-  
   const transitionDuration = 1.1;
   const projectBgZoomDuration = 3;
   const minSectionDisplayDuration = 1.2;
   const initialRevealDelay = 300;
   const particleFadeInDuration = 1.5;
-
   let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
   let hasStartedInitialReveal = false;
 
-  // --- NEW: Page Visibility Handler ---
-  /**
-   * Handles browser tab visibility changes to prevent animation artifacts.
-   * When the tab is hidden for a set duration, it pauses the current section's
-   * animations. When the tab becomes visible again, it resets and restarts them.
-   */
   function handleVisibilityChange() {
+    const currentIndex = get(currentSectionIndex);
+    const currentId = allSectionsData[currentIndex].id;
+    const currentInstance = sectionInstances.get(currentId);
+
     if (document.hidden) {
-      // The user has switched away from the tab.
-      // Set a timeout to pause animations after a buffer period.
       visibilityHideTimeoutId = window.setTimeout(() => {
         if (document.hidden && !isTabHiddenAndPaused) {
           console.log('Tab hidden for >15s. Pausing current section animations.');
-          const index = get(currentSectionIndex);
-          
-          // Use our existing API to "leave" the section
-          if (index === 0) heroParticleEffectInstance?.onTransitionFromHeroStart();
-          else if (index === aboutSectionIndex) {
-            keyboardButtonsInstance?.onLeaveSection();
-            aboutImageEffectInstance?.onLeaveSection();
-          } else {
-            animatedComponentInstances[index]?.onLeaveSection();
-          }
-
+          currentInstance?.onLeaveSection();
           isTabHiddenAndPaused = true;
         }
       }, HIDE_BUFFER_DURATION);
-
     } else {
-      // The user has returned to the tab.
-      // Immediately cancel any pending "hide" timeout.
       clearTimeout(visibilityHideTimeoutId);
-
       if (isTabHiddenAndPaused) {
         console.log('Tab re-focused. Resetting and restarting current section animations.');
-        const index = get(currentSectionIndex);
-        
-        // Use our existing API to "re-enter" the section for a clean reset.
-        if (index === 0) {
-           heroParticleEffectInstance?.onTransitionToHeroStart().then(() => {
-             heroParticleEffectInstance?.onTransitionToHeroComplete();
-           });
-        } else if (index === aboutSectionIndex) {
-            keyboardButtonsInstance?.onEnterSection();
-            aboutImageEffectInstance?.onEnterSection();
-        } else {
-            animatedComponentInstances[index]?.onEnterSection();
-        }
-        
+        currentInstance?.onEnterSection();
         isTabHiddenAndPaused = false;
       }
     }
@@ -139,38 +116,20 @@
   function triggerStaggeredCardPreRender() {
     if (cardsHaveBeenPreRendered) return;
     cardsHaveBeenPreRendered = true;
-
     const allCards = document.querySelectorAll('.card-wrap');
     if (allCards.length === 0) return;
-
     gsap.fromTo(allCards, 
         { autoAlpha: 0 }, 
-        { 
-            autoAlpha: 0.001,
-            duration: 0.05,
-            stagger: 0.1,
-            onComplete: function() {
-                gsap.set(this.targets(), { autoAlpha: 0 });
-            }
-        }
+        { autoAlpha: 0.001, duration: 0.05, stagger: 0.1, onComplete: function() { gsap.set(this.targets(), { autoAlpha: 0 }); } }
     );
   }
 
   async function preloadMainProjectAssets() {
     startLoadingTask('main-project-assets', 2);
-    const imageUrls = projects.flatMap(p => p.cards.map(c => c.image));
-    if (imageUrls.length === 0) {
-      preloadingStore.updateTaskStatus('main-project-assets', 'loaded');
-      return;
-    }
+    const imageUrls = projects.flatMap(p => [p.background.value, ...p.cards.map(c => c.image)]);
     const imagePromises = imageUrls.map(src => new Promise((resolve, reject) => {
-        const img = new Image();
-        img.src = src;
-        img.decode().then(resolve).catch(() => reject(new Error(`Failed to load/decode: ${src}`)));
-        img.onload = resolve;
-        img.onerror = () => reject(new Error(`Failed to load: ${src}`));
-      })
-    );
+        const img = new Image(); img.src = src; img.decode().then(resolve).catch(() => reject(new Error(`Failed to load/decode: ${src}`))); img.onload = resolve; img.onerror = () => reject(new Error(`Failed to load: ${src}`));
+    }));
     try {
       await Promise.all(imagePromises);
       preloadingStore.updateTaskStatus('main-project-assets', 'loaded');
@@ -181,31 +140,19 @@
 
   onMount((): (() => void) | void => {
     preloadMainProjectAssets();
-
     const setupPromise = async () => {
       await tick();
-      
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
-      if (sectionElements.some(el => !el)) { return; }
+      if (sectionElements.some(el => !el)) return;
       
       sectionElements.forEach((sectionEl, index) => {
-        const currentSectionType = allSectionsData[index].type;
-        
-        sectionBackgroundZooms[index] = null;
-        if (currentSectionType === 'project') {
-          const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
-          if (bgTarget) {
-            sectionBackgroundZooms[index] = gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true });
-          }
-        }
-
-        if (index === 0) gsap.set(sectionEl, { yPercent: 0, autoAlpha: 1 });
-        else gsap.set(sectionEl, { yPercent: 100, autoAlpha: 0 });
+        const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
+        sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
+        gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
       });
       
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
-      // NEW: Add the visibility change listener
       document.addEventListener('visibilitychange', handleVisibilityChange);
     };
     
@@ -218,10 +165,8 @@
     return () => {
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
-      // NEW: Clean up the visibility change listener
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearTimeout(visibilityHideTimeoutId); // Clear any pending timeout on unmount
-
+      clearTimeout(visibilityHideTimeoutId);
       sectionBackgroundZooms.forEach(tween => tween?.kill());
       gsap.killTweensOf(sectionElements);
       clearInterval(cardKeepAliveInterval);
@@ -230,7 +175,7 @@
     };
   });
 
-  function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroParticleEffectInstance) heroParticleEffectInstance.onTransitionToHeroComplete(); setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
+  function startInitialReveal() { if (hasStartedInitialReveal) return; hasStartedInitialReveal = true; setTimeout(() => { if (heroSectionInstance) heroSectionInstance.onTransitionToHeroComplete(); setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000); }, initialRevealDelay); }
   
   function navigateToSection(newIndex: number) { 
     if (get(isInitialReveal)) return; 
@@ -240,24 +185,16 @@
     isAnimating.set(true); 
     isTransitioning.set(true); 
 
-    // --- On Leave Logic ---
-    if (heroParticleEffectInstance && oldIndex === 0) {
-      heroParticleEffectInstance.onTransitionFromHeroStart();
-    }
+    const oldSectionId = allSectionsData[oldIndex].id;
+    const newSectionId = allSectionsData[newIndex].id;
+    const oldInstance = sectionInstances.get(oldSectionId);
+    const newInstance = sectionInstances.get(newSectionId);
     
-    if (oldIndex === aboutSectionIndex) {
-        clearInterval(cardKeepAliveInterval);
-        keyboardButtonsInstance?.onLeaveSection();
-        aboutImageEffectInstance?.onLeaveSection();
-    } else {
-        animatedComponentInstances[oldIndex]?.onLeaveSection();
-    }
+    oldInstance?.onLeaveSection();
     sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
+    if(oldSectionId === 'about') clearInterval(cardKeepAliveInterval);
 
-    // --- On Enter Logic ---
-    if (heroParticleEffectInstance && newIndex === 0) {
-      heroParticleEffectInstance.onTransitionToHeroStart();
-    }
+    newInstance?.onEnterSection();
 
     const currentSectionEl = sectionElements[oldIndex]; 
     const targetSectionEl = sectionElements[newIndex]; 
@@ -268,19 +205,12 @@
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
         
-        if (heroParticleEffectInstance && newIndex === 0) { 
-          heroParticleEffectInstance.onTransitionToHeroComplete(); 
-        }
-        
-        if (newIndex === aboutSectionIndex) {
-            cardKeepAliveInterval = setInterval(pingRenderedCards, 4000);
-            keyboardButtonsInstance?.onEnterSection();
-            aboutImageEffectInstance?.onEnterSection();
-        } else {
-            animatedComponentInstances[newIndex]?.onEnterSection();
-        }
-        
         sectionBackgroundZooms[newIndex]?.restart();
+        if(newSectionId === 'about') cardKeepAliveInterval = setInterval(pingRenderedCards, 4000);
+
+        if (newSectionId === 'hero' && heroSectionInstance) {
+           heroSectionInstance.onTransitionToHeroComplete();
+        }
       } 
     }); 
     
@@ -311,57 +241,50 @@
 <LoadingScreen /> 
 
 <div class="particle-effect-layer" class:initial-state={$isInitialReveal} style="pointer-events: {particleLayerPointerEvents};">
-  <HeroParticleEffect bind:this={heroParticleEffectInstance} activeSectionIndex={$currentSectionIndex} isTransitioning={$isTransitioning} {transitionDuration} isInitialLoad={$isInitialReveal} on:ready={onParticleEffectReady} />
+  <HeroSection
+    bind:this={heroSectionInstance}
+    activeSectionIndex={$currentSectionIndex}
+    isTransitioning={$isTransitioning}
+    {transitionDuration}
+    isInitialLoad={$isInitialReveal}
+    on:ready={onParticleEffectReady}
+  />
 </div>
 
 <main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
-  <section id="hero" class="full-screen-section hero-section"></section>
+  <section id="hero" class="full-screen-section hero-section-container"></section>
 
-  <section id="about" class="full-screen-section about-section">
-    <!-- This wrapper is the "left pane" for the text content -->
-    <div class="about-content-wrapper">
-      <KeyboardButtons 
-        bind:this={keyboardButtonsInstance}
-        title={siteConfig.aboutSection.title}
-        introduction={siteConfig.aboutSection.introduction}
-        socialLinks={siteConfig.aboutSection.socialLinks} 
-        {contactSectionIndex} 
-        {navigateToSection}
-        on:animationComplete={triggerStaggeredCardPreRender}
-      />
-    </div>
-    <!-- The new effect component acts as the "right pane" -->
-    <AboutImageEffect
-      bind:this={aboutImageEffectInstance}
-      imageUrl={siteConfig.aboutSection.imageUrl}
-    />
-  </section>
-
-  {#each allSectionsData as section, index (section.id)}
-    {#if section.type === 'project'}
-      <section id={section.id} class="full-screen-section project-section">
-        <ProjectSection 
-            bind:this={animatedComponentInstances[index]} 
-            project={section.data as Project} 
+  {#each allSectionsData.slice(1) as section, i (section.id)}
+    <section 
+      id={section.id} 
+      class="full-screen-section"
+    >
+      {#if section.id === 'about'}
+        <AboutSection
+          bind:this={sectionInstancesArray[i + 1]}
+          data={section.data as typeof siteConfig.aboutSection}
+          {contactSectionIndex}
+          {navigateToSection}
+          on:animationComplete={triggerStaggeredCardPreRender}
         />
-      </section>
-    {/if}
-  {/each}
-
-  <section id="contact" class="full-screen-section contact-section">
-     <div class="content-center">
-      <h2>{siteConfig.contactSection.title}</h2>
-      <p>{siteConfig.contactSection.outroMessage}</p>
-      <p>Email: <a href="mailto:{siteConfig.contactSection.email}">{siteConfig.contactSection.email}</a></p>
-      {#if siteConfig.contactSection.additionalLinks}
-        <div class="additional-links">
-          {#each siteConfig.contactSection.additionalLinks as link}
-            <a href={link.url} target="_blank" rel="noopener noreferrer">{link.name}</a>
-          {/each}
-        </div>
+      {:else if section.id === `project-${projects[0].id}`}
+        <ProjectOneSection
+          bind:this={sectionInstancesArray[i + 1]}
+          project={section.data as Project}
+        />
+      {:else if section.id === `project-${projects[1].id}`}
+        <ProjectTwoSection
+          bind:this={sectionInstancesArray[i + 1]}
+          project={section.data as Project}
+        />
+      {:else if section.id === 'contact'}
+        <ContactSection
+          bind:this={sectionInstancesArray[i + 1]}
+          data={section.data as typeof siteConfig.contactSection}
+        />
       {/if}
-    </div>
-  </section>
+    </section>
+  {/each}
 </main>
 
 <style>
@@ -369,70 +292,24 @@
   .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
   .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
   .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
-  .full-screen-section { height: 100%; width: 100%; position: absolute; top: 0; left: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 2rem; box-sizing: border-box; background-color: rgb(9 9 11); }
-  .hero-section { background-color: transparent; z-index: 2; pointer-events: none; }
   
-  .about-section {
-    padding: 0;
-    text-align: left;
-    background-color: transparent;
-    z-index: 2;
-    position: relative;
-    overflow: hidden;
-    flex-direction: row;
-    justify-content: space-between;
-  }
-  .about-content-wrapper {
-    position: relative;
-    z-index: 3;
-    flex-grow: 1;
+  .full-screen-section {
     height: 100%;
+    width: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
     display: flex;
-    justify-content: flex-start;
+    flex-direction: column;
+    justify-content: center;
     align-items: center;
-    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem);
-    padding-right: 2rem;
     box-sizing: border-box;
+    background-color: transparent; 
+  }
+
+  .hero-section-container {
+    pointer-events: none;
   }
   
-  .project-section { color: rgb(245 245 247); z-index: 2; background-color: transparent; padding: 0; }
-  .contact-section { background-color: rgb(24 24 27); color: rgb(245 245 247); z-index: 2; }
-  .content-center { max-width: 800px; margin: 0 auto; padding: 2rem; }
-  .contact-section h2 { font-size: 2.5rem; margin-bottom: 2rem; font-weight: 300; letter-spacing: -0.02em; }
-  .contact-section p { font-size: 1.15rem; line-height: 1.8; margin-bottom: 1.5rem; color: rgb(212 212 216); }
-  .contact-section a { color: rgb(99 102 241); text-decoration: none; font-weight: 500; transition: color 0.3s ease; }
-  .contact-section a:hover { color: rgb(129 140 248); text-decoration: underline; }
-  .additional-links { margin-top: 2rem; display: flex; gap: 2rem; justify-content: center; }
   * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-  
-  @media (max-width: 768px) {
-    .about-section { 
-      flex-direction: column;
-      justify-content: center;
-      padding: 2rem; 
-    }
-    .about-content-wrapper { 
-      justify-content: center; 
-      text-align: center; 
-      padding: 1rem;
-      width: 100%;
-      flex-grow: 0;
-      z-index: 2;
-    }
-    .about-section :global(.main-container) {
-      position: absolute;
-      top: 0;
-      left: 0;
-      opacity: 0.15 !important;
-      z-index: 1;
-    }
-    .about-section :global(.image-pane) {
-      justify-content: center;
-    }
-    .about-section :global(.image-pane img) {
-      width: 100vw;
-      height: 100vh;
-      object-fit: cover;
-    }
-  }
 </style>
