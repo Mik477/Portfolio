@@ -4,7 +4,7 @@
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
-  import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
   import { gsap } from 'gsap';
 
   // Component Imports
@@ -20,7 +20,6 @@
     onEnterSection: () => void;
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
-    // Add the new optional lifecycle hook
     onTransitionComplete?: () => void;
   }
   import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
@@ -39,11 +38,10 @@
   let heroSectionInstance: HeroSectionInstance | null = null;
   let sectionInstancesArray: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
   let sectionInstances = new Map<string, IAnimatedComponent>();
-  $: if (heroSectionInstance) {
-    sectionInstancesArray[0] = heroSectionInstance;
+  $: if (sectionInstancesArray.length > 0) {
     const newMap = new Map<string, IAnimatedComponent>();
     allSectionsData.forEach((section, index) => {
-      const instance = sectionInstancesArray[index];
+      const instance = index === 0 ? heroSectionInstance : sectionInstancesArray[index];
       if (instance) newMap.set(section.id, instance);
     });
     sectionInstances = newMap;
@@ -54,7 +52,6 @@
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
-  const particleEffectReady = writable(false);
 
   // Page & Animation State
   let visibilityHideTimeoutId: number | undefined;
@@ -67,7 +64,6 @@
   const minSectionDisplayDuration = 1.2;
   const initialRevealDelay = 300;
   const particleFadeInDuration = 1.5;
-  let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
   let hasStartedInitialReveal = false;
   
@@ -75,6 +71,12 @@
   $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
   let mainContainerPointerEvents = 'auto';
   $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
+
+  // --- Promise setup for initial load ---
+  let heroReadyResolver: () => void;
+  const heroReadyPromise = new Promise<void>(resolve => {
+    heroReadyResolver = resolve;
+  });
 
   // --- "Patient" Preload Manager ---
   const preloadManager = {
@@ -169,42 +171,104 @@
   }
 
   onMount(() => {
-    const setup = async () => {
-      startLoadingTask('initialAssets', 2);
-      await preloadAssets(preloadManager.getSectionAssetUrls(1));
-      preloadingStore.updateTaskStatus('initialAssets', 'loaded');
+    // --- The "Dry Run" Function for Off-Screen Initialization ---
+    const performInitialisationDryRun = async (instance: IAnimatedComponent, element: HTMLElement) => {
+        // 1. Set the section to its final animated position, but keep it transparent.
+        gsap.set(element, { yPercent: 0, autoAlpha: 0 });
 
+        // 2. Execute the full animation lifecycle once.
+        instance.onEnterSection();
+        instance.onTransitionComplete?.();
+
+        // 3. Wait briefly for internal timeouts and first render calls to complete.
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // 4. Execute a hard reset to clean up everything.
+        instance.onLeaveSection();
+        
+        // 5. Set the section back to its starting state, ready for the real transition.
+        gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+    };
+
+    const mountLogic = async () => {
       await tick();
-      
+
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
-      if (sectionElements.some(el => !el)) return;
-      
+      if (sectionElements.some(el => !el)) {
+        console.error("Could not find all section elements in the DOM.");
+        return;
+      }
       sectionElements.forEach((sectionEl, index) => {
         const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
         sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
         gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
       });
-      
+
+      const setupInitialLoad = async () => {
+        const heroInitializationPromise = heroReadyPromise;
+        const aboutInitializationPromise = (async () => {
+            await tick();
+            const aboutInstance = sectionInstances.get('about');
+            const aboutElement = sectionElements[1];
+            if (!aboutInstance || !aboutInstance.initializeEffect || !aboutElement) {
+                console.error("About Section instance, its element, or its initializeEffect method not found for preloading.");
+                return Promise.reject("About section instance failed to initialize.");
+            }
+            
+            startLoadingTask('aboutAssets', 1);
+            await preloadAssets(preloadManager.getSectionAssetUrls(1));
+            preloadingStore.updateTaskStatus('aboutAssets', 'loaded');
+            
+            startLoadingTask('aboutInit', 2);
+            await aboutInstance.initializeEffect();
+            
+            // Perform the "dry run" after initial setup.
+            await performInitialisationDryRun(aboutInstance, aboutElement);
+
+            preloadingStore.updateTaskStatus('aboutInit', 'loaded');
+        })();
+
+        await Promise.all([heroInitializationPromise, aboutInitializationPromise]);
+        initialSiteLoadComplete.set(true);
+      };
+
+      setupInitialLoad();
+
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
       document.addEventListener('visibilitychange', handleVisibilityChange);
     };
-    
-    unsubOverallLoadingState = overallLoadingState.subscribe(status => { if (status === 'loaded' && !get(initialSiteLoadComplete)) { setTimeout(() => { initialSiteLoadComplete.set(true); if (get(particleEffectReady) && !hasStartedInitialReveal) startInitialReveal(); }, 100); }});
-    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => { if (complete && get(particleEffectReady) && !hasStartedInitialReveal) startInitialReveal(); });
-    
-    setup();
 
-    return () => { /* ... cleanup ... */ };
+    mountLogic();
+    
+    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
+        if (complete && !hasStartedInitialReveal) {
+            startInitialReveal();
+        }
+    });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (unsubInitialLoadComplete) unsubInitialLoadComplete();
+      sectionBackgroundZooms.forEach(tween => tween?.kill());
+      clearTimeout(visibilityHideTimeoutId);
+    };
   });
+
+  function onParticleEffectReady() {
+    if (heroReadyResolver) heroReadyResolver();
+  }
 
   function startInitialReveal() {
     if (hasStartedInitialReveal) return;
     hasStartedInitialReveal = true;
+
     setTimeout(() => {
       if (heroSectionInstance) {
         heroSectionInstance.onTransitionToHeroComplete();
-        preloadManager.prepareSection(1);
+        preloadManager.prepareSection(2);
       }
       setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
     }, initialRevealDelay);
@@ -235,7 +299,6 @@
         isTransitioning.set(false);
         sectionBackgroundZooms[newIndex]?.restart();
         
-        // FIX: Defer the heavy onTransitionComplete call until the next animation frame.
         requestAnimationFrame(() => {
           newInstance?.onTransitionComplete?.();
         });
@@ -259,7 +322,6 @@
   const scrollDebounce = 200;
   function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
   function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
-  function onParticleEffectReady() { particleEffectReady.set(true); }
 </script>
 
 <svelte:head>

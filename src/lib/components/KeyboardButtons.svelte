@@ -23,7 +23,6 @@
   let wrapperElement: HTMLDivElement;
   let h2El: HTMLHeadingElement;
   let pEl: HTMLParagraphElement;
-  // FIX: This will target the .key-position containers, which are our pre-warm targets.
   let keyPositionElements: Element[] = [];
 
   onMount(() => {
@@ -35,36 +34,50 @@
   export function onEnterSection() {
     if (!h2El || !pEl || keyPositionElements.length === 0) return;
 
-    gsap.set(h2El, { autoAlpha: 0, y: 40 });
-    gsap.set(pEl, { autoAlpha: 0, y: 30 });
-    // Set the containers to be invisible. The pre-warmer will have already done this,
-    // but this ensures it's set correctly every time.
-    gsap.set(keyPositionElements, { autoAlpha: 0 });
+    // 1. Set the initial "hidden" state for all elements.
+    gsap.set(h2El, { autoAlpha: 0, y: 30 });
+    gsap.set(pEl, { autoAlpha: 0, y: 20 });
+    // Give the buttons a consistent "slide-up" starting position.
+    gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
 
+    // 2. Create the animation timeline.
     gsap.timeline({
-      delay: 0.2,
+      // FIX: Increase the delay significantly. This makes the animation wait
+      // until the parent section has mostly finished its transition into view.
+      delay: 0.5,
       onComplete: () => {
         dispatch('animationComplete');
       }
     })
-      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, 0)
-      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, 0.15)
-      // FIX: Animate the .key-position containers. This will make them and their children visible.
+      // 3. Animate the elements in a staggered sequence.
+      .to(h2El, { 
+          autoAlpha: 1, 
+          y: 0, 
+          duration: 0.9, 
+          ease: 'power3.out' 
+      }, 0) // Headline starts at time 0.
+      .to(pEl, { 
+          autoAlpha: 1, 
+          y: 0, 
+          duration: 0.8, 
+          ease: 'power3.out' 
+      }, 0.1) // Paragraph starts 0.1s after the headline.
       .to(keyPositionElements, {
           autoAlpha: 1,
-          duration: 0.5,
-          ease: 'power1.inOut',
-          stagger: 0.1,
+          y: 0,
+          duration: 0.7,
+          ease: 'power3.out',
+          stagger: 0.08, // A quick stagger for the buttons.
         }, 
-        0.3
+        0.25 // The button sequence starts 0.25s after the headline.
       );
   }
 
   export function onLeaveSection() {
-    // FIX: Ensure parent containers are included in the cleanup.
     const allElements = [h2El, pEl, ...keyPositionElements];
     if (allElements.some(el => !el)) return;
     
+    // Hard reset for interrupt-safety.
     gsap.killTweensOf(allElements);
     gsap.set(allElements, { autoAlpha: 0 });
   }
@@ -141,8 +154,6 @@
   .call-to-action-content { position: relative; }
   .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
   .key.call-to-action:hover .call-to-action-content:after { width: 100%;}
-  /* FIX: Remove opacity and visibility from the .key itself. Its visibility is now
-     entirely controlled by its parent, .key-position. */
   .key { 
     position: relative; 
     width: var(--keyboard-key-base-size); 

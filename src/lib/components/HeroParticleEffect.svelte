@@ -5,7 +5,6 @@
   import *  as THREE from 'three';
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
-  // FIX: Import the new generic preloadAssets function
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let activeSectionIndex: number;
@@ -40,7 +39,6 @@
 
     startLoadingTask(HERO_ASSETS_TASK_ID);
 
-    // FIX: Use the new generic preloader to manage asset status centrally.
     try {
       await preloadAssets([FONT_ASSET_PATH, PARTICLE_TEXTURE_ASSET_PATH]);
     } catch (error) {
@@ -49,7 +47,6 @@
       return;
     }
 
-    // Still use a local LoadingManager to know when assets are ready for *this component*.
     const manager = new THREE.LoadingManager();
     manager.onLoad = () => preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
     manager.onError = (url) => {
@@ -60,7 +57,6 @@
     const textureLoader = new THREE.TextureLoader(manager);
 
     try {
-      // Use the loaders, which will now pull from the browser cache thanks to preloadAssets.
       const [font, texture] = await Promise.all([
         fontLoader.loadAsync(FONT_ASSET_PATH),
         textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH)
@@ -211,20 +207,29 @@
   let isMountedAndInitialized = false;
   onMount(async () => {
     await tick(); 
+    
+    // Register the tasks this component is responsible for.
     if (!preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID)) {
       preloadingStore.registerTask(HERO_ASSETS_TASK_ID, 'pending');
     }
     if (!preloadingStore.getTaskStatus(HERO_INIT_TASK_ID)) {
       preloadingStore.registerTask(HERO_INIT_TASK_ID, 'pending');
     }
+
+    // Await the asset loading before proceeding.
     await _preloadAssets();
     isMountedAndInitialized = true;
-
-    dispatch('ready');
     
-    if (!isTransitioning && !isInitialLoad) {
-      _handleSettledState();
+    // FIX: The reactive `$: ` block won't fire for the initial state,
+    // so we must manually call the state handler on mount to ensure
+    // the Three.js instance is created during the loading screen phase.
+    if (!isTransitioning) {
+      await _handleSettledState();
     }
+    
+    // Only after all assets are loaded and the instance is created,
+    // we signal that this component is fully ready.
+    dispatch('ready');
   });
 
   onDestroy(() => {
@@ -241,6 +246,7 @@
     }
   });
 
+  // This reactive block handles all subsequent navigation after the initial load.
   $: if (isMountedAndInitialized && typeof activeSectionIndex === 'number') {
     if (!isTransitioning) {
         _handleSettledState();
