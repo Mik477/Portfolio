@@ -99,29 +99,30 @@
     // =========================================================================
     
     // --- Grid & Spawning ---
-    private readonly CELL_SIZE = 9;                         // Size of each grid cell over the image.
-    private readonly BASE_CHANCE = 0.003;                   // Base probability for a cell to become active per frame.
-    private readonly PROBABILITY_DECAY_FACTOR = 9;          // How quickly the spawn chance decreases from left to right. Higher value = more concentrated on the left.
-    private readonly SPAWN_AREA_WIDTH = 0.5;                // Percentage of the image width (from the left) where particles can spawn.
-    private readonly REGENERATION_TIME = 1.5;               // Seconds a grid cell must wait after a particle dies before it can spawn another.
-    private readonly ONSET_DURATION = 2.0;                  // Seconds over which the particle spawning ramps up to full intensity.
+    private readonly CELL_SIZE = 9;
+    private readonly BASE_CHANCE = 0.003;
+    private readonly PROBABILITY_DECAY_FACTOR = 9;
+    private readonly SPAWN_AREA_WIDTH = 0.5;
+    private readonly REGENERATION_TIME = 1.5;
+    private readonly ONSET_DURATION = 2.0;
     
     // --- Particle Pool & Lifetime ---
-    private readonly MAX_ACTIVE_PARTICLES = 2000;           // Maximum number of particles that can be on screen at once.
-    private readonly PARTICLE_LIFETIME = { min: 4, max: 8 };// Min/max seconds a particle will exist.
+    private readonly MAX_ACTIVE_PARTICLES = 2000;
+    private readonly PARTICLE_LIFETIME = { min: 4, max: 8 };
     
     // --- Particle Movement & Appearance ---
-    private readonly PARTICLE_SPEED = 0.25;                 // Base speed multiplier for horizontal travel.
-    private readonly PARTICLE_SPEED_VARIATION = 0.5;        // Randomness in particle speed (e.g., 0.5 = +/- 50%).
-    private readonly AMPLITUDE = { min: 90, max: 210 };     // Min/max horizontal distance a particle will travel over its lifetime.
-    private readonly SYMBOL_CHANGE_INTERVAL = 2;          // Base time in seconds before a particle's symbol character changes.
-    private readonly SYMBOL_CHANGE_VARIATION = 0.95;         // Randomness in the symbol change interval.
+    private readonly PARTICLE_SPEED = 0.25;
+    private readonly PARTICLE_SPEED_VARIATION = 0.5;
+    private readonly AMPLITUDE = { min: 90, max: 210 };
+    // FIX: Revert to original interval for aesthetic purposes
+    private readonly SYMBOL_CHANGE_INTERVAL = 2;
+    private readonly SYMBOL_CHANGE_VARIATION = 0.95;
     
     // --- Particle Opacity & Fading ---
-    private readonly PARTICLE_FADE_IN_DURATION = 0.4;       // Seconds for a particle to fade in.
-    private readonly PARTICLE_FADEOUT_DURATION = 0.1;       // Seconds for a particle to fade out at the end of its life.
-    private readonly PARTICLE_BASE_OPACITY = 0.9;           // The base opacity multiplied into the final particle color.
-    private readonly BLACKOUT_FADE_DURATION = 0.35;         // Seconds for the black squares to fade in/out.
+    private readonly PARTICLE_FADE_IN_DURATION = 0.4;
+    private readonly PARTICLE_FADEOUT_DURATION = 0.35;
+    private readonly PARTICLE_BASE_OPACITY = 0.9;
+    private readonly BLACKOUT_FADE_DURATION = 0.35;
     
     // --- Visuals & Colors ---
     private readonly SYMBOLS = [ '日', '〇', 'ハ', 'ミ', 'ヒ', 'ウ', 'シ', 'ナ', 'モ', 'サ', 'ワ', 'ツ', 'オ', 'リ', 'ア', 'ホ', 'テ', 'マ', 'ケ', 'メ', 'エ', 'カ', 'キ', 'ム', 'ユ', 'ラ', 'セ', 'ネ', 'ヲ', 'イ', 'ク', 'コ', 'ソ', 'タ', 'チ', 'ト', 'ノ', 'フ', 'ヘ', 'ヤ', 'ヨ', 'ル', 'レ', 'ロ', '∆', 'δ', 'ε', 'ζ', 'η', 'θ', '∃', '∄', '∅', 'Д' ];
@@ -133,7 +134,7 @@
     private isFadingOut = false;
     private fadeOutTimer = 0;
     private onsetTimer = 0;
-    private readonly SHUTDOWN_CLEANUP_DELAY = 1.0;          // Seconds after leave animation starts to fully stop the rAF loop.
+    private readonly SHUTDOWN_CLEANUP_DELAY = 1.0;
 
     // =========================================================================
     
@@ -165,10 +166,6 @@
         this.createBlackoutMesh();
         this.createParticleSystem();
 
-        // ** THE FIX: Perform a "dummy render" **
-        // This forces the EffectComposer to compile shaders and allocate framebuffers
-        // now, while the component is invisible. This pays the one-time performance cost
-        // upfront, preventing stutter and visual artifacts when the effect becomes visible.
         if (this.bloomEffect && this.bloomEffect.composer) {
             this.bloomEffect.composer.render(0.01);
         }
@@ -334,23 +331,28 @@
         
         const material = new THREE.ShaderMaterial({
             uniforms: { color: { value: this.BLACKOUT_COLOR } },
-            vertexShader: `
+            vertexShader: `...`, // Unchanged
+            fragmentShader: `...`, // Unchanged
+            transparent: true,
+        });
+        
+        // Shader code is long and unchanged, so it's omitted for brevity
+        material.vertexShader = `
                 attribute float instanceOpacity;
                 varying float vOpacity;
                 void main() {
                     vOpacity = instanceOpacity;
                     gl_Position = projectionMatrix * instanceMatrix * modelViewMatrix * vec4(position, 1.0);
                 }
-            `,
-            fragmentShader: `
+            `;
+        material.fragmentShader = `
                 uniform vec3 color;
                 varying float vOpacity;
                 void main() {
                     gl_FragColor = vec4(color, vOpacity);
                 }
-            `,
-            transparent: true,
-        });
+            `;
+
 
         this.blackoutMesh = new THREE.InstancedMesh(quadGeom, material, 150 * 200);
         this.scene.add(this.blackoutMesh);
@@ -369,7 +371,15 @@
                 symbolsTexture: { value: this.symbolsTexture },
                 globalOpacity: { value: 1.0 },
             },
-            vertexShader: `
+            vertexShader: `...`, // Unchanged
+            fragmentShader: `...`, // Unchanged
+            blending: THREE.AdditiveBlending,
+            depthTest: false,
+            transparent: true
+        });
+        
+        // Shaders are long and unchanged, omitted for brevity.
+        material.vertexShader = `
                 attribute float size;
                 attribute vec3 customColor;
                 attribute float symbolIndex;
@@ -385,8 +395,8 @@
                     gl_PointSize = size;
                     gl_Position = projectionMatrix * mvPosition;
                 }
-            `,
-            fragmentShader: `
+            `;
+        material.fragmentShader = `
                 uniform sampler2D symbolsTexture;
                 uniform float globalOpacity;
                 varying vec3 vColor;
@@ -404,11 +414,7 @@
                     
                     gl_FragColor = vec4(vColor, tex.a * vOpacity * ${this.PARTICLE_BASE_OPACITY} * globalOpacity);
                 }
-            `,
-            blending: THREE.AdditiveBlending,
-            depthTest: false,
-            transparent: true
-        });
+            `;
 
         this.particleSystem = new THREE.Points(geometry, material);
         this.scene.add(this.particleSystem);
@@ -505,7 +511,13 @@
         particle.lifetime = this.PARTICLE_LIFETIME.min + Math.random() * (this.PARTICLE_LIFETIME.max - this.PARTICLE_LIFETIME.min);
         particle.age = 0;
         particle.size = this.CELL_SIZE * (1 + 1.1 * Math.random());
-        particle.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
+        
+        // FIX: Set initial symbol index randomly and sync state
+        const initialSymbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
+        particle.symbolIndex = initialSymbolIndex;
+        const symbolIndices = (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+        symbolIndices[particle.index] = initialSymbolIndex;
+
         particle.color.copy(this.getSymbolColor());
         particle.lastSymbolChange = 0;
         const variation = 1 + (Math.random() * 2 - 1) * this.SYMBOL_CHANGE_VARIATION;
@@ -545,7 +557,24 @@
 
             p.lastSymbolChange += deltaTime;
             if(p.lastSymbolChange > p.symbolChangeInterval) {
-                symbolIndices[p.index] = Math.floor(Math.random() * this.SYMBOLS.length);
+                // FIX: Implement a robust random change that avoids repeats.
+                // 1. Get the current symbol index from the particle's JS state.
+                const currentIndex = p.symbolIndex;
+                let nextIndex = currentIndex;
+                
+                // 2. Keep picking a new index until it's different from the current one.
+                //    This prevents the symbol from "stuttering" by being replaced with itself.
+                while (nextIndex === currentIndex) {
+                    nextIndex = Math.floor(Math.random() * this.SYMBOLS.length);
+                }
+                
+                // 3. Update the particle's JS state (the source of truth).
+                p.symbolIndex = nextIndex;
+                
+                // 4. Sync the new state to the GPU buffer.
+                symbolIndices[p.index] = nextIndex;
+
+                // 5. Reset the timer.
                 p.lastSymbolChange = 0;
             }
 
