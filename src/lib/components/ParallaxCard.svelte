@@ -54,9 +54,9 @@
   }
 </script>
 
-<!-- Add the 'gpu-prewarm-target' class here -->
+<!-- FIX: Removed the 'gpu-prewarm-target' class from this div -->
 <div
-  class="card-wrap gpu-prewarm-target"
+  class="card-wrap"
   style:width
   style:height
   on:mousemove={handleMouseMove}

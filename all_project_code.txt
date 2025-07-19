@@ -199,7 +199,7 @@ export {};
     private readonly PROBABILITY_DECAY_FACTOR = 9;          // How quickly the spawn chance decreases from left to right. Higher value = more concentrated on the left.
     private readonly SPAWN_AREA_WIDTH = 0.5;                // Percentage of the image width (from the left) where particles can spawn.
     private readonly REGENERATION_TIME = 1.5;               // Seconds a grid cell must wait after a particle dies before it can spawn another.
-    private readonly ONSET_DURATION = 2.0;                  // Seconds over which the particle spawning ramps up to full intensity.
+    private readonly ONSET_DURATION = 5.0;      //Was 2            // Seconds over which the particle spawning ramps up to full intensity.
     
     // --- Particle Pool & Lifetime ---
     private readonly MAX_ACTIVE_PARTICLES = 2000;           // Maximum number of particles that can be on screen at once.
@@ -214,7 +214,7 @@ export {};
     
     // --- Particle Opacity & Fading ---
     private readonly PARTICLE_FADE_IN_DURATION = 0.4;       // Seconds for a particle to fade in.
-    private readonly PARTICLE_FADEOUT_DURATION = 0.1;       // Seconds for a particle to fade out at the end of its life.
+    private readonly PARTICLE_FADEOUT_DURATION = 0.3;       // Seconds for a particle to fade out at the end of its life.
     private readonly PARTICLE_BASE_OPACITY = 0.9;           // The base opacity multiplied into the final particle color.
     private readonly BLACKOUT_FADE_DURATION = 0.35;         // Seconds for the black squares to fade in/out.
     
@@ -1467,9 +1467,9 @@ export {};
   }
 </script>
 
-<!-- Add the 'gpu-prewarm-target' class here -->
+<!-- FIX: Removed the 'gpu-prewarm-target' class from this div -->
 <div
-  class="card-wrap gpu-prewarm-target"
+  class="card-wrap"
   style:width
   style:height
   on:mousemove={handleMouseMove}
@@ -1628,6 +1628,158 @@ export {};
   }
 </style>
 --- END OF FILE src\lib\components\TransitionOverlay.svelte ---
+
+--- START OF FILE src\lib\components\layouts\ProjectOneLayout.svelte ---
+<!-- src/lib/components/layouts/ProjectOneLayout.svelte -->
+<script lang="ts">
+  import type { Project, ProjectCard } from '$lib/data/projectsData';
+  import { transitionStore } from '$lib/stores/transitionStore';
+  import ParallaxCard from '$lib/components/ParallaxCard.svelte';
+
+  // These props are passed down from the orchestrator through the wrapper.
+  export let headline: string;
+  export let summary: string;
+  export let cards: ProjectCard[];
+  export let slug: string;
+  // FIX: Make this prop optional by providing a default value.
+  export let readMoreLinkText: string | undefined = undefined;
+
+  function handleCardClick(card: ProjectCard) {
+    const aspectLink = card.aspectLink || '';
+    transitionStore.fadeToBlackAndNavigate(`/projects/${slug}${aspectLink}`);
+  }
+
+  function handleReadMoreClick() {
+    transitionStore.fadeToBlackAndNavigate(`/projects/${slug}`);
+  }
+</script>
+
+<!-- 
+  This layout container is the direct child of the <slot> in ProjectSection.svelte.
+  It establishes a positioning context for its children.
+-->
+<div class="layout-container">
+
+  <!-- Text Block: Positioned in the bottom-left corner -->
+  <div class="text-block">
+    <h2 class="anim-headline">{headline}</h2>
+    <p class="anim-summary">{summary}</p>
+    {#if readMoreLinkText}
+      <button class="read-more-btn anim-button" on:click={handleReadMoreClick}>
+        <span>{readMoreLinkText}</span>
+      </button>
+    {/if}
+  </div>
+
+  <!-- Cards Block: Positioned in the right-center area -->
+  <div class="cards-block">
+    {#each cards as card, i (card.id)}
+      <div class="card-wrapper anim-card" style="--card-index: {i};">
+        <button type="button" class="card-click-target" on:click={() => handleCardClick(card)} aria-label="View details for {card.title}">
+          <ParallaxCard cardData={card} width="240px" height="320px" />
+        </button>
+      </div>
+    {/each}
+  </div>
+
+</div>
+
+<style>
+  .layout-container {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* --- Text Block Styling (Bottom-Left) --- */
+  .text-block {
+    position: absolute;
+    bottom: 12vh;
+    left: max(calc(env(safe-area-inset-left, 0px) + 8vw), 3rem);
+    width: 40%;
+    max-width: 550px;
+    z-index: 2;
+  }
+
+  h2 {
+    font-size: clamp(2.2rem, 5vw, 3.8rem);
+    font-weight: 300;
+    margin-bottom: 1.5rem;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    text-shadow: 0 3px 15px rgba(0,0,0,0.3);
+    /* GSAP will set opacity/visibility */
+  }
+
+  p {
+    font-size: clamp(1rem, 1.8vw, 1.15rem);
+    color: rgb(212 212 216);
+    line-height: 1.8;
+    margin-bottom: 2.5rem;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+    /* GSAP will set opacity/visibility */
+  }
+
+  .read-more-btn {
+    padding: 0.875rem 2rem;
+    background-color: rgb(99 102 241 / 0.8);
+    backdrop-filter: blur(5px);
+    color: white;
+    border: 1px solid rgb(129 140 248 / 0.5);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    /* GSAP will set opacity/visibility */
+  }
+  .read-more-btn:hover {
+    background-color: rgb(79 70 229);
+    transform: translateY(-3px);
+    box-shadow: 0 4px 25px rgba(99 102 241 / 0.4);
+  }
+
+  /* --- Cards Block Styling (Right-Side) --- */
+  .cards-block {
+    position: absolute;
+    top: 50%;
+    right: max(6vw, 2rem);
+    transform: translateY(-50%);
+    width: 50%;
+    z-index: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 2rem;
+  }
+
+  .card-wrapper {
+    /* GSAP will set opacity/visibility */
+  }
+
+  /*
+   This wrapper ensures the button functionality is clean and separate
+   from the ParallaxCard's internal hover/mouse logic.
+  */
+  .card-click-target {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    border-radius: 10px; /* Match ParallaxCard's border-radius */
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+  .card-click-target:hover {
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+  }
+  .card-click-target:focus-visible {
+    outline: 2px solid rgb(99 102 241);
+    outline-offset: 6px;
+  }
+</style>
+--- END OF FILE src\lib\components\layouts\ProjectOneLayout.svelte ---
 
 --- START OF FILE src\lib\components\sections\AboutSection.svelte ---
 <!-- src/lib/components/sections/AboutSection.svelte -->
@@ -2023,10 +2175,10 @@ export {};
 </style>
 --- END OF FILE src\lib\components\sections\HeroSection.svelte ---
 
---- START OF FILE src\lib\components\sections\ProjectOneSection.svelte ---
-<!-- src/lib/components/sections/ProjectOneSection.svelte -->
+--- START OF FILE src\lib\components\sections\ProjectSection.svelte ---
+<!-- src/lib/components/sections/ProjectSection.svelte -->
 <script context="module" lang="ts">
-  export type ProjectOneSectionInstance = {
+  export type ProjectSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
   };
@@ -2035,407 +2187,129 @@ export {};
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
-  import type { Project, ProjectCard } from '$lib/data/projectsData';
-  import ParallaxCard from '$lib/components/ParallaxCard.svelte';
-  // --- MODIFICATION: Import the new transition store ---
-  import { transitionStore } from '$lib/stores/transitionStore';
-  
-  const dispatch = createEventDispatcher();
-
-  export let project: Project;
-
-  let sectionEl: HTMLElement;
-  let headlineEl: HTMLHeadingElement;
-  let summaryEl: HTMLParagraphElement;
-  let readMoreBtn: HTMLButtonElement | null = null;
-  let cardWrapsToAnimate: HTMLElement[] = [];
-  
-  onMount(() => {
-    cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
-  });
-  
-  export function onEnterSection() {
-    if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
-
-    gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
-    gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
-    gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
-    if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
-
-    const tl = gsap.timeline({
-      onComplete: () => {
-        dispatch('animationComplete');
-      }
-    });
-    tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
-      .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
-      .to(cardWrapsToAnimate, { 
-          autoAlpha: 1,
-          scale: 1, 
-          duration: 2.8, 
-          stagger: 0.15, 
-          ease: 'expo.out' 
-      }, "start+=0.2");
-
-    if (readMoreBtn) {
-      tl.to(readMoreBtn, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
-    }
-  }
-
-  export function onLeaveSection() {
-    if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
-    
-    const allElements = [headlineEl, summaryEl, ...cardWrapsToAnimate];
-    if (readMoreBtn) allElements.push(readMoreBtn);
-    
-    gsap.killTweensOf(allElements);
-    gsap.set(allElements, { autoAlpha: 0 });
-  }
-  
-  function handleCardClick(card: ProjectCard) {
-    const aspectLink = card.aspectLink || '';
-    // --- MODIFICATION: Use the transition store for navigation ---
-    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}${aspectLink}`);
-  }
-
-  function handleReadMoreClick() {
-    // --- MODIFICATION: Use the transition store for navigation ---
-    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}`);
-  }
-</script>
-
-<div class="project-section-wrapper" bind:this={sectionEl}>
-  <div class="background-image-container" style="background-image: url({project.background.value});"></div>
-  <div class="content-overlay">
-    <div class="project-content">
-      <h2 bind:this={headlineEl}>{project.headline}</h2>
-      <p class="project-summary" bind:this={summaryEl}>{project.summary}</p>
-      
-      <div class="project-cards-container">
-        {#each project.cards as card (card.id)}
-          <button type="button" class="card-click-wrapper" on:click={() => handleCardClick(card)}>
-            <ParallaxCard cardData={card} width="220px" height="290px" />
-          </button>
-        {/each}
-      </div>
-      
-      {#if project.readMoreLinkText}
-        <button class="read-more-btn" on:click={handleReadMoreClick} bind:this={readMoreBtn}>
-            {project.readMoreLinkText}
-        </button>
-      {/if}
-    </div>
-  </div>
-</div>
-
-<style>
-    .project-section-wrapper { 
-        width: 100%; 
-        height: 100%; 
-        color: rgb(245 245 247); 
-        z-index: 2; 
-        background-color: transparent; 
-        display: flex; 
-        flex-direction: column; 
-        justify-content: center; 
-        align-items: center; 
-    }
-    .background-image-container { 
-        position: absolute; 
-        top: 0; 
-        left: 0; 
-        width: 100%; 
-        height: 100%; 
-        background-size: cover; 
-        background-position: center; 
-        z-index: -1; 
-        transform: scale(1); 
-    }
-    .content-overlay { 
-        background-color: rgba(9 9 11 / 0.85); 
-        backdrop-filter: blur(8px); 
-        padding: 2rem 3rem; 
-        border-radius: 16px; 
-        width: 90%; 
-        max-width: 1100px; 
-        z-index: 1; 
-        position: relative; 
-        border: 1px solid rgba(255 255 255 / 0.1); 
-    }
-    .project-content { 
-        text-align: center; 
-    }
-    h2 { 
-        opacity: 0; 
-        visibility: hidden;
-        font-size: 2.5rem; 
-        font-weight: 300; 
-        margin-bottom: 1rem; 
-        letter-spacing: -0.02em; 
-    }
-    p.project-summary { 
-        opacity: 0; 
-        visibility: hidden;
-        font-size: 1.15rem; 
-        color: rgb(212 212 216); 
-        line-height: 1.7; 
-        margin-bottom: 2rem; 
-        max-width: 800px; 
-        margin-left: auto; 
-        margin-right: auto; 
-    }
-    .project-cards-container { 
-        display: flex; 
-        justify-content: center; 
-        gap: 1rem; 
-        margin-top: 1rem; 
-        margin-bottom: 2rem; 
-        flex-wrap: wrap; 
-    }
-    .card-click-wrapper { 
-        background: none; 
-        border: none; 
-        padding: 0; 
-        cursor: pointer; 
-        border-radius: 10px; 
-        transition: transform 0.3s ease, box-shadow 0.3s ease; 
-    }
-    .card-click-wrapper:hover { 
-        transform: translateY(-5px); 
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
-    }
-    .card-click-wrapper:focus-visible { 
-        outline: 2px solid rgb(99 102 241); 
-        outline-offset: 4px; 
-    }
-    button.read-more-btn { 
-        opacity: 0; 
-        visibility: hidden;
-        padding: 0.875rem 2rem; 
-        background-color: rgb(99 102 241); 
-        color: white; 
-        border: none; 
-        border-radius: 8px; 
-        cursor: pointer; 
-        font-size: 1rem; 
-        font-weight: 500; 
-        transition: all 0.3s ease; 
-        margin-top: 1rem; 
-    }
-    button.read-more-btn:hover { 
-        background-color: rgb(79 70 229); 
-        transform: translateY(-2px); 
-        box-shadow: 0 4px 20px rgba(99 102 241 / 0.4); 
-    }
-</style>
---- END OF FILE src\lib\components\sections\ProjectOneSection.svelte ---
-
---- START OF FILE src\lib\components\sections\ProjectTwoSection.svelte ---
-<!-- src/lib/components/sections/ProjectTwoSection.svelte -->
-<script context="module" lang="ts">
-  export type ProjectTwoSectionInstance = {
-    onEnterSection: () => void;
-    onLeaveSection: () => void;
-  };
-</script>
-
-<script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
-  import { gsap } from 'gsap';
-  import type { Project, ProjectCard } from '$lib/data/projectsData';
-  import ParallaxCard from '$lib/components/ParallaxCard.svelte';
-  // --- MODIFICATION: Import the new transition store ---
-  import { transitionStore } from '$lib/stores/transitionStore';
+  import type { Project } from '$lib/data/projectsData';
 
   const dispatch = createEventDispatcher();
 
   export let project: Project;
 
-  let sectionEl: HTMLElement;
-  let headlineEl: HTMLHeadingElement;
-  let summaryEl: HTMLParagraphElement;
-  let readMoreBtn: HTMLButtonElement | null = null;
-  let cardWrapsToAnimate: HTMLElement[] = [];
-  
-  onMount(() => {
-    cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
-  });
-  
+  let sectionWrapperEl: HTMLElement;
+
   export function onEnterSection() {
-    if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
-
-    gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
-    gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
-    gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
-    if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
-
+    const headline = sectionWrapperEl.querySelector('.anim-headline');
+    const summary = sectionWrapperEl.querySelector('.anim-summary');
+    const cards = gsap.utils.toArray(sectionWrapperEl.querySelectorAll('.anim-card'));
+    const button = sectionWrapperEl.querySelector('.anim-button');
+    
+    if (headline) gsap.set(headline, { autoAlpha: 0, y: 50 });
+    if (summary) gsap.set(summary, { autoAlpha: 0, y: 40 });
+    if (cards.length > 0) gsap.set(cards, { autoAlpha: 0, scale: 0.95, y: 20 });
+    
+    // --- FIX START: Modify the button's initial state ---
+    if (button) gsap.set(button, { autoAlpha: 0, y: 6, scale: 0.97 });
+    // --- FIX END ---
+    
     const tl = gsap.timeline({
+      delay: 0.2,
       onComplete: () => {
         dispatch('animationComplete');
       }
     });
-    tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
-      .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
-      .to(cardWrapsToAnimate, { 
-          autoAlpha: 1,
-          scale: 1, 
-          duration: 2.8, 
-          stagger: 0.15, 
-          ease: 'expo.out' 
-      }, "start+=0.2");
 
-    if (readMoreBtn) {
-      tl.to(readMoreBtn, { autoAlpha: 1, duration: 0.5, ease: 'power2.out' }, "start+=0.4");
+    if (headline) {
+      tl.to(headline, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 'start');
     }
+    if (summary) {
+      tl.to(summary, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 'start+=0.15');
+    }
+    if (cards.length > 0) {
+      tl.to(cards, { 
+        autoAlpha: 1, 
+        scale: 1,
+        y: 0,
+        duration: 1.2, 
+        stagger: 0.1, 
+        ease: 'expo.out' 
+      }, 'start+=0.25');
+    }
+    
+    // --- FIX START: Modify the button's final animation ---
+    if (button) {
+      tl.to(button, { 
+        autoAlpha: 1, 
+        y: 0, 
+        scale: 1, 
+        duration: 1.2, // Longer duration for a more dramatic feel
+        ease: 'expo.out' // A more pronounced ease
+      }, 'start+=0.4');
+    }
+    // --- FIX END ---
   }
 
   export function onLeaveSection() {
-    if (!headlineEl || !summaryEl || cardWrapsToAnimate.length === 0) return;
+    const animatableElements = gsap.utils.toArray(
+      sectionWrapperEl.querySelectorAll('.anim-headline, .anim-summary, .anim-card, .anim-button')
+    );
+    if (animatableElements.length === 0) return;
     
-    const allElements = [headlineEl, summaryEl, ...cardWrapsToAnimate];
-    if (readMoreBtn) allElements.push(readMoreBtn);
-    
-    gsap.killTweensOf(allElements);
-    gsap.set(allElements, { autoAlpha: 0 });
-  }
-  
-  function handleCardClick(card: ProjectCard) {
-    const aspectLink = card.aspectLink || '';
-    // --- MODIFICATION: Use the transition store for navigation ---
-    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}${aspectLink}`);
-  }
-
-  function handleReadMoreClick() {
-    // --- MODIFICATION: Use the transition store for navigation ---
-    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}`);
+    gsap.killTweensOf(animatableElements);
+    gsap.set(animatableElements, { autoAlpha: 0 });
   }
 </script>
 
-<div class="project-section-wrapper" bind:this={sectionEl}>
-  <div class="background-image-container" style="background-image: url({project.background.value});"></div>
-  <div class="content-overlay">
-    <div class="project-content">
-      <h2 bind:this={headlineEl}>{project.headline}</h2>
-      <p class="project-summary" bind:this={summaryEl}>{project.summary}</p>
-      
-      <div class="project-cards-container">
-        {#each project.cards as card (card.id)}
-          <button type="button" class="card-click-wrapper" on:click={() => handleCardClick(card)}>
-            <ParallaxCard cardData={card} width="220px" height="290px" />
-          </button>
-        {/each}
-      </div>
-      
-      {#if project.readMoreLinkText}
-        <button class="read-more-btn" on:click={handleReadMoreClick} bind:this={readMoreBtn}>
-            {project.readMoreLinkText}
-        </button>
-      {/if}
-    </div>
+<div class="project-section-wrapper" bind:this={sectionWrapperEl}>
+  <div 
+    class="background-image-container" 
+    style="background-image: url({project.background.value});"
+    aria-hidden="true"
+    role="presentation"
+  ></div>
+  <div class="content-host">
+    <slot></slot>
   </div>
 </div>
 
 <style>
-    .project-section-wrapper { 
-        width: 100%; 
-        height: 100%; 
-        color: rgb(245 245 247); 
-        z-index: 2; 
-        background-color: transparent; 
-        display: flex; 
-        flex-direction: column; 
-        justify-content: center; 
-        align-items: center; 
+  .project-section-wrapper {
+    width: 100%;
+    height: 100%;
+    color: rgb(245 245 247);
+    z-index: 2;
+    background-color: transparent;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .background-image-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-size: cover;
+    background-position: center;
+    z-index: 0;
+    transform: scale(1);
+    
+    &::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(to top, rgba(9, 9, 11, 0.6), rgba(9, 9, 11, 0.2) 60%, transparent 100%);
     }
-    .background-image-container { 
-        position: absolute; 
-        top: 0; 
-        left: 0; 
-        width: 100%; 
-        height: 100%; 
-        background-size: cover; 
-        background-position: center; 
-        z-index: -1; 
-        transform: scale(1); 
-    }
-    .content-overlay { 
-        background-color: rgba(9 9 11 / 0.85); 
-        backdrop-filter: blur(8px); 
-        padding: 2rem 3rem; 
-        border-radius: 16px; 
-        width: 90%; 
-        max-width: 1100px; 
-        z-index: 1; 
-        position: relative; 
-        border: 1px solid rgba(255 255 255 / 0.1); 
-    }
-    .project-content { 
-        text-align: center; 
-    }
-    h2 { 
-        opacity: 0; 
-        visibility: hidden;
-        font-size: 2.5rem; 
-        font-weight: 300; 
-        margin-bottom: 1rem; 
-        letter-spacing: -0.02em; 
-    }
-    p.project-summary { 
-        opacity: 0; 
-        visibility: hidden;
-        font-size: 1.15rem; 
-        color: rgb(212 212 216); 
-        line-height: 1.7; 
-        margin-bottom: 2rem; 
-        max-width: 800px; 
-        margin-left: auto; 
-        margin-right: auto; 
-    }
-    .project-cards-container { 
-        display: flex; 
-        justify-content: center; 
-        gap: 1rem; 
-        margin-top: 1rem; 
-        margin-bottom: 2rem; 
-        flex-wrap: wrap; 
-    }
-    .card-click-wrapper { 
-        background: none; 
-        border: none; 
-        padding: 0; 
-        cursor: pointer; 
-        border-radius: 10px; 
-        transition: transform 0.3s ease, box-shadow 0.3s ease; 
-    }
-    .card-click-wrapper:hover { 
-        transform: translateY(-5px); 
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
-    }
-    .card-click-wrapper:focus-visible { 
-        outline: 2px solid rgb(99 102 241); 
-        outline-offset: 4px; 
-    }
-    button.read-more-btn { 
-        opacity: 0; 
-        visibility: hidden;
-        padding: 0.875rem 2rem; 
-        background-color: rgb(99 102 241); 
-        color: white; 
-        border: none; 
-        border-radius: 8px; 
-        cursor: pointer; 
-        font-size: 1rem; 
-        font-weight: 500; 
-        transition: all 0.3s ease; 
-        margin-top: 1rem; 
-    }
-    button.read-more-btn:hover { 
-        background-color: rgb(79 70 229); 
-        transform: translateY(-2px); 
-        box-shadow: 0 4px 20px rgba(99 102 241 / 0.4); 
-    }
+  }
+  
+  .content-host {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+  }
 </style>
---- END OF FILE src\lib\components\sections\ProjectTwoSection.svelte ---
+--- END OF FILE src\lib\components\sections\ProjectSection.svelte ---
 
 --- START OF FILE src\lib\data\projectsData.ts ---
 // src/lib/data/projectsData.ts
@@ -4083,9 +3957,10 @@ export class CreateParticles {
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import HeroSection from '$lib/components/sections/HeroSection.svelte';
   import AboutSection from '$lib/components/sections/AboutSection.svelte';
-  import ProjectOneSection from '$lib/components/sections/ProjectOneSection.svelte';
-  import ProjectTwoSection from '$lib/components/sections/ProjectTwoSection.svelte';
   import ContactSection from '$lib/components/sections/ContactSection.svelte';
+  import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
+  import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
+  // import ProjectTwoLayout from '$lib/components/layouts/ProjectTwoLayout.svelte';
 
   // Type Imports
   interface IAnimatedComponent {
@@ -4097,13 +3972,23 @@ export class CreateParticles {
   }
   import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
 
-  // Section Data
+  // Section Data Structure
   const allSectionsData = [
-    { id: 'hero', component: HeroSection, data: siteConfig.heroSection },
-    { id: 'about', component: AboutSection, data: siteConfig.aboutSection },
-    { id: `project-${projects[0].id}`, component: ProjectOneSection, data: projects[0] },
-    { id: `project-${projects[1].id}`, component: ProjectTwoSection, data: projects[1] },
-    { id: 'contact', component: ContactSection, data: siteConfig.contactSection }
+    { id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
+    { id: 'about', component: AboutSection, data: siteConfig.aboutSection, layout: null },
+    { 
+      id: `project-${projects[0].id}`, 
+      component: ProjectSection, 
+      layout: ProjectOneLayout,
+      data: projects[0] 
+    },
+    { 
+      id: `project-${projects[1].id}`, 
+      component: ProjectSection,
+      layout: ProjectOneLayout,
+      data: projects[1]
+    },
+    { id: 'contact', component: ContactSection, data: siteConfig.contactSection, layout: null }
   ];
   const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
 
@@ -4134,7 +4019,7 @@ export class CreateParticles {
   let sectionElements: HTMLElement[] = [];
   let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
   const transitionDuration = 1.1;
-  const projectBgZoomDuration = 3;
+  const projectBgZoomDuration = 5; // <-- FIX: Aligned with subpage duration
   const minSectionDisplayDuration = 1.2;
   const initialRevealDelay = 300;
   const particleFadeInDuration = 1.5;
@@ -4146,13 +4031,13 @@ export class CreateParticles {
   let mainContainerPointerEvents = 'auto';
   $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
 
-  // --- Promise setup for initial load ---
+  // Promise setup for initial load
   let heroReadyResolver: () => void;
   const heroReadyPromise = new Promise<void>(resolve => {
     heroReadyResolver = resolve;
   });
 
-  // --- The HYBRID Preload Manager ---
+  // The HYBRID Preload Manager
   const preloadManager = {
     isPrewarming: false,
     
@@ -4318,9 +4203,14 @@ export class CreateParticles {
         console.error("Could not find all section elements in the DOM.");
         return;
       }
+      
       sectionElements.forEach((sectionEl, index) => {
-        const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
-        sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
+        const sectionData = allSectionsData[index];
+        if (sectionData.id.startsWith('project-')) {
+          const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
+          // <-- FIX: Aligned tween parameters with subpage behavior
+          sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.08, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
+        }
         gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
       });
 
@@ -4389,7 +4279,7 @@ export class CreateParticles {
     const newInstance = sectionInstances.get(allSectionsData[newIndex].id);
     
     oldInstance?.onLeaveSection();
-    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause();
     newInstance?.onEnterSection();
 
     const currentSectionEl = sectionElements[oldIndex]; 
@@ -4400,7 +4290,7 @@ export class CreateParticles {
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
-        sectionBackgroundZooms[newIndex]?.restart();
+        // <-- FIX: Zoom start is now handled by the timeline call below
         
         preloadManager.updateNeighborStates(newIndex);
         
@@ -4418,6 +4308,11 @@ export class CreateParticles {
     masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     
+    // <-- FIX: Add the correctly timed call to start the zoom *during* the transition
+    masterTransitionTl.call(() => {
+        sectionBackgroundZooms[newIndex]?.restart();
+    }, [], `slide+=${transitionDuration * 0.1}`);
+
     gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
       isAnimating.set(false); 
     }); 
@@ -4467,18 +4362,17 @@ export class CreateParticles {
             {navigateToSection}
             on:animationComplete={handleAnimationComplete}
           />
-        {:else if section.id === `project-${projects[0].id}`}
-          <ProjectOneSection
+        {:else if section.id.startsWith('project-')}
+          <ProjectSection
             bind:this={sectionInstancesArray[i + 1]}
             project={section.data as Project}
             on:animationComplete={handleAnimationComplete}
-          />
-        {:else if section.id === `project-${projects[1].id}`}
-          <ProjectTwoSection
-            bind:this={sectionInstancesArray[i + 1]}
-            project={section.data as Project}
-            on:animationComplete={handleAnimationComplete}
-          />
+          >
+            <svelte:component 
+              this={section.layout} 
+              {...(section.data as Project)}
+            />
+          </ProjectSection>
         {:else if section.id === 'contact'}
           <ContactSection
             bind:this={sectionInstancesArray[i + 1]}
@@ -4491,7 +4385,6 @@ export class CreateParticles {
   </main>
 
   <style>
-    /* --- MODIFICATION: The global body style has been removed from here. --- */
     .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
     .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
     .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }

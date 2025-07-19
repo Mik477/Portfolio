@@ -12,9 +12,10 @@
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
   import HeroSection from '$lib/components/sections/HeroSection.svelte';
   import AboutSection from '$lib/components/sections/AboutSection.svelte';
-  import ProjectOneSection from '$lib/components/sections/ProjectOneSection.svelte';
-  import ProjectTwoSection from '$lib/components/sections/ProjectTwoSection.svelte';
   import ContactSection from '$lib/components/sections/ContactSection.svelte';
+  import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
+  import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
+  // import ProjectTwoLayout from '$lib/components/layouts/ProjectTwoLayout.svelte';
 
   // Type Imports
   interface IAnimatedComponent {
@@ -26,13 +27,23 @@
   }
   import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
 
-  // Section Data
+  // Section Data Structure
   const allSectionsData = [
-    { id: 'hero', component: HeroSection, data: siteConfig.heroSection },
-    { id: 'about', component: AboutSection, data: siteConfig.aboutSection },
-    { id: `project-${projects[0].id}`, component: ProjectOneSection, data: projects[0] },
-    { id: `project-${projects[1].id}`, component: ProjectTwoSection, data: projects[1] },
-    { id: 'contact', component: ContactSection, data: siteConfig.contactSection }
+    { id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
+    { id: 'about', component: AboutSection, data: siteConfig.aboutSection, layout: null },
+    { 
+      id: `project-${projects[0].id}`, 
+      component: ProjectSection, 
+      layout: ProjectOneLayout,
+      data: projects[0] 
+    },
+    { 
+      id: `project-${projects[1].id}`, 
+      component: ProjectSection,
+      layout: ProjectOneLayout,
+      data: projects[1]
+    },
+    { id: 'contact', component: ContactSection, data: siteConfig.contactSection, layout: null }
   ];
   const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
 
@@ -63,7 +74,7 @@
   let sectionElements: HTMLElement[] = [];
   let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
   const transitionDuration = 1.1;
-  const projectBgZoomDuration = 3;
+  const projectBgZoomDuration = 5; // <-- FIX: Aligned with subpage duration
   const minSectionDisplayDuration = 1.2;
   const initialRevealDelay = 300;
   const particleFadeInDuration = 1.5;
@@ -75,13 +86,13 @@
   let mainContainerPointerEvents = 'auto';
   $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
 
-  // --- Promise setup for initial load ---
+  // Promise setup for initial load
   let heroReadyResolver: () => void;
   const heroReadyPromise = new Promise<void>(resolve => {
     heroReadyResolver = resolve;
   });
 
-  // --- The HYBRID Preload Manager ---
+  // The HYBRID Preload Manager
   const preloadManager = {
     isPrewarming: false,
     
@@ -247,9 +258,14 @@
         console.error("Could not find all section elements in the DOM.");
         return;
       }
+      
       sectionElements.forEach((sectionEl, index) => {
-        const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
-        sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
+        const sectionData = allSectionsData[index];
+        if (sectionData.id.startsWith('project-')) {
+          const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
+          // <-- FIX: Aligned tween parameters with subpage behavior
+          sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.08, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
+        }
         gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
       });
 
@@ -318,7 +334,7 @@
     const newInstance = sectionInstances.get(allSectionsData[newIndex].id);
     
     oldInstance?.onLeaveSection();
-    sectionBackgroundZooms[oldIndex]?.progress(0).pause(); 
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause();
     newInstance?.onEnterSection();
 
     const currentSectionEl = sectionElements[oldIndex]; 
@@ -329,7 +345,7 @@
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
-        sectionBackgroundZooms[newIndex]?.restart();
+        // <-- FIX: Zoom start is now handled by the timeline call below
         
         preloadManager.updateNeighborStates(newIndex);
         
@@ -347,6 +363,11 @@
     masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     
+    // <-- FIX: Add the correctly timed call to start the zoom *during* the transition
+    masterTransitionTl.call(() => {
+        sectionBackgroundZooms[newIndex]?.restart();
+    }, [], `slide+=${transitionDuration * 0.1}`);
+
     gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
       isAnimating.set(false); 
     }); 
@@ -396,18 +417,17 @@
             {navigateToSection}
             on:animationComplete={handleAnimationComplete}
           />
-        {:else if section.id === `project-${projects[0].id}`}
-          <ProjectOneSection
+        {:else if section.id.startsWith('project-')}
+          <ProjectSection
             bind:this={sectionInstancesArray[i + 1]}
             project={section.data as Project}
             on:animationComplete={handleAnimationComplete}
-          />
-        {:else if section.id === `project-${projects[1].id}`}
-          <ProjectTwoSection
-            bind:this={sectionInstancesArray[i + 1]}
-            project={section.data as Project}
-            on:animationComplete={handleAnimationComplete}
-          />
+          >
+            <svelte:component 
+              this={section.layout} 
+              {...(section.data as Project)}
+            />
+          </ProjectSection>
         {:else if section.id === 'contact'}
           <ContactSection
             bind:this={sectionInstancesArray[i + 1]}
@@ -420,7 +440,6 @@
   </main>
 
   <style>
-    /* --- MODIFICATION: The global body style has been removed from here. --- */
     .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
     .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
     .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }

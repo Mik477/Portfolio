@@ -114,7 +114,7 @@
     private readonly PROBABILITY_DECAY_FACTOR = 9;          // How quickly the spawn chance decreases from left to right. Higher value = more concentrated on the left.
     private readonly SPAWN_AREA_WIDTH = 0.5;                // Percentage of the image width (from the left) where particles can spawn.
     private readonly REGENERATION_TIME = 1.5;               // Seconds a grid cell must wait after a particle dies before it can spawn another.
-    private readonly ONSET_DURATION = 2.0;                  // Seconds over which the particle spawning ramps up to full intensity.
+    private readonly ONSET_DURATION = 5.0;      //Was 2            // Seconds over which the particle spawning ramps up to full intensity.
     
     // --- Particle Pool & Lifetime ---
     private readonly MAX_ACTIVE_PARTICLES = 2000;           // Maximum number of particles that can be on screen at once.
@@ -129,7 +129,7 @@
     
     // --- Particle Opacity & Fading ---
     private readonly PARTICLE_FADE_IN_DURATION = 0.4;       // Seconds for a particle to fade in.
-    private readonly PARTICLE_FADEOUT_DURATION = 0.1;       // Seconds for a particle to fade out at the end of its life.
+    private readonly PARTICLE_FADEOUT_DURATION = 0.3;       // Seconds for a particle to fade out at the end of its life.
     private readonly PARTICLE_BASE_OPACITY = 0.9;           // The base opacity multiplied into the final particle color.
     private readonly BLACKOUT_FADE_DURATION = 0.35;         // Seconds for the black squares to fade in/out.
     

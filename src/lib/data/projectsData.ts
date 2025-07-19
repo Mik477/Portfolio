@@ -53,7 +53,7 @@ export const projects: Project[] = [
     summary: 'Leveraging machine learning to proactively identify and mitigate customer churn, improving retention rates.',
     background: {
       type: 'image',
-      value: '/images/projects/project-one/background.jpg',
+      value: '/images/projects/project-one/background.webp',
     },
     tags: ['Machine Learning', 'Python', 'Scikit-learn', 'Data Analysis'],
     cards: [
