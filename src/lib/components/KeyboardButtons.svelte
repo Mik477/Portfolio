@@ -42,8 +42,6 @@
 
     // 2. Create the animation timeline.
     gsap.timeline({
-      // FIX: Increase the delay significantly. This makes the animation wait
-      // until the parent section has mostly finished its transition into view.
       delay: 0.5,
       onComplete: () => {
         dispatch('animationComplete');

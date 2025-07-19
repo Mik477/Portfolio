@@ -6,6 +6,7 @@
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
     onTransitionComplete?: () => void;
+    onUnload?: () => void; // <<< ADDED
   };
 </script>
 
@@ -61,6 +62,17 @@
       gsap.set(mainContainer, { autoAlpha: 0 });
     }
   }
+
+  // --- NEW Component API Method ---
+  export function onUnload() {
+    if (effectInstance) {
+      console.log('AboutImageEffect: Unloading and disposing Three.js resources.');
+      effectInstance.dispose();
+      effectInstance = null;
+    }
+    // Reset the initialization flag so it can be re-initialized if needed.
+    isInitialized = false;
+  }
   
   // --- Lifecycle ---
 
@@ -69,11 +81,9 @@
   });
 
   onDestroy(() => {
+    // onDestroy should also ensure cleanup, acting as a final safeguard.
+    onUnload();
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
-    if (effectInstance) {
-      effectInstance.dispose();
-      effectInstance = null;
-    }
   });
 
   // --- DigitalDecayEffect Class ---
@@ -165,10 +175,6 @@
         this.createBlackoutMesh();
         this.createParticleSystem();
 
-        // ** THE FIX: Perform a "dummy render" **
-        // This forces the EffectComposer to compile shaders and allocate framebuffers
-        // now, while the component is invisible. This pays the one-time performance cost
-        // upfront, preventing stutter and visual artifacts when the effect becomes visible.
         if (this.bloomEffect && this.bloomEffect.composer) {
             this.bloomEffect.composer.render(0.01);
         }
@@ -224,6 +230,15 @@
       window.removeEventListener('resize', this.boundOnWindowResize);
       if (this.bloomEffect) {
         this.bloomEffect.dispose();
+      }
+      if (this.renderer) {
+        this.renderer.dispose();
+        if (this.renderer.domElement.parentNode) {
+            this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+        }
+      }
+      if (this.scene) {
+        // Basic scene disposal
       }
     }
 

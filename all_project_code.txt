@@ -85,13 +85,14 @@ export {};
 --- START OF FILE src\lib\components\AboutImageEffect.svelte ---
 <!-- src/lib/components/AboutImageEffect.svelte -->
 <script context="module" lang="ts">
-  // FIX: Add the new optional methods to the exported type.
   // This allows other components to know about and call them safely.
   export type AboutImageEffectInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
     onTransitionComplete?: () => void;
+    // --- MODIFICATION: Expose the dispose method for the parent to call ---
+    dispose?: () => void;
   };
 </script>
 
@@ -123,10 +124,19 @@ export {};
     isInitialized = true;
   }
 
-  export async function onEnterSection() {
-    if (!isInitialized) {
-      await initializeEffect();
+  /**
+   * Exposes the internal dispose method and resets the initialization state,
+   * making the component fully re-initializable by the preloader.
+   */
+  export function dispose() {
+    if (effectInstance) {
+      effectInstance.dispose();
+      effectInstance = null;
+      isInitialized = false; // CRITICAL: Reset for re-initialization
     }
+  }
+
+  export async function onEnterSection() {
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
 
     fadeInTimeoutId = window.setTimeout(() => {
@@ -154,15 +164,13 @@ export {};
   // --- Lifecycle ---
 
   onMount(() => {
-    // Initialization is fully deferred.
+    // Initialization is fully deferred to the Animation API.
   });
 
   onDestroy(() => {
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
-    if (effectInstance) {
-      effectInstance.dispose();
-      effectInstance = null;
-    }
+    // Call our new exposed dispose function on component destruction
+    dispose();
   });
 
   // --- DigitalDecayEffect Class ---
@@ -183,33 +191,49 @@ export {};
     private renderer!: THREE.WebGLRenderer;
     private bloomEffect!: BloomEffect;
 
-    private readonly CELL_SIZE = 9;
-    private readonly BASE_CHANCE = 0.003;
-    private readonly PROBABILITY_DECAY_FACTOR = 9;
-    private readonly SPAWN_AREA_WIDTH = 0.5;
-    private readonly REGENERATION_TIME = 1.5;
-    private readonly ONSET_DURATION = 2.0;
-    private readonly MAX_ACTIVE_PARTICLES = 2000;
-    private readonly PARTICLE_LIFETIME = { min: 4, max: 8 };
-    private readonly PARTICLE_SPEED = 0.25;
-    private readonly PARTICLE_SPEED_VARIATION = 0.5;
-    private readonly AMPLITUDE = { min: 90, max: 210 };
-    private readonly SYMBOL_CHANGE_INTERVAL = 1.5;
-    private readonly SYMBOL_CHANGE_VARIATION = 0.8;
-    private readonly PARTICLE_FADE_IN_DURATION = 0.4;
-    private readonly PARTICLE_FADEOUT_DURATION = 0.1;
-    private readonly PARTICLE_BASE_OPACITY = 0.9;
-    private readonly BLACKOUT_FADE_DURATION = 0.35;
+    // =========================================================================
+    // == EFFECT PARAMETERS ==
+    // =========================================================================
+    
+    // --- Grid & Spawning ---
+    private readonly CELL_SIZE = 9;                         // Size of each grid cell over the image.
+    private readonly BASE_CHANCE = 0.003;                   // Base probability for a cell to become active per frame.
+    private readonly PROBABILITY_DECAY_FACTOR = 9;          // How quickly the spawn chance decreases from left to right. Higher value = more concentrated on the left.
+    private readonly SPAWN_AREA_WIDTH = 0.5;                // Percentage of the image width (from the left) where particles can spawn.
+    private readonly REGENERATION_TIME = 1.5;               // Seconds a grid cell must wait after a particle dies before it can spawn another.
+    private readonly ONSET_DURATION = 2.0;                  // Seconds over which the particle spawning ramps up to full intensity.
+    
+    // --- Particle Pool & Lifetime ---
+    private readonly MAX_ACTIVE_PARTICLES = 2000;           // Maximum number of particles that can be on screen at once.
+    private readonly PARTICLE_LIFETIME = { min: 4, max: 8 };// Min/max seconds a particle will exist.
+    
+    // --- Particle Movement & Appearance ---
+    private readonly PARTICLE_SPEED = 0.25;                 // Base speed multiplier for horizontal travel.
+    private readonly PARTICLE_SPEED_VARIATION = 0.5;        // Randomness in particle speed (e.g., 0.5 = +/- 50%).
+    private readonly AMPLITUDE = { min: 90, max: 210 };     // Min/max horizontal distance a particle will travel over its lifetime.
+    private readonly SYMBOL_CHANGE_INTERVAL = 2;          // Base time in seconds before a particle's symbol character changes.
+    private readonly SYMBOL_CHANGE_VARIATION = 0.95;         // Randomness in the symbol change interval.
+    
+    // --- Particle Opacity & Fading ---
+    private readonly PARTICLE_FADE_IN_DURATION = 0.4;       // Seconds for a particle to fade in.
+    private readonly PARTICLE_FADEOUT_DURATION = 0.1;       // Seconds for a particle to fade out at the end of its life.
+    private readonly PARTICLE_BASE_OPACITY = 0.9;           // The base opacity multiplied into the final particle color.
+    private readonly BLACKOUT_FADE_DURATION = 0.35;         // Seconds for the black squares to fade in/out.
+    
+    // --- Visuals & Colors ---
     private readonly SYMBOLS = [ '日', '〇', 'ハ', 'ミ', 'ヒ', 'ウ', 'シ', 'ナ', 'モ', 'サ', 'ワ', 'ツ', 'オ', 'リ', 'ア', 'ホ', 'テ', 'マ', 'ケ', 'メ', 'エ', 'カ', 'キ', 'ム', 'ユ', 'ラ', 'セ', 'ネ', 'ヲ', 'イ', 'ク', 'コ', 'ソ', 'タ', 'チ', 'ト', 'ノ', 'フ', 'ヘ', 'ヤ', 'ヨ', 'ル', 'レ', 'ロ', '∆', 'δ', 'ε', 'ζ', 'η', 'θ', '∃', '∄', '∅', 'Д' ];
     private readonly SYMBOL_COLORS = [ new THREE.Color(0.0, 0.95, 0.05), new THREE.Color(0.0, 1.0, 0.0), new THREE.Color(0.3, 1.0, 0.3) ];
     private readonly BLACKOUT_COLOR = new THREE.Color('#09090b');
     
+    // --- State & Control ---
     private STATE = { IDLE: 0, ACTIVE: 1, REGENERATING: 2 };
     private isFadingOut = false;
     private fadeOutTimer = 0;
     private onsetTimer = 0;
-    private readonly SHUTDOWN_CLEANUP_DELAY = 1.0;
+    private readonly SHUTDOWN_CLEANUP_DELAY = 1.0;          // Seconds after leave animation starts to fully stop the rAF loop.
 
+    // =========================================================================
+    
     private grid: { cols: number; rows: number; cells: GridCell[] } = { cols: 0, rows: 0, cells: [] };
     private particles: { pool: Particle[]; active: Map<number, Particle> } = { pool: [], active: new Map() };
     private imageRect: DOMRect | null = null;
@@ -237,18 +261,26 @@ export {};
         this.createSymbolTexture();
         this.createBlackoutMesh();
         this.createParticleSystem();
+
+        if (this.bloomEffect && this.bloomEffect.composer) {
+            this.bloomEffect.composer.render(0.01);
+        }
+
         window.addEventListener('resize', this.boundOnWindowResize);
     }
     
     private animate(): void {
         this.animationFrameId = requestAnimationFrame(() => this.animate());
         if (!this.clock || !this.imageRect) return;
+
         const deltaTime = this.clock.getDelta();
+
         if (this.isFadingOut) {
             this.fadeOutTimer += deltaTime;
             this.updateParticles(deltaTime);
             const fadeProgress = Math.max(0, 1.0 - (this.fadeOutTimer / this.PARTICLE_FADEOUT_DURATION));
             this.particleSystem.material.uniforms.globalOpacity.value = fadeProgress;
+
             if (this.fadeOutTimer >= this.SHUTDOWN_CLEANUP_DELAY) {
                 this.stop();
                 this.fullReset();
@@ -258,27 +290,64 @@ export {};
             this.updateParticles(deltaTime);
             this.updateBlackout();
         }
+
         this.bloomEffect.render(deltaTime);
     }
 
     public onWindowResize(): void {
         this.width = window.innerWidth;
         this.height = window.innerHeight;
-        this.camera.left = -this.width / 2; this.camera.right = this.width / 2;
-        this.camera.top = this.height / 2; this.camera.bottom = -this.height / 2;
+
+        this.camera.left = -this.width / 2;
+        this.camera.right = this.width / 2;
+        this.camera.top = this.height / 2;
+        this.camera.bottom = -this.height / 2;
         this.camera.updateProjectionMatrix();
+
         this.renderer.setSize(this.width, this.height);
         if (this.bloomEffect) {
             this.bloomEffect.setSize(this.width, this.height);
         }
+
         this.setupGrid();
     }
     
     public dispose(): void {
       this.stop();
       window.removeEventListener('resize', this.boundOnWindowResize);
-      if (this.bloomEffect) this.bloomEffect.dispose();
-      // ...
+      if (this.renderer) {
+        if (this.renderer.domElement.parentElement) {
+          this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
+        }
+        this.renderer.dispose();
+      }
+      if (this.bloomEffect) {
+        this.bloomEffect.dispose();
+      }
+      if (this.scene) {
+        // Dispose of all scene objects, geometries, materials, textures
+        this.scene.traverse(object => {
+          const obj = object as any;
+          if (obj.geometry) obj.geometry.dispose();
+          if (obj.material) {
+            if (Array.isArray(obj.material)) {
+              obj.material.forEach((material: any) => this.disposeMaterial(material));
+            } else {
+              this.disposeMaterial(obj.material);
+            }
+          }
+        });
+      }
+    }
+
+    private disposeMaterial(material: any) {
+      material.dispose();
+      for (const key of Object.keys(material)) {
+        const value = material[key];
+        if (value && typeof value === 'object' && 'isTexture' in value) {
+          value.dispose();
+        }
+      }
     }
 
     public start(): void {
@@ -289,25 +358,376 @@ export {};
         }
     }
     
-    public stop(): void { if (this.animationFrameId !== null) { cancelAnimationFrame(this.animationFrameId); this.animationFrameId = null; this.clock = null; } }
-    public beginLeaveAnimation(): void { if (!this.isFadingOut) { this.isFadingOut = true; this.fadeOutTimer = 0; this.resetBlackoutGrid(); } }
-    private createParticleSystem(): void { const geometry = new THREE.BufferGeometry(); geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3)); geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3)); geometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1)); geometry.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1)); geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1)); const material = new THREE.ShaderMaterial({ uniforms: { symbolsTexture: { value: this.symbolsTexture }, globalOpacity: { value: 1.0 }, }, vertexShader: ` attribute float size; attribute vec3 customColor; attribute float symbolIndex; attribute float particleOpacity; varying vec3 vColor; varying float vSymbolIndex; varying float vOpacity; void main() { vColor = customColor; vSymbolIndex = symbolIndex; vOpacity = particleOpacity; vec4 mvPosition = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size; gl_Position = projectionMatrix * mvPosition; } `, fragmentShader: ` uniform sampler2D symbolsTexture; uniform float globalOpacity; varying vec3 vColor; varying float vSymbolIndex; varying float vOpacity; void main() { float symbolsPerRow = 8.0; float totalRows = ${Math.ceil(this.SYMBOLS.length / 8)}.0; vec2 symbolCoord = gl_PointCoord; symbolCoord.x = (symbolCoord.x + mod(vSymbolIndex, symbolsPerRow)) / symbolsPerRow; symbolCoord.y = (symbolCoord.y + floor(vSymbolIndex / symbolsPerRow)) / totalRows; vec4 tex = texture2D(symbolsTexture, symbolCoord); if (tex.a < 0.3) discard; gl_FragColor = vec4(vColor, tex.a * vOpacity * ${this.PARTICLE_BASE_OPACITY} * globalOpacity); } `, blending: THREE.AdditiveBlending, depthTest: false, transparent: true }); this.particleSystem = new THREE.Points(geometry, material); this.scene.add(this.particleSystem); const symbolIndices = (geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array; for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) { symbolIndices[i] = Math.floor(Math.random() * this.SYMBOLS.length); } (geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true; for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) { this.particles.pool.push({ index: i, active: false, originalPos: new THREE.Vector2(), amplitude: 0, timeOffset: 0, speed: 0, lifetime: 0, age: 0, size: 0, color: new THREE.Color(), symbolIndex: 0, gridCellIndex: -1, lastSymbolChange: 0, symbolChangeInterval: 0 }); } }
-    private fullReset(): void { this.isFadingOut = false; this.fadeOutTimer = 0; this.onsetTimer = 0; if(this.particleSystem) { this.particleSystem.material.uniforms.globalOpacity.value = 1.0; } this.resetBlackoutGrid(); this.resetAllParticles(); }
-    private resetBlackoutGrid(): void { if (!this.blackoutMesh) return; for (const cell of this.grid.cells) { cell.state = this.STATE.IDLE; cell.timer = 0; cell.opacity = 0; } this.blackoutMesh.count = 0; this.blackoutMesh.instanceMatrix.needsUpdate = true; (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true; }
-    private resetAllParticles(): void { if (!this.particleSystem) return; const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array; this.particles.active.forEach(p => { p.active = false; positions[p.index * 3 + 1] = -99999; this.particles.pool.push(p); }); this.particles.active.clear(); (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true; }
-    private setupScene(): void { this.width = window.innerWidth; this.height = window.innerHeight; this.scene = new THREE.Scene(); this.camera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 1, 1000); this.camera.position.z = 100; this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true }); this.renderer.setPixelRatio(window.devicePixelRatio); this.renderer.setSize(this.width, this.height); this.overlayContainer.appendChild(this.renderer.domElement); }
-    private getSymbolColor(): THREE.Color { return this.SYMBOL_COLORS[Math.floor(Math.random() * this.SYMBOL_COLORS.length)]; }
-    private createSymbolTexture(): void { const symbolsPerRow = 8, symbolSize = 64; const rows = Math.ceil(this.SYMBOLS.length / symbolsPerRow); const canvas = document.createElement('canvas'); canvas.width = symbolsPerRow * symbolSize; canvas.height = rows * symbolSize; const ctx = canvas.getContext('2d')!; ctx.font = `bold ${symbolSize * 0.8}px monospace`; ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; for (let i = 0; i < this.SYMBOLS.length; i++) { const x = (i % symbolsPerRow) * symbolSize + symbolSize / 2; const y = Math.floor(i / symbolsPerRow) * symbolSize + symbolSize / 2; ctx.fillText(this.SYMBOLS[i], x, y); } this.symbolsTexture = new THREE.CanvasTexture(canvas); }
-    private createBlackoutMesh(): void { const quadGeom = new THREE.PlaneGeometry(this.CELL_SIZE, this.CELL_SIZE); quadGeom.setAttribute('instanceOpacity', new THREE.InstancedBufferAttribute(new Float32Array(200 * 200), 1)); const material = new THREE.ShaderMaterial({ uniforms: { color: { value: this.BLACKOUT_COLOR } }, vertexShader: ` attribute float instanceOpacity; varying float vOpacity; void main() { vOpacity = instanceOpacity; gl_Position = projectionMatrix * instanceMatrix * modelViewMatrix * vec4(position, 1.0); } `, fragmentShader: ` uniform vec3 color; varying float vOpacity; void main() { gl_FragColor = vec4(color, vOpacity); } `, transparent: true, }); this.blackoutMesh = new THREE.InstancedMesh(quadGeom, material, 150 * 200); this.scene.add(this.blackoutMesh); }
-    private setupGrid(): void { this.imageRect = this.image.getBoundingClientRect(); if (!this.imageRect || !this.imageRect.width) return; this.grid.cols = Math.floor(this.imageRect.width / this.CELL_SIZE); this.grid.rows = Math.floor(this.imageRect.height / this.CELL_SIZE); this.grid.cells = []; for (let i = 0; i < this.grid.cols * this.grid.rows; i++) { this.grid.cells.push({ state: this.STATE.IDLE, timer: 0, opacity: 0 }); } }
-    private updateGrid(deltaTime: number): void { if (this.particles.active.size >= this.MAX_ACTIVE_PARTICLES) return; this.onsetTimer = Math.min(this.ONSET_DURATION, this.onsetTimer + deltaTime); const onsetMultiplier = this.ONSET_DURATION > 0 ? this.onsetTimer / this.ONSET_DURATION : 1; const spawnCols = Math.floor(this.grid.cols * this.SPAWN_AREA_WIDTH); for (let i = 0; i < this.grid.cells.length; i++) { const cell = this.grid.cells[i]; const fadeSpeed = deltaTime / this.BLACKOUT_FADE_DURATION; if (cell.state === this.STATE.ACTIVE) { cell.opacity = Math.min(1.0, cell.opacity + fadeSpeed); } else { cell.opacity = Math.max(0.0, cell.opacity - fadeSpeed); } if (cell.state === this.STATE.IDLE) { const col = i % this.grid.cols; if (col < spawnCols) { const normalizedX = col / spawnCols; const probability = this.BASE_CHANCE * onsetMultiplier * Math.exp(-this.PROBABILITY_DECAY_FACTOR * normalizedX) * deltaTime * 60; if (Math.random() < probability) { cell.state = this.STATE.ACTIVE; this.spawnParticleForCell(i); } } } else if (cell.state === this.STATE.REGENERATING) { cell.timer += deltaTime; if (cell.timer >= this.REGENERATION_TIME && cell.opacity <= 0) { cell.state = this.STATE.IDLE; cell.timer = 0; } } } }
-    private spawnParticleForCell(cellIndex: number): void { if (this.particles.pool.length === 0 || !this.imageRect) return; const particle = this.particles.pool.pop()!; particle.active = true; particle.gridCellIndex = cellIndex; const col = cellIndex % this.grid.cols; const row = Math.floor(cellIndex / this.grid.cols); const xOnImage = col * this.CELL_SIZE + this.CELL_SIZE / 2; const yOnImage = row * this.CELL_SIZE + this.CELL_SIZE / 2; const x = this.imageRect.left + xOnImage - this.width / 2; const y = -(this.imageRect.top + yOnImage) + this.height / 2; particle.originalPos.set(x, y); const speedVariation = (Math.random() * 2 - 1) * this.PARTICLE_SPEED_VARIATION; particle.speed = this.PARTICLE_SPEED * (1 + speedVariation); particle.amplitude = this.AMPLITUDE.min + Math.random() * (this.AMPLITUDE.max - this.AMPLITUDE.min); particle.timeOffset = Math.random() * Math.PI * 2; particle.lifetime = this.PARTICLE_LIFETIME.min + Math.random() * (this.PARTICLE_LIFETIME.max - this.PARTICLE_LIFETIME.min); particle.age = 0; particle.size = this.CELL_SIZE * (1 + 1.1 * Math.random()); particle.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length); particle.color.copy(this.getSymbolColor()); particle.lastSymbolChange = 0; const variation = 1 + (Math.random() * 2 - 1) * this.SYMBOL_CHANGE_VARIATION; particle.symbolChangeInterval = this.SYMBOL_CHANGE_INTERVAL * variation; this.particles.active.set(particle.index, particle); }
-    private updateParticles(deltaTime: number): void { const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array; const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array; const colors = (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).array as Float32Array; const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array; const symbolIndices = (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array; let needsUpdate = false; this.particles.active.forEach(p => { p.age += deltaTime; if (p.age >= p.lifetime && !this.isFadingOut) { this.grid.cells[p.gridCellIndex].state = this.STATE.REGENERATING; p.active = false; this.particles.active.delete(p.index); this.particles.pool.push(p); positions[p.index * 3 + 1] = -99999; opacities[p.index] = 0; needsUpdate = true; return; } if (p.age < this.PARTICLE_FADE_IN_DURATION) { opacities[p.index] = p.age / this.PARTICLE_FADE_IN_DURATION; } else if (p.age > p.lifetime - this.PARTICLE_FADEOUT_DURATION && !this.isFadingOut) { opacities[p.index] = (p.lifetime - p.age) / this.PARTICLE_FADEOUT_DURATION; } else { opacities[p.index] = 1.0; } p.lastSymbolChange += deltaTime; if(p.lastSymbolChange > p.symbolChangeInterval) { symbolIndices[p.index] = Math.floor(Math.random() * this.SYMBOLS.length); p.lastSymbolChange = 0; } const offsetX = -p.age * p.speed * p.amplitude; const offsetY = Math.sin(p.age * 1.5 + p.timeOffset) * 10; positions[p.index * 3] = p.originalPos.x + offsetX; positions[p.index * 3 + 1] = p.originalPos.y + offsetY; positions[p.index * 3 + 2] = 1; p.color.toArray(colors, p.index * 3); sizes[p.index] = p.size; needsUpdate = true; }); if (needsUpdate) { (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true; (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true; (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true; (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true; (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true; } }
-    private updateBlackout(): void { if (!this.imageRect) return; const dummy = new THREE.Object3D(); const opacities = (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).array as Float32Array; let instanceIdx = 0; for (let i = 0; i < this.grid.cells.length; i++) { if (this.grid.cells[i].opacity > 0) { const col = i % this.grid.cols; const row = Math.floor(i / this.grid.cols); const xOnImage = col * this.CELL_SIZE + this.CELL_SIZE / 2; const yOnImage = row * this.CELL_SIZE + this.CELL_SIZE / 2; const x = this.imageRect.left + xOnImage - this.width / 2; const y = -(this.imageRect.top + yOnImage) + this.height / 2; dummy.position.set(x, y, 0); dummy.updateMatrix(); this.blackoutMesh.setMatrixAt(instanceIdx, dummy.matrix); opacities[instanceIdx] = this.grid.cells[i].opacity; instanceIdx++; } } this.blackoutMesh.count = instanceIdx; this.blackoutMesh.instanceMatrix.needsUpdate = true; (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true; }
+    public stop(): void {
+      if (this.animationFrameId !== null) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+        this.clock = null;
+      }
+    }
+
+    public beginLeaveAnimation(): void {
+      if (!this.isFadingOut) {
+        this.isFadingOut = true;
+        this.fadeOutTimer = 0;
+        this.resetBlackoutGrid();
+      }
+    }
+
+    private setupScene(): void {
+        this.width = window.innerWidth;
+        this.height = window.innerHeight;
+        this.scene = new THREE.Scene();
+        
+        this.camera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 1, 1000);
+        this.camera.position.z = 100;
+        
+        this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+        this.renderer.setPixelRatio(window.devicePixelRatio);
+        this.renderer.setSize(this.width, this.height);
+        
+        this.overlayContainer.appendChild(this.renderer.domElement);
+    }
+
+    private fullReset(): void {
+        this.isFadingOut = false;
+        this.fadeOutTimer = 0;
+        this.onsetTimer = 0;
+        if(this.particleSystem) {
+            this.particleSystem.material.uniforms.globalOpacity.value = 1.0;
+        }
+        this.resetBlackoutGrid();
+        this.resetAllParticles();
+    }
+
+    private resetBlackoutGrid(): void {
+        if (!this.blackoutMesh) return;
+        for (const cell of this.grid.cells) {
+            cell.state = this.STATE.IDLE;
+            cell.timer = 0;
+            cell.opacity = 0;
+        }
+        this.blackoutMesh.count = 0;
+        this.blackoutMesh.instanceMatrix.needsUpdate = true;
+        (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true;
+    }
+
+    private resetAllParticles(): void {
+        if (!this.particleSystem) return;
+
+        const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+        
+        this.particles.active.forEach(p => {
+            p.active = false;
+            positions[p.index * 3 + 1] = -99999; // Move off-screen
+            this.particles.pool.push(p);
+        });
+        this.particles.active.clear();
+
+        (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+    }
+
+    private createSymbolTexture(): void {
+        const symbolsPerRow = 8;
+        const symbolSize = 64;
+        const rows = Math.ceil(this.SYMBOLS.length / symbolsPerRow);
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = symbolsPerRow * symbolSize;
+        canvas.height = rows * symbolSize;
+        
+        const ctx = canvas.getContext('2d')!;
+        ctx.font = `bold ${symbolSize * 0.8}px monospace`;
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        for (let i = 0; i < this.SYMBOLS.length; i++) {
+            const x = (i % symbolsPerRow) * symbolSize + symbolSize / 2;
+            const y = Math.floor(i / symbolsPerRow) * symbolSize + symbolSize / 2;
+            ctx.fillText(this.SYMBOLS[i], x, y);
+        }
+        
+        this.symbolsTexture = new THREE.CanvasTexture(canvas);
+    }
+
+    private createBlackoutMesh(): void {
+        const quadGeom = new THREE.PlaneGeometry(this.CELL_SIZE, this.CELL_SIZE);
+        quadGeom.setAttribute('instanceOpacity', new THREE.InstancedBufferAttribute(new Float32Array(200 * 200), 1));
+        
+        const material = new THREE.ShaderMaterial({
+            uniforms: { color: { value: this.BLACKOUT_COLOR } },
+            vertexShader: `
+                attribute float instanceOpacity;
+                varying float vOpacity;
+                void main() {
+                    vOpacity = instanceOpacity;
+                    gl_Position = projectionMatrix * instanceMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform vec3 color;
+                varying float vOpacity;
+                void main() {
+                    gl_FragColor = vec4(color, vOpacity);
+                }
+            `,
+            transparent: true,
+        });
+
+        this.blackoutMesh = new THREE.InstancedMesh(quadGeom, material, 150 * 200);
+        this.scene.add(this.blackoutMesh);
+    }
+
+    private createParticleSystem(): void {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3));
+        geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3));
+        geometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
+        geometry.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
+        geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
+
+        const material = new THREE.ShaderMaterial({
+            uniforms: {
+                symbolsTexture: { value: this.symbolsTexture },
+                globalOpacity: { value: 1.0 },
+            },
+            vertexShader: `
+                attribute float size;
+                attribute vec3 customColor;
+                attribute float symbolIndex;
+                attribute float particleOpacity;
+                varying vec3 vColor;
+                varying float vSymbolIndex;
+                varying float vOpacity;
+                void main() {
+                    vColor = customColor;
+                    vSymbolIndex = symbolIndex;
+                    vOpacity = particleOpacity;
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_PointSize = size;
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D symbolsTexture;
+                uniform float globalOpacity;
+                varying vec3 vColor;
+                varying float vSymbolIndex;
+                varying float vOpacity;
+                void main() {
+                    float symbolsPerRow = 8.0;
+                    float totalRows = ${Math.ceil(this.SYMBOLS.length / 8)}.0;
+                    vec2 symbolCoord = gl_PointCoord;
+                    symbolCoord.x = (symbolCoord.x + mod(vSymbolIndex, symbolsPerRow)) / symbolsPerRow;
+                    symbolCoord.y = (symbolCoord.y + floor(vSymbolIndex / symbolsPerRow)) / totalRows;
+                    
+                    vec4 tex = texture2D(symbolsTexture, symbolCoord);
+                    if (tex.a < 0.3) discard;
+                    
+                    gl_FragColor = vec4(vColor, tex.a * vOpacity * ${this.PARTICLE_BASE_OPACITY} * globalOpacity);
+                }
+            `,
+            blending: THREE.AdditiveBlending,
+            depthTest: false,
+            transparent: true
+        });
+
+        this.particleSystem = new THREE.Points(geometry, material);
+        this.scene.add(this.particleSystem);
+
+        const symbolIndices = (geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+        for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) {
+            symbolIndices[i] = Math.floor(Math.random() * this.SYMBOLS.length);
+        }
+        (geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+
+        for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) {
+            this.particles.pool.push({
+                index: i, active: false, originalPos: new THREE.Vector2(),
+                amplitude: 0, timeOffset: 0, speed: 0, lifetime: 0, age: 0, size: 0,
+                color: new THREE.Color(), symbolIndex: 0, gridCellIndex: -1,
+                lastSymbolChange: 0, symbolChangeInterval: 0
+            });
+        }
+    }
+
+    private getSymbolColor(): THREE.Color {
+        return this.SYMBOL_COLORS[Math.floor(Math.random() * this.SYMBOL_COLORS.length)];
+    }
+
+    private setupGrid(): void {
+        this.imageRect = this.image.getBoundingClientRect();
+        if (!this.imageRect || !this.imageRect.width) return;
+        
+        this.grid.cols = Math.floor(this.imageRect.width / this.CELL_SIZE);
+        this.grid.rows = Math.floor(this.imageRect.height / this.CELL_SIZE);
+        this.grid.cells = [];
+        
+        for (let i = 0; i < this.grid.cols * this.grid.rows; i++) {
+            this.grid.cells.push({ state: this.STATE.IDLE, timer: 0, opacity: 0 });
+        }
+    }
+
+    private updateGrid(deltaTime: number): void {
+        if (this.particles.active.size >= this.MAX_ACTIVE_PARTICLES) return;
+        
+        this.onsetTimer = Math.min(this.ONSET_DURATION, this.onsetTimer + deltaTime);
+        const onsetMultiplier = this.ONSET_DURATION > 0 ? this.onsetTimer / this.ONSET_DURATION : 1;
+        const spawnCols = Math.floor(this.grid.cols * this.SPAWN_AREA_WIDTH);
+
+        for (let i = 0; i < this.grid.cells.length; i++) {
+            const cell = this.grid.cells[i];
+            const fadeSpeed = deltaTime / this.BLACKOUT_FADE_DURATION;
+
+            if (cell.state === this.STATE.ACTIVE) {
+                cell.opacity = Math.min(1.0, cell.opacity + fadeSpeed);
+            } else {
+                cell.opacity = Math.max(0.0, cell.opacity - fadeSpeed);
+            }
+
+            if (cell.state === this.STATE.IDLE) {
+                const col = i % this.grid.cols;
+                if (col < spawnCols) {
+                    const normalizedX = col / spawnCols;
+                    const probability = this.BASE_CHANCE * onsetMultiplier * Math.exp(-this.PROBABILITY_DECAY_FACTOR * normalizedX) * deltaTime * 60;
+                    if (Math.random() < probability) {
+                        cell.state = this.STATE.ACTIVE;
+                        this.spawnParticleForCell(i);
+                    }
+                }
+            } else if (cell.state === this.STATE.REGENERATING) {
+                cell.timer += deltaTime;
+                if (cell.timer >= this.REGENERATION_TIME && cell.opacity <= 0) {
+                    cell.state = this.STATE.IDLE;
+                    cell.timer = 0;
+                }
+            }
+        }
+    }
+
+    private spawnParticleForCell(cellIndex: number): void {
+        if (this.particles.pool.length === 0 || !this.imageRect) return;
+
+        const particle = this.particles.pool.pop()!;
+        particle.active = true;
+        particle.gridCellIndex = cellIndex;
+
+        const col = cellIndex % this.grid.cols;
+        const row = Math.floor(cellIndex / this.grid.cols);
+        const xOnImage = col * this.CELL_SIZE + this.CELL_SIZE / 2;
+        const yOnImage = row * this.CELL_SIZE + this.CELL_SIZE / 2;
+        const x = this.imageRect.left + xOnImage - this.width / 2;
+        const y = -(this.imageRect.top + yOnImage) + this.height / 2;
+        
+        particle.originalPos.set(x, y);
+        const speedVariation = (Math.random() * 2 - 1) * this.PARTICLE_SPEED_VARIATION;
+        particle.speed = this.PARTICLE_SPEED * (1 + speedVariation);
+        particle.amplitude = this.AMPLITUDE.min + Math.random() * (this.AMPLITUDE.max - this.AMPLITUDE.min);
+        particle.timeOffset = Math.random() * Math.PI * 2;
+        particle.lifetime = this.PARTICLE_LIFETIME.min + Math.random() * (this.PARTICLE_LIFETIME.max - this.PARTICLE_LIFETIME.min);
+        particle.age = 0;
+        particle.size = this.CELL_SIZE * (1 + 1.1 * Math.random());
+        particle.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
+        particle.color.copy(this.getSymbolColor());
+        particle.lastSymbolChange = 0;
+        const variation = 1 + (Math.random() * 2 - 1) * this.SYMBOL_CHANGE_VARIATION;
+        particle.symbolChangeInterval = this.SYMBOL_CHANGE_INTERVAL * variation;
+
+        this.particles.active.set(particle.index, particle);
+    }
+
+    private updateParticles(deltaTime: number): void {
+        if (!this.particleSystem) return;
+        const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+        const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array;
+        const colors = (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).array as Float32Array;
+        const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array;
+        const symbolIndices = (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+        let needsUpdate = false;
+
+        this.particles.active.forEach(p => {
+            p.age += deltaTime;
+            if (p.age >= p.lifetime && !this.isFadingOut) {
+                this.grid.cells[p.gridCellIndex].state = this.STATE.REGENERATING;
+                p.active = false;
+                this.particles.active.delete(p.index);
+                this.particles.pool.push(p);
+                positions[p.index * 3 + 1] = -99999;
+                opacities[p.index] = 0;
+                needsUpdate = true;
+                return;
+            }
+
+            if (p.age < this.PARTICLE_FADE_IN_DURATION) {
+                opacities[p.index] = p.age / this.PARTICLE_FADE_IN_DURATION;
+            } else if (p.age > p.lifetime - this.PARTICLE_FADEOUT_DURATION && !this.isFadingOut) {
+                opacities[p.index] = (p.lifetime - p.age) / this.PARTICLE_FADEOUT_DURATION;
+            } else {
+                opacities[p.index] = 1.0;
+            }
+
+            p.lastSymbolChange += deltaTime;
+            if(p.lastSymbolChange > p.symbolChangeInterval) {
+                symbolIndices[p.index] = Math.floor(Math.random() * this.SYMBOLS.length);
+                p.lastSymbolChange = 0;
+            }
+
+            const offsetX = -p.age * p.speed * p.amplitude;
+            const offsetY = Math.sin(p.age * 1.5 + p.timeOffset) * 10;
+
+            positions[p.index * 3] = p.originalPos.x + offsetX;
+            positions[p.index * 3 + 1] = p.originalPos.y + offsetY;
+            positions[p.index * 3 + 2] = 1;
+            p.color.toArray(colors, p.index * 3);
+            sizes[p.index] = p.size;
+            needsUpdate = true;
+        });
+        
+        if (needsUpdate) {
+            (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true;
+        }
+    }
+    
+    private updateBlackout(): void {
+        if (!this.imageRect || !this.blackoutMesh) return;
+
+        const dummy = new THREE.Object3D();
+        const opacities = (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).array as Float32Array;
+        let instanceIdx = 0;
+
+        for (let i = 0; i < this.grid.cells.length; i++) {
+            if (this.grid.cells[i].opacity > 0) {
+                const col = i % this.grid.cols;
+                const row = Math.floor(i / this.grid.cols);
+                const xOnImage = col * this.CELL_SIZE + this.CELL_SIZE / 2;
+                const yOnImage = row * this.CELL_SIZE + this.CELL_SIZE / 2;
+                const x = this.imageRect.left + xOnImage - this.width / 2;
+                const y = -(this.imageRect.top + yOnImage) + this.height / 2;
+                
+                dummy.position.set(x, y, 0);
+                dummy.updateMatrix();
+                
+                if (instanceIdx < this.blackoutMesh.count) {
+                    this.blackoutMesh.setMatrixAt(instanceIdx, dummy.matrix);
+                    opacities[instanceIdx] = this.grid.cells[i].opacity;
+                }
+                instanceIdx++;
+            }
+        }
+        
+        this.blackoutMesh.count = instanceIdx;
+        this.blackoutMesh.instanceMatrix.needsUpdate = true;
+        (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true;
+    }
   }
 </script>
 
-<div class="main-container gpu-prewarm-target" bind:this={mainContainer}>
+<div class="main-container" bind:this={mainContainer}>
   <div class="image-pane">
     <img src={imageUrl} alt="Profile" bind:this={imageElement}/>
   </div>
@@ -316,10 +736,40 @@ export {};
 <div class="particle-overlay" bind:this={particleOverlayElement}></div>
 
 <style>
-  .main-container { position: relative; z-index: 1; width: 100%; height: 100%; display: flex; justify-content: flex-end; align-items: center; visibility: hidden; opacity: 0; }
-  .image-pane { position: relative; height: 100%; flex-shrink: 0; display: flex; justify-content: flex-end; align-items: center; }
-  .image-pane img { height: 100vh; width: auto; display: block; object-fit: cover; }
-  .particle-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 2; pointer-events: none; }
+  .main-container {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    visibility: hidden;
+    opacity: 0;
+  }
+  .image-pane {
+    position: relative;
+    height: 100%;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+  }
+  .image-pane img {
+    height: 100vh;
+    width: auto;
+    display: block;
+    object-fit: cover;
+  }
+  .particle-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 2;
+    pointer-events: none;
+  }
 </style>
 --- END OF FILE src\lib\components\AboutImageEffect.svelte ---
 
@@ -331,7 +781,6 @@ export {};
   import *  as THREE from 'three';
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
-  // FIX: Import the new generic preloadAssets function
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let activeSectionIndex: number;
@@ -366,7 +815,6 @@ export {};
 
     startLoadingTask(HERO_ASSETS_TASK_ID);
 
-    // FIX: Use the new generic preloader to manage asset status centrally.
     try {
       await preloadAssets([FONT_ASSET_PATH, PARTICLE_TEXTURE_ASSET_PATH]);
     } catch (error) {
@@ -375,7 +823,6 @@ export {};
       return;
     }
 
-    // Still use a local LoadingManager to know when assets are ready for *this component*.
     const manager = new THREE.LoadingManager();
     manager.onLoad = () => preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
     manager.onError = (url) => {
@@ -386,7 +833,6 @@ export {};
     const textureLoader = new THREE.TextureLoader(manager);
 
     try {
-      // Use the loaders, which will now pull from the browser cache thanks to preloadAssets.
       const [font, texture] = await Promise.all([
         fontLoader.loadAsync(FONT_ASSET_PATH),
         textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH)
@@ -537,20 +983,29 @@ export {};
   let isMountedAndInitialized = false;
   onMount(async () => {
     await tick(); 
+    
+    // Register the tasks this component is responsible for.
     if (!preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID)) {
       preloadingStore.registerTask(HERO_ASSETS_TASK_ID, 'pending');
     }
     if (!preloadingStore.getTaskStatus(HERO_INIT_TASK_ID)) {
       preloadingStore.registerTask(HERO_INIT_TASK_ID, 'pending');
     }
+
+    // Await the asset loading before proceeding.
     await _preloadAssets();
     isMountedAndInitialized = true;
-
-    dispatch('ready');
     
-    if (!isTransitioning && !isInitialLoad) {
-      _handleSettledState();
+    // FIX: The reactive `$: ` block won't fire for the initial state,
+    // so we must manually call the state handler on mount to ensure
+    // the Three.js instance is created during the loading screen phase.
+    if (!isTransitioning) {
+      await _handleSettledState();
     }
+    
+    // Only after all assets are loaded and the instance is created,
+    // we signal that this component is fully ready.
+    dispatch('ready');
   });
 
   onDestroy(() => {
@@ -567,6 +1022,7 @@ export {};
     }
   });
 
+  // This reactive block handles all subsequent navigation after the initial load.
   $: if (isMountedAndInitialized && typeof activeSectionIndex === 'number') {
     if (!isTransitioning) {
         _handleSettledState();
@@ -623,7 +1079,6 @@ export {};
   let wrapperElement: HTMLDivElement;
   let h2El: HTMLHeadingElement;
   let pEl: HTMLParagraphElement;
-  // FIX: This will target the .key-position containers, which are our pre-warm targets.
   let keyPositionElements: Element[] = [];
 
   onMount(() => {
@@ -635,36 +1090,50 @@ export {};
   export function onEnterSection() {
     if (!h2El || !pEl || keyPositionElements.length === 0) return;
 
-    gsap.set(h2El, { autoAlpha: 0, y: 40 });
-    gsap.set(pEl, { autoAlpha: 0, y: 30 });
-    // Set the containers to be invisible. The pre-warmer will have already done this,
-    // but this ensures it's set correctly every time.
-    gsap.set(keyPositionElements, { autoAlpha: 0 });
+    // 1. Set the initial "hidden" state for all elements.
+    gsap.set(h2El, { autoAlpha: 0, y: 30 });
+    gsap.set(pEl, { autoAlpha: 0, y: 20 });
+    // Give the buttons a consistent "slide-up" starting position.
+    gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
 
+    // 2. Create the animation timeline.
     gsap.timeline({
-      delay: 0.2,
+      // Increase the delay significantly. This makes the animation wait
+      // until the parent section has mostly finished its transition into view.
+      delay: 0.5,
       onComplete: () => {
         dispatch('animationComplete');
       }
     })
-      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, 0)
-      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, 0.15)
-      // FIX: Animate the .key-position containers. This will make them and their children visible.
+      // 3. Animate the elements in a staggered sequence.
+      .to(h2El, { 
+          autoAlpha: 1, 
+          y: 0, 
+          duration: 0.9, 
+          ease: 'power3.out' 
+      }, 0) // Headline starts at time 0.
+      .to(pEl, { 
+          autoAlpha: 1, 
+          y: 0, 
+          duration: 0.8, 
+          ease: 'power3.out' 
+      }, 0.1) // Paragraph starts 0.1s after the headline.
       .to(keyPositionElements, {
           autoAlpha: 1,
-          duration: 0.5,
-          ease: 'power1.inOut',
-          stagger: 0.1,
+          y: 0,
+          duration: 0.7,
+          ease: 'power3.out',
+          stagger: 0.08, // A quick stagger for the buttons.
         }, 
-        0.3
+        0.25 // The button sequence starts 0.25s after the headline.
       );
   }
 
   export function onLeaveSection() {
-    // FIX: Ensure parent containers are included in the cleanup.
     const allElements = [h2El, pEl, ...keyPositionElements];
     if (allElements.some(el => !el)) return;
     
+    // Hard reset for interrupt-safety.
     gsap.killTweensOf(allElements);
     gsap.set(allElements, { autoAlpha: 0 });
   }
@@ -736,13 +1205,17 @@ export {};
   }
   .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
   .keyboard-buttons-wrapper { display: flex; align-items: flex-start; text-align: center; gap: calc(var(--keyboard-key-base-size) * 0.01); }
-  .key-position { perspective: 800px; transform: rotateY(0.05turn) rotateX(-0.1turn); }
+  .key-position { 
+    perspective: 800px; 
+    transform: rotateY(0.05turn) rotateX(-0.1turn); 
+    /* --- MODIFICATION: Set initial state for pre-warming --- */
+    opacity: 0; 
+    visibility: hidden;
+  }
   .key.call-to-action { width: 140px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
   .call-to-action-content { position: relative; }
   .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
   .key.call-to-action:hover .call-to-action-content:after { width: 100%;}
-  /* FIX: Remove opacity and visibility from the .key itself. Its visibility is now
-     entirely controlled by its parent, .key-position. */
   .key { 
     position: relative; 
     width: var(--keyboard-key-base-size); 
@@ -1058,8 +1531,9 @@ export {};
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    opacity: 1;
-    visibility: visible;
+    /* --- MODIFICATION: Set initial state for pre-warming --- */
+    opacity: 0;
+    visibility: hidden;
     will-change: transform;
   }
   .card-wrap:hover .card-info {
@@ -1166,21 +1640,19 @@ export {};
     onEnterSection: () => void;
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
-    // Add the new optional method to its type definition
     onTransitionComplete?: () => void;
+    // --- MODIFICATION: Add the new cooldown method to the interface ---
+    onCooldown?: () => void;
   };
 </script>
 
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
   import { siteConfig } from '$lib/data/siteConfig';
 
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
   import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
   import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
-
-  const dispatch = createEventDispatcher();
 
   type AboutSectionData = typeof siteConfig.aboutSection;
   export let data: AboutSectionData;
@@ -1190,6 +1662,24 @@ export {};
   let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
   let aboutImageEffectInstance: AboutImageEffectInstance | null = null;
 
+  // --- MODIFICATION: Implement the onCooldown method ---
+  /**
+   * Called by the orchestrator when this section is no longer a neighbor
+   * of the active section. This releases heavy resources.
+   */
+  export function onCooldown() {
+    // Tell the Three.js effect to dispose of its resources and reset itself.
+    if (aboutImageEffectInstance?.dispose) {
+      aboutImageEffectInstance.dispose();
+    }
+    // The KeyboardButtons component is lightweight, but we should reset it
+    // to its hidden state as well.
+    if (keyboardButtonsInstance) {
+      keyboardButtonsInstance.onLeaveSection();
+    }
+  }
+  // --- END MODIFICATION ---
+
   // This is called by the preload manager while the section is off-screen.
   export async function initializeEffect() {
     if (aboutImageEffectInstance?.initializeEffect) {
@@ -1198,22 +1688,18 @@ export {};
   }
 
   // This is called at the START of the page transition.
-  // It should only contain lightweight animations.
   export function onEnterSection(): void {
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onEnterSection();
     }
     if (aboutImageEffectInstance) {
-      // The image effect's onEnterSection just starts a simple fade-in.
       aboutImageEffectInstance.onEnterSection();
     }
   }
   
-  // FIX: This is called at the END of the page transition.
-  // It's for heavy, layout-dependent animations.
+  // This is called at the END of the page transition.
   export function onTransitionComplete() {
     if (aboutImageEffectInstance?.onTransitionComplete) {
-      // This starts the particle rendering, which depends on the final layout.
       aboutImageEffectInstance.onTransitionComplete();
     }
   }
@@ -1227,10 +1713,6 @@ export {};
       aboutImageEffectInstance.onLeaveSection();
     }
   }
-
-  function handleAnimationComplete() {
-    dispatch('animationComplete');
-  }
 </script>
 
 <div class="about-section-wrapper">
@@ -1242,7 +1724,6 @@ export {};
       socialLinks={data.socialLinks}
       {contactSectionIndex}
       {navigateToSection}
-      on:animationComplete={handleAnimationComplete}
     />
   </div>
 
@@ -1327,12 +1808,9 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount } from 'svelte';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
-
-  // Create an event dispatcher.
-  const dispatch = createEventDispatcher();
 
   type ContactSectionData = typeof siteConfig.contactSection;
   export let data: ContactSectionData;
@@ -1352,16 +1830,13 @@ export {};
     gsap.set(animatableElements, { autoAlpha: 0, y: 30 });
 
     // Create the staggered entrance timeline.
+    // The onComplete callback is no longer needed here.
     gsap.to(animatableElements, {
       autoAlpha: 1,
       y: 0,
       duration: 0.8,
       stagger: 0.15,
       ease: 'power2.out',
-      // Add an onComplete callback to the tween itself.
-      onComplete: () => {
-        dispatch('animationComplete');
-      }
     });
   }
 
@@ -1563,14 +2038,11 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { gsap } from 'gsap';
   import type { Project, ProjectCard } from '$lib/data/projectsData';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
-  
-  // Create an event dispatcher to signal when animations are done.
-  const dispatch = createEventDispatcher();
 
   export let project: Project;
 
@@ -1581,7 +2053,10 @@ export {};
   let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
-    cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
+    if (sectionEl) {
+      // --- MODIFICATION: Find the pre-warmable targets for the animation ---
+      cardWrapsToAnimate = gsap.utils.toArray(sectionEl.querySelectorAll('.gpu-prewarm-target'));
+    }
   });
   
   export function onEnterSection() {
@@ -1589,20 +2064,16 @@ export {};
 
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
-    gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
+    // The ParallaxCard component now starts as invisible by default for pre-warming.
+    // We just need to set its scale for the animation.
+    gsap.set(cardWrapsToAnimate, { scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
 
-    const tl = gsap.timeline({
-      // Add an onComplete callback to the timeline.
-      onComplete: () => {
-        // Signal that the animation has finished.
-        dispatch('animationComplete');
-      }
-    });
+    const tl = gsap.timeline(); // The onComplete callback is no longer needed.
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
       .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
       .to(cardWrapsToAnimate, { 
-          autoAlpha: 1,
+          autoAlpha: 1, // Animate opacity to 1
           scale: 1, 
           duration: 2.8, 
           stagger: 0.15, 
@@ -1766,15 +2237,12 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
   import { gsap } from 'gsap';
   import type { Project, ProjectCard } from '$lib/data/projectsData';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
   
-  // Create an event dispatcher to signal when animations are done.
-  const dispatch = createEventDispatcher();
-
   export let project: Project;
 
   let sectionEl: HTMLElement;
@@ -1784,7 +2252,10 @@ export {};
   let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
-    cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
+    if (sectionEl) {
+      // Find the pre-warmable targets for the animation
+      cardWrapsToAnimate = gsap.utils.toArray(sectionEl.querySelectorAll('.gpu-prewarm-target'));
+    }
   });
   
   export function onEnterSection() {
@@ -1792,20 +2263,16 @@ export {};
 
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
-    gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
+    // The ParallaxCard component now starts as invisible by default for pre-warming.
+    // We just need to set its scale for the animation.
+    gsap.set(cardWrapsToAnimate, { scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
 
-    const tl = gsap.timeline({
-      // Add an onComplete callback to the timeline.
-      onComplete: () => {
-        // Signal that the animation has finished.
-        dispatch('animationComplete');
-      }
-    });
+    const tl = gsap.timeline(); // The onComplete callback is no longer needed.
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
       .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
       .to(cardWrapsToAnimate, { 
-          autoAlpha: 1,
+          autoAlpha: 1, // Animate opacity to 1
           scale: 1, 
           duration: 2.8, 
           stagger: 0.15, 
@@ -2156,7 +2623,7 @@ export const siteConfig = {
   aboutSection: {
     title: "About Me", // MODIFIED
     introduction: "This is where you'll learn about who I am and what I do.", // MODIFIED
-    imageUrl: "/images/profile.png", // MODIFIED - ensure this image exists in static/images
+    imageUrl: "/images/profile.webp", // MODIFIED - ensure this image exists in static/images
     imageParticleEffect: {
       type: 'imageAuraParticles', // We'll define this later
     } as ParticleEffectConfig,
@@ -2189,6 +2656,9 @@ export const siteConfig = {
 // src/lib/stores/preloadingStore.ts
 import { writable, derived, get } from 'svelte/store';
 
+// --- NEW: A type to define the possible states for a main page section ---
+export type SectionState = 'IDLE' | 'PRELOADING' | 'READY' | 'ACTIVE' | 'COOLING';
+
 export type TaskStatus = 'idle' | 'pending' | 'loading' | 'loaded' | 'error';
 export type AssetStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
@@ -2200,15 +2670,44 @@ export interface PreloadTask {
   priority?: number;
 }
 
-// --- NEW: A dedicated store to track the status of individual asset URLs ---
-// This prevents redundant loading across the entire application.
-// e.g., { '/images/profile.png': 'loaded', '/fonts/font.json': 'loading' }
+// This store tracks individual asset URLs to prevent re-downloads
 const assetLoadingStatus = writable<Record<string, AssetStatus>>({});
 
-// Configuration
-export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
-
+// This store tracks tasks for the initial site loading screen
 const tasks = writable<Record<string, PreloadTask>>({});
+
+// --- NEW: A store to manage the state of each main page section for the Neighbor Preloader ---
+const sectionStates = writable<Map<number, SectionState>>(new Map());
+
+export const sectionStateStore = {
+  subscribe: sectionStates.subscribe,
+  /** Initializes the state map for all sections. Should be called once on mount. */
+  init: (sectionCount: number) => {
+    sectionStates.update(map => {
+      for (let i = 0; i < sectionCount; i++) {
+        // Initialize all sections to IDLE, except for the first one which starts as ACTIVE
+        map.set(i, i === 0 ? 'ACTIVE' : 'IDLE');
+      }
+      return map;
+    });
+  },
+  /** Updates the state of a specific section. */
+  setState: (index: number, state: SectionState) => {
+    sectionStates.update(map => map.set(index, state));
+  },
+  /** Retrieves the current state of a specific section. */
+  getState: (index: number): SectionState | undefined => {
+    return get(sectionStates).get(index);
+  },
+  /** Resets the store. */
+  reset: () => {
+    sectionStates.set(new Map());
+  }
+};
+// --- END NEW ---
+
+// Configuration for the initial loading screen
+export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
 
 /**
  * Tracks whether the initial, full-site loading sequence has completed.
@@ -2217,7 +2716,7 @@ const tasks = writable<Record<string, PreloadTask>>({});
 export const initialSiteLoadComplete = writable<boolean>(false);
 
 /**
- * Overall loading progress from 0 to 1
+ * Overall loading progress from 0 to 1 for the initial loading screen
  */
 export const loadingProgress = derived(tasks, $tasks => {
   const allTasksArray = Object.values($tasks);
@@ -2302,10 +2801,11 @@ export const preloadingStore = {
   resetTasks: () => {
     tasks.set({});
     initialSiteLoadComplete.set(false);
-    assetLoadingStatus.set({}); // Reset the asset status map as well
+    assetLoadingStatus.set({});
+    // --- MODIFICATION: Reset the section state store as well ---
+    sectionStateStore.reset();
   },
 
-  // --- NEW: Asset Status Management ---
   getAssetStatus: (url: string): AssetStatus => {
     return get(assetLoadingStatus)[url] || 'idle';
   },
@@ -2332,7 +2832,6 @@ export const startLoadingTask = (taskId: string, priority: number = 1) => {
   preloadingStore.registerTask(taskId, 'loading', priority);
 };
 
-// --- NEW: A Generic Asset Preloader Function ---
 /**
  * A robust, generic function to preload an array of assets (images, fonts, etc.).
  * It updates the central asset status store to prevent re-downloads.
@@ -2345,7 +2844,7 @@ export async function preloadAssets(urls: string[]): Promise<void> {
   for (const url of urls) {
     const status = preloadingStore.getAssetStatus(url);
     if (status === 'loaded' || status === 'loading') {
-      continue; // Skip already loaded or currently loading assets
+      continue;
     }
     
     preloadingStore.setAssetStatus(url, 'loading');
@@ -3519,7 +4018,7 @@ export class CreateParticles {
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
-  import { overallLoadingState, initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets, sectionStateStore, type SectionState } from '$lib/stores/preloadingStore';
   import { gsap } from 'gsap';
 
   // Component Imports
@@ -3535,8 +4034,8 @@ export class CreateParticles {
     onEnterSection: () => void;
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
-    // Add the new optional lifecycle hook
     onTransitionComplete?: () => void;
+    onCooldown?: () => void; // New optional method for resource cleanup
   }
   import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
 
@@ -3554,11 +4053,10 @@ export class CreateParticles {
   let heroSectionInstance: HeroSectionInstance | null = null;
   let sectionInstancesArray: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
   let sectionInstances = new Map<string, IAnimatedComponent>();
-  $: if (heroSectionInstance) {
-    sectionInstancesArray[0] = heroSectionInstance;
+  $: if (sectionInstancesArray.length > 0) {
     const newMap = new Map<string, IAnimatedComponent>();
     allSectionsData.forEach((section, index) => {
-      const instance = sectionInstancesArray[index];
+      const instance = index === 0 ? heroSectionInstance : sectionInstancesArray[index];
       if (instance) newMap.set(section.id, instance);
     });
     sectionInstances = newMap;
@@ -3569,7 +4067,6 @@ export class CreateParticles {
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
-  const particleEffectReady = writable(false);
 
   // Page & Animation State
   let visibilityHideTimeoutId: number | undefined;
@@ -3582,7 +4079,6 @@ export class CreateParticles {
   const minSectionDisplayDuration = 1.2;
   const initialRevealDelay = 300;
   const particleFadeInDuration = 1.5;
-  let unsubOverallLoadingState: (() => void) | undefined;
   let unsubInitialLoadComplete: (() => void) | undefined;
   let hasStartedInitialReveal = false;
   
@@ -3591,11 +4087,17 @@ export class CreateParticles {
   let mainContainerPointerEvents = 'auto';
   $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
 
-  // --- "Patient" Preload Manager ---
+  // Promise setup for initial load
+  let heroReadyResolver: () => void;
+  const heroReadyPromise = new Promise<void>(resolve => {
+    heroReadyResolver = resolve;
+  });
+
+  // --- The New Neighbor Preload Manager ---
   const preloadManager = {
-    isPrewarming: false,
-    preparedIndexes: new Set<number>(),
-    
+    _isPreparing: new Set<number>(), // Prevents redundant parallel preparations
+    _isPrewarmingGpu: false,
+
     getSectionAssetUrls(index: number): string[] {
       if (index < 0 || index >= allSectionsData.length) return [];
       const section = allSectionsData[index];
@@ -3609,56 +4111,94 @@ export class CreateParticles {
       }
       return urls.filter(Boolean);
     },
-
-    preWarmGpuLayers(sectionElement: HTMLElement | undefined) {
-      if (this.isPrewarming || !sectionElement) return;
-      this.isPrewarming = true;
+    
+    _preWarmGpuLayers(sectionElement: HTMLElement | undefined) {
+      if (this._isPrewarmingGpu || !sectionElement) return;
+      this._isPrewarmingGpu = true;
+      
       setTimeout(() => {
         const targets = sectionElement.querySelectorAll('.gpu-prewarm-target');
         if (targets.length === 0) {
-          this.isPrewarming = false;
+          this._isPrewarmingGpu = false;
           return;
         }
+        
         gsap.set(targets, {
           autoAlpha: 0.001,
           stagger: 0.05,
           onComplete: () => {
             gsap.set(targets, { autoAlpha: 0 });
-            this.isPrewarming = false;
+            this._isPrewarmingGpu = false;
           }
         });
       }, 100);
     },
-    
-    async initializeAndPreWarm(index: number) {
-      if (index < 0 || index >= allSectionsData.length || this.preparedIndexes.has(index)) return;
+
+    async _prepare(index: number) {
+      if (index < 0 || index >= allSectionsData.length || this._isPreparing.has(index)) return;
       
+      const currentState = sectionStateStore.getState(index);
+      if (currentState === 'READY' || currentState === 'ACTIVE' || currentState === 'PRELOADING') return;
+
+      this._isPreparing.add(index);
+      sectionStateStore.setState(index, 'PRELOADING');
+      console.log(`[Preloader] START preparation for Section ${index}`);
+
+      try {
+        const instance = sectionInstances.get(allSectionsData[index].id);
+        const urls = this.getSectionAssetUrls(index);
+        
+        if (urls.length > 0) await preloadAssets(urls);
+        if (instance?.initializeEffect) await instance.initializeEffect();
+        
+        const targetSectionElement = sectionElements[index];
+        this._preWarmGpuLayers(targetSectionElement);
+
+        sectionStateStore.setState(index, 'READY');
+        console.log(`[Preloader] FINISH preparation for Section ${index}. State: READY.`);
+      } catch (error) {
+        console.error(`[Preloader] FAILED preparation for Section ${index}:`, error);
+        sectionStateStore.setState(index, 'IDLE');
+      } finally {
+        this._isPreparing.delete(index);
+      }
+    },
+
+    _cooldown(index: number) {
+      if (index < 0 || index >= allSectionsData.length) return;
+      const currentState = sectionStateStore.getState(index);
+      if (currentState === 'IDLE' || currentState === 'COOLING' || currentState === 'ACTIVE') return;
+
+      sectionStateStore.setState(index, 'COOLING');
+      console.log(`[Preloader] COOLING DOWN Section ${index}`);
+
       const instance = sectionInstances.get(allSectionsData[index].id);
-      if (instance?.initializeEffect) {
-        await instance.initializeEffect();
-      }
+      instance?.onCooldown?.();
       
-      const targetSectionElement = sectionElements[index];
-      this.preWarmGpuLayers(targetSectionElement);
-      this.preparedIndexes.add(index);
+      sectionStateStore.setState(index, 'IDLE');
     },
 
-    async prepareSection(index: number) {
-      if (index < 0 || index >= allSectionsData.length || this.preparedIndexes.has(index)) return;
-      
-      const urls = this.getSectionAssetUrls(index);
-      if (urls.length > 0) {
-        await preloadAssets(urls);
+    updateNeighborStates(activeIndex: number) {
+      console.log(`[Preloader] Updating neighbor states around active index: ${activeIndex}`);
+      const neighborhood = [activeIndex - 1, activeIndex, activeIndex + 1];
+
+      for (let i = 0; i < allSectionsData.length; i++) {
+        const isNeighbor = neighborhood.includes(i);
+        const currentState = sectionStateStore.getState(i);
+
+        if (i === activeIndex) {
+          if (currentState !== 'ACTIVE') sectionStateStore.setState(i, 'ACTIVE');
+          continue;
+        }
+
+        if (isNeighbor) {
+          if (currentState === 'IDLE') this._prepare(i);
+        } else { // Is NOT a neighbor
+          if (currentState === 'READY') this._cooldown(i);
+        }
       }
-      
-      await this.initializeAndPreWarm(index);
-    },
+    }
   };
-
-  function handleAnimationComplete() {
-    const nextIndex = get(currentSectionIndex) + 1;
-    preloadManager.prepareSection(nextIndex);
-  }
 
   function handleVisibilityChange() {
     const currentIndex = get(currentSectionIndex);
@@ -3673,53 +4213,80 @@ export class CreateParticles {
     } else {
       clearTimeout(visibilityHideTimeoutId);
       if (isTabHiddenAndPaused) {
+        console.log("[Visibility] Tab refocused. Re-validating preloader state.");
+        preloadManager.updateNeighborStates(currentIndex);
         currentInstance?.onEnterSection();
         requestAnimationFrame(() => {
           currentInstance?.onTransitionComplete?.();
         });
         isTabHiddenAndPaused = false;
-        handleAnimationComplete();
       }
     }
   }
 
   onMount(() => {
-    const setup = async () => {
-      startLoadingTask('initialAssets', 2);
-      await preloadAssets(preloadManager.getSectionAssetUrls(1));
-      preloadingStore.updateTaskStatus('initialAssets', 'loaded');
-
+    const mountLogic = async () => {
       await tick();
-      
+
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
-      if (sectionElements.some(el => !el)) return;
+      if (sectionElements.some(el => !el)) {
+        console.error("Could not find all section elements in the DOM.");
+        return;
+      }
       
+      sectionStateStore.init(allSectionsData.length);
+
       sectionElements.forEach((sectionEl, index) => {
         const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
         sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
         gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
       });
-      
+
+      const setupInitialLoad = async () => {
+        const heroInitializationPromise = heroReadyPromise;
+        const aboutInitializationPromise = preloadManager._prepare(1);
+
+        await Promise.all([heroInitializationPromise, aboutInitializationPromise]);
+        initialSiteLoadComplete.set(true);
+      };
+
+      setupInitialLoad();
+
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
       document.addEventListener('visibilitychange', handleVisibilityChange);
     };
-    
-    unsubOverallLoadingState = overallLoadingState.subscribe(status => { if (status === 'loaded' && !get(initialSiteLoadComplete)) { setTimeout(() => { initialSiteLoadComplete.set(true); if (get(particleEffectReady) && !hasStartedInitialReveal) startInitialReveal(); }, 100); }});
-    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => { if (complete && get(particleEffectReady) && !hasStartedInitialReveal) startInitialReveal(); });
-    
-    setup();
 
-    return () => { /* ... cleanup ... */ };
+    mountLogic();
+    
+    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
+        if (complete && !hasStartedInitialReveal) {
+            startInitialReveal();
+        }
+    });
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (unsubInitialLoadComplete) unsubInitialLoadComplete();
+      sectionBackgroundZooms.forEach(tween => tween?.kill());
+      clearTimeout(visibilityHideTimeoutId);
+    };
   });
+
+  function onParticleEffectReady() {
+    if (heroReadyResolver) heroReadyResolver();
+  }
 
   function startInitialReveal() {
     if (hasStartedInitialReveal) return;
     hasStartedInitialReveal = true;
+
     setTimeout(() => {
       if (heroSectionInstance) {
         heroSectionInstance.onTransitionToHeroComplete();
-        preloadManager.prepareSection(1);
+        preloadManager.updateNeighborStates(0);
       }
       setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
     }, initialRevealDelay);
@@ -3750,7 +4317,6 @@ export class CreateParticles {
         isTransitioning.set(false);
         sectionBackgroundZooms[newIndex]?.restart();
         
-        // FIX: Defer the heavy onTransitionComplete call until the next animation frame.
         requestAnimationFrame(() => {
           newInstance?.onTransitionComplete?.();
         });
@@ -3758,6 +4324,8 @@ export class CreateParticles {
         if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
            heroSectionInstance.onTransitionToHeroComplete();
         }
+
+        preloadManager.updateNeighborStates(newIndex);
       } 
     }); 
     
@@ -3774,7 +4342,6 @@ export class CreateParticles {
   const scrollDebounce = 200;
   function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
   function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
-  function onParticleEffectReady() { particleEffectReady.set(true); }
 </script>
 
 <svelte:head>
@@ -3813,25 +4380,21 @@ export class CreateParticles {
             data={section.data as typeof siteConfig.aboutSection}
             {contactSectionIndex}
             {navigateToSection}
-            on:animationComplete={handleAnimationComplete}
           />
         {:else if section.id === `project-${projects[0].id}`}
           <ProjectOneSection
             bind:this={sectionInstancesArray[i + 1]}
             project={section.data as Project}
-            on:animationComplete={handleAnimationComplete}
           />
         {:else if section.id === `project-${projects[1].id}`}
           <ProjectTwoSection
             bind:this={sectionInstancesArray[i + 1]}
             project={section.data as Project}
-            on:animationComplete={handleAnimationComplete}
           />
         {:else if section.id === 'contact'}
           <ContactSection
             bind:this={sectionInstancesArray[i + 1]}
             data={section.data as typeof siteConfig.contactSection}
-            on:animationComplete={handleAnimationComplete}
           />
         {/if}
       </section>

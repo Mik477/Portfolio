@@ -12,15 +12,14 @@ export interface PreloadTask {
   priority?: number;
 }
 
-// --- NEW: A dedicated store to track the status of individual asset URLs ---
-// This prevents redundant loading across the entire application.
-// e.g., { '/images/profile.png': 'loaded', '/fonts/font.json': 'loading' }
+// This store tracks individual asset URLs to prevent re-downloads
 const assetLoadingStatus = writable<Record<string, AssetStatus>>({});
 
-// Configuration
-export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
-
+// This store tracks tasks for the initial site loading screen
 const tasks = writable<Record<string, PreloadTask>>({});
+
+// Configuration for the initial loading screen
+export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
 
 /**
  * Tracks whether the initial, full-site loading sequence has completed.
@@ -29,7 +28,7 @@ const tasks = writable<Record<string, PreloadTask>>({});
 export const initialSiteLoadComplete = writable<boolean>(false);
 
 /**
- * Overall loading progress from 0 to 1
+ * Overall loading progress from 0 to 1 for the initial loading screen
  */
 export const loadingProgress = derived(tasks, $tasks => {
   const allTasksArray = Object.values($tasks);
@@ -114,10 +113,9 @@ export const preloadingStore = {
   resetTasks: () => {
     tasks.set({});
     initialSiteLoadComplete.set(false);
-    assetLoadingStatus.set({}); // Reset the asset status map as well
+    assetLoadingStatus.set({});
   },
 
-  // --- NEW: Asset Status Management ---
   getAssetStatus: (url: string): AssetStatus => {
     return get(assetLoadingStatus)[url] || 'idle';
   },
@@ -144,7 +142,6 @@ export const startLoadingTask = (taskId: string, priority: number = 1) => {
   preloadingStore.registerTask(taskId, 'loading', priority);
 };
 
-// --- NEW: A Generic Asset Preloader Function ---
 /**
  * A robust, generic function to preload an array of assets (images, fonts, etc.).
  * It updates the central asset status store to prevent re-downloads.
@@ -157,7 +154,7 @@ export async function preloadAssets(urls: string[]): Promise<void> {
   for (const url of urls) {
     const status = preloadingStore.getAssetStatus(url);
     if (status === 'loaded' || status === 'loading') {
-      continue; // Skip already loaded or currently loading assets
+      continue;
     }
     
     preloadingStore.setAssetStatus(url, 'loading');

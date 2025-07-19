@@ -5,6 +5,7 @@
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
   import { initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
   import { gsap } from 'gsap';
 
   // Component Imports
@@ -21,6 +22,7 @@
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
     onTransitionComplete?: () => void;
+    onUnload?: () => void;
   }
   import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
 
@@ -52,6 +54,7 @@
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
+  const sectionStatesStore = sectionStates;
 
   // Page & Animation State
   let visibilityHideTimeoutId: number | undefined;
@@ -78,11 +81,120 @@
     heroReadyResolver = resolve;
   });
 
-  // --- "Patient" Preload Manager ---
+  // --- The HYBRID Preload Manager ---
   const preloadManager = {
     isPrewarming: false,
-    preparedIndexes: new Set<number>(),
     
+    async updateNeighborStates(activeIndex: number) {
+      console.log(`[Preloader] Updating neighbors for ACTIVE section ${activeIndex}.`);
+      const currentStates = get(sectionStatesStore);
+      const desiredStates: SectionState[] = allSectionsData.map((_, i) => {
+        if (i === activeIndex) return 'ACTIVE';
+        if (i === activeIndex - 1 || i === activeIndex + 1) return 'READY';
+        return 'COOLDOWN';
+      });
+
+      const tasks: Promise<void>[] = [];
+
+      for (let i = 0; i < allSectionsData.length; i++) {
+        const currentState = currentStates[i];
+        const desiredState = desiredStates[i];
+
+        if (currentState !== desiredState) {
+          if ((currentState === 'IDLE' || currentState === 'COOLDOWN') && desiredState === 'READY') {
+            tasks.push(this.prepareSection(i));
+          }
+          if (currentState === 'READY' && desiredState === 'COOLDOWN') {
+            tasks.push(this.coolDownSection(i));
+          }
+        }
+      }
+      
+      sectionStatesStore.update(states => {
+        states[activeIndex] = 'ACTIVE';
+        return states;
+      });
+
+      await Promise.all(tasks);
+    },
+    
+    // This is the GPU "tickle" method, best for CSS-heavy components.
+    preWarmGpuLayers(sectionElement: HTMLElement | undefined) {
+      if (this.isPrewarming || !sectionElement) return;
+      this.isPrewarming = true;
+      setTimeout(() => {
+        const targets = sectionElement.querySelectorAll('.gpu-prewarm-target');
+        if (targets.length === 0) {
+          this.isPrewarming = false;
+          return;
+        }
+
+        console.log(`[Preloader] Pre-warming ${targets.length} GPU layers for section #${sectionElement.id}.`);
+        gsap.set(targets, {
+          autoAlpha: 0.001,
+          stagger: 0.05,
+          onComplete: () => {
+            gsap.set(targets, { autoAlpha: 0 });
+            this.isPrewarming = false;
+          }
+        });
+      }, 100);
+    },
+
+    async prepareSection(index: number) {
+      const currentState = get(sectionStatesStore)[index];
+      if (currentState !== 'IDLE' && currentState !== 'COOLDOWN') return;
+      
+      const sectionInfo = allSectionsData[index];
+      const instance = sectionInstances.get(sectionInfo.id);
+      const element = sectionElements[index];
+
+      if (!instance || !element) {
+        console.error(`[Preloader] Cannot prepare Section ${index}. Instance or element not found.`);
+        return;
+      }
+
+      sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
+      console.log(`[Preloader] PRELOADING Section ${index} (${sectionInfo.id})...`);
+
+      const urls = this.getSectionAssetUrls(index);
+      if (urls.length > 0) await preloadAssets(urls);
+      
+      if (instance.initializeEffect) await instance.initializeEffect();
+      
+      // --- HYBRID LOGIC ---
+      // Choose the best preparation strategy based on the section type.
+      if (sectionInfo.id === 'about') {
+        // Use the full "Dry Run" for the WebGL-heavy About section.
+        console.log(`[Preloader] Performing WebGL Dry Run for Section ${index} (${sectionInfo.id})...`);
+        gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
+        instance.onEnterSection();
+        instance.onTransitionComplete?.();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        instance.onLeaveSection();
+        gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+      } else if (sectionInfo.id.startsWith('project-')) {
+        // Use the GPU Layer "tickle" for the CSS-heavy Project sections.
+        this.preWarmGpuLayers(element);
+      }
+      // Other sections like 'contact' need no special render prep.
+      
+      sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
+      console.log(`[Preloader] Section ${index} (${sectionInfo.id}) is now READY.`);
+    },
+
+    async coolDownSection(index: number) {
+      const sectionId = allSectionsData[index].id;
+      sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
+      console.log(`[Preloader] COOLING DOWN Section ${index} (${sectionId})...`);
+      
+      const instance = sectionInstances.get(sectionId);
+      instance?.onUnload?.();
+      
+      sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
+      console.log(`[Preloader] Section ${index} (${sectionId}) is now IDLE.`);
+    },
+
     getSectionAssetUrls(index: number): string[] {
       if (index < 0 || index >= allSectionsData.length) return [];
       const section = allSectionsData[index];
@@ -96,55 +208,13 @@
       }
       return urls.filter(Boolean);
     },
-
-    preWarmGpuLayers(sectionElement: HTMLElement | undefined) {
-      if (this.isPrewarming || !sectionElement) return;
-      this.isPrewarming = true;
-      setTimeout(() => {
-        const targets = sectionElement.querySelectorAll('.gpu-prewarm-target');
-        if (targets.length === 0) {
-          this.isPrewarming = false;
-          return;
-        }
-        gsap.set(targets, {
-          autoAlpha: 0.001,
-          stagger: 0.05,
-          onComplete: () => {
-            gsap.set(targets, { autoAlpha: 0 });
-            this.isPrewarming = false;
-          }
-        });
-      }, 100);
-    },
-    
-    async initializeAndPreWarm(index: number) {
-      if (index < 0 || index >= allSectionsData.length || this.preparedIndexes.has(index)) return;
-      
-      const instance = sectionInstances.get(allSectionsData[index].id);
-      if (instance?.initializeEffect) {
-        await instance.initializeEffect();
-      }
-      
-      const targetSectionElement = sectionElements[index];
-      this.preWarmGpuLayers(targetSectionElement);
-      this.preparedIndexes.add(index);
-    },
-
-    async prepareSection(index: number) {
-      if (index < 0 || index >= allSectionsData.length || this.preparedIndexes.has(index)) return;
-      
-      const urls = this.getSectionAssetUrls(index);
-      if (urls.length > 0) {
-        await preloadAssets(urls);
-      }
-      
-      await this.initializeAndPreWarm(index);
-    },
   };
 
   function handleAnimationComplete() {
-    const nextIndex = get(currentSectionIndex) + 1;
-    preloadManager.prepareSection(nextIndex);
+    const nextNeighborIndex = get(currentSectionIndex) + 2;
+    if(nextNeighborIndex < allSectionsData.length) {
+      preloadManager.prepareSection(nextNeighborIndex);
+    }
   }
 
   function handleVisibilityChange() {
@@ -153,6 +223,7 @@
     if (document.hidden) {
       visibilityHideTimeoutId = window.setTimeout(() => {
         if (document.hidden && !isTabHiddenAndPaused) {
+          console.log('[Visibility] Tab hidden, pausing current section animations.');
           currentInstance?.onLeaveSection();
           isTabHiddenAndPaused = true;
         }
@@ -160,38 +231,22 @@
     } else {
       clearTimeout(visibilityHideTimeoutId);
       if (isTabHiddenAndPaused) {
+        console.log('[Visibility] Tab focused, re-engaging animations and re-validating neighbors.');
         currentInstance?.onEnterSection();
         requestAnimationFrame(() => {
           currentInstance?.onTransitionComplete?.();
         });
         isTabHiddenAndPaused = false;
-        handleAnimationComplete();
+        preloadManager.updateNeighborStates(currentIndex);
       }
     }
   }
 
   onMount(() => {
-    // --- The "Dry Run" Function for Off-Screen Initialization ---
-    const performInitialisationDryRun = async (instance: IAnimatedComponent, element: HTMLElement) => {
-        // 1. Set the section to its final animated position, but keep it transparent.
-        gsap.set(element, { yPercent: 0, autoAlpha: 0 });
-
-        // 2. Execute the full animation lifecycle once.
-        instance.onEnterSection();
-        instance.onTransitionComplete?.();
-
-        // 3. Wait briefly for internal timeouts and first render calls to complete.
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        // 4. Execute a hard reset to clean up everything.
-        instance.onLeaveSection();
-        
-        // 5. Set the section back to its starting state, ready for the real transition.
-        gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-    };
-
     const mountLogic = async () => {
       await tick();
+      
+      sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
 
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
       if (sectionElements.some(el => !el)) {
@@ -206,29 +261,12 @@
 
       const setupInitialLoad = async () => {
         const heroInitializationPromise = heroReadyPromise;
-        const aboutInitializationPromise = (async () => {
-            await tick();
-            const aboutInstance = sectionInstances.get('about');
-            const aboutElement = sectionElements[1];
-            if (!aboutInstance || !aboutInstance.initializeEffect || !aboutElement) {
-                console.error("About Section instance, its element, or its initializeEffect method not found for preloading.");
-                return Promise.reject("About section instance failed to initialize.");
-            }
-            
-            startLoadingTask('aboutAssets', 1);
-            await preloadAssets(preloadManager.getSectionAssetUrls(1));
-            preloadingStore.updateTaskStatus('aboutAssets', 'loaded');
-            
-            startLoadingTask('aboutInit', 2);
-            await aboutInstance.initializeEffect();
-            
-            // Perform the "dry run" after initial setup.
-            await performInitialisationDryRun(aboutInstance, aboutElement);
-
-            preloadingStore.updateTaskStatus('aboutInit', 'loaded');
-        })();
+        const aboutInitializationPromise = preloadManager.prepareSection(1);
 
         await Promise.all([heroInitializationPromise, aboutInitializationPromise]);
+        
+        preloadManager.updateNeighborStates(0);
+        
         initialSiteLoadComplete.set(true);
       };
 
@@ -298,6 +336,8 @@
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
         sectionBackgroundZooms[newIndex]?.restart();
+        
+        preloadManager.updateNeighborStates(newIndex);
         
         requestAnimationFrame(() => {
           newInstance?.onTransitionComplete?.();
