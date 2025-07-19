@@ -118,7 +118,6 @@
       await Promise.all(tasks);
     },
     
-    // This is the GPU "tickle" method, best for CSS-heavy components.
     preWarmGpuLayers(sectionElement: HTMLElement | undefined) {
       if (this.isPrewarming || !sectionElement) return;
       this.isPrewarming = true;
@@ -162,10 +161,7 @@
       
       if (instance.initializeEffect) await instance.initializeEffect();
       
-      // --- HYBRID LOGIC ---
-      // Choose the best preparation strategy based on the section type.
       if (sectionInfo.id === 'about') {
-        // Use the full "Dry Run" for the WebGL-heavy About section.
         console.log(`[Preloader] Performing WebGL Dry Run for Section ${index} (${sectionInfo.id})...`);
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         instance.onEnterSection();
@@ -174,10 +170,8 @@
         instance.onLeaveSection();
         gsap.set(element, { yPercent: 100, autoAlpha: 0 });
       } else if (sectionInfo.id.startsWith('project-')) {
-        // Use the GPU Layer "tickle" for the CSS-heavy Project sections.
         this.preWarmGpuLayers(element);
       }
-      // Other sections like 'contact' need no special render prep.
       
       sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
       console.log(`[Preloader] Section ${index} (${sectionInfo.id}) is now READY.`);
@@ -426,7 +420,7 @@
   </main>
 
   <style>
-    :global(body) { background-color: rgb(9 9 11); color: rgb(245 245 247); }
+    /* --- MODIFICATION: The global body style has been removed from here. --- */
     .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
     .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
     .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }

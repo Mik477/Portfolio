@@ -1,22 +1,22 @@
 <!-- src/routes/projects/[slug]/+page.svelte -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { get, writable } from 'svelte/store';
   import { page } from '$app/stores';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
-  // FIX: Import the new generic preloadAssets and task management functions
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let data;
   const { project } = data;
 
-  // A unique task ID for this project's assets
+  // A unique task ID for this specific project's assets.
   const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
 
-  // A writable store to track when content for this specific page is ready.
+  // A local store to track when this page's content is ready to be shown.
   const isContentLoaded = writable(false);
 
+  // Combine the project overview and detailed sections into one scrollable list.
   const allSubSections = [
     { 
       id: 'overview', 
@@ -31,6 +31,7 @@
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
   let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
 
+  // State for the subpage's internal scrolling logic.
   let currentSectionIndex = 0;
   let isAnimating = false;
   let lastScrollTime = 0;
@@ -38,16 +39,18 @@
   const transitionDuration = 1.1;
 
   onMount(() => {
-    // FIX: Use the new centralized preloading system.
-    const runPreload = async () => {
-      // Register the task with the global preloading store.
+    // This function runs once when the component is created.
+    const runPreloadAndSetup = async () => {
+      // 1. Register a task with the global preloading store.
       startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
 
+      // 2. Gather all image URLs needed for this subpage.
       const assetUrls = allSubSections
         .filter(s => s.background.type === 'image')
         .map(s => s.background.value);
       
       try {
+        // 3. Use the global preloader to fetch assets. This is cache-aware.
         await preloadAssets(assetUrls);
         preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
         console.log(`All assets for project '${project.slug}' preloaded successfully.`);
@@ -55,12 +58,12 @@
         console.error(error);
         preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
       } finally {
-        // Once preloading is complete (success or fail), mark content as ready to be shown.
+        // 4. Mark content as ready to be shown, which will trigger the animation setup.
         isContentLoaded.set(true);
       }
     };
     
-    runPreload();
+    runPreloadAndSetup();
 
     return () => {
       window.removeEventListener('wheel', handleWheel);
@@ -70,7 +73,7 @@
     };
   });
 
-  // This reactive block ensures animation setup only runs *after* assets are loaded.
+  // This reactive block runs automatically when `isContentLoaded` becomes true.
   $: if ($isContentLoaded) {
     setupAnimations();
   }
@@ -80,6 +83,7 @@
 
       sectionElements = allSubSections.map(section => document.getElementById(section.id) as HTMLElement);
       
+      // Check the URL hash to determine the starting section.
       const urlHash = get(page).url.hash;
       const cleanHash = urlHash.startsWith('#') ? urlHash.substring(1) : null;
       
@@ -92,6 +96,7 @@
       }
       currentSectionIndex = initialIndex;
 
+      // Create animations for each section but keep them paused.
       sectionElements.forEach((sectionEl, index) => {
         const contentTl = gsap.timeline({ paused: true });
         const contentOverlay = sectionEl.querySelector('.subpage-content-overlay');
@@ -115,6 +120,7 @@
         }
       });
 
+      // Set initial visibility and positions.
       sectionElements.forEach((el, index) => {
         if (index === initialIndex) {
           gsap.set(el, { yPercent: 0, autoAlpha: 1 });
@@ -125,6 +131,7 @@
         }
       });
 
+      // Add event listeners for navigation.
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
   }
@@ -139,6 +146,7 @@
     const targetSectionEl = sectionElements[newIndex];
     const direction = newIndex > oldIndex ? 1 : -1;
 
+    // Reset and pause animations for the outgoing section.
     sectionContentTimelines[oldIndex]?.progress(0).pause();
     sectionBackgroundZooms[oldIndex]?.progress(0).pause();
 
@@ -154,6 +162,7 @@
     masterTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
     masterTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
     
+    // Play animations for the incoming section partway through the transition.
     masterTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
     masterTl.call(() => { sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
   }
@@ -167,13 +176,29 @@
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    if (isAnimating) return;
+    if (isAnimating) {
+        event.preventDefault();
+        return;
+    }
+    const currentTime = Date.now();
+    if (currentTime - lastScrollTime < scrollDebounce) {
+        event.preventDefault();
+        return;
+    }
     let newIndex = currentSectionIndex;
-    if (event.key === 'ArrowDown' || event.key === ' ') newIndex++;
-    if (event.key === 'ArrowUp') newIndex--;
-    navigateToSection(newIndex);
+    let shouldScroll = false;
+    switch (event.key) {
+        case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break;
+        case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break;
+        case 'Home': newIndex = 0; shouldScroll = true; break;
+        case 'End': newIndex = allSubSections.length - 1; shouldScroll = true; break;
+    }
+    if (shouldScroll && newIndex !== currentSectionIndex) {
+        event.preventDefault();
+        lastScrollTime = currentTime;
+        navigateToSection(newIndex);
+    }
   }
-
 </script>
 
 <svelte:head>
@@ -245,12 +270,13 @@
     z-index: 1;
     max-width: 800px;
     text-align: center;
-    padding: 2rem;
+    padding: 2rem 3rem;
     background-color: rgba(9, 9, 11, 0.75);
     backdrop-filter: blur(10px);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     opacity: 0;
+    visibility: hidden; /* Start hidden for GSAP */
   }
 
   .subpage-content-overlay h2 {
@@ -260,6 +286,7 @@
     margin-bottom: 1.5rem;
     text-shadow: 0 2px 20px rgba(0,0,0,0.5);
     opacity: 0;
+    visibility: hidden;
   }
 
   .subpage-content-overlay p {
@@ -269,5 +296,6 @@
     margin: 0 auto;
     color: #e2e8f0;
     opacity: 0;
+    visibility: hidden;
   }
 </style>

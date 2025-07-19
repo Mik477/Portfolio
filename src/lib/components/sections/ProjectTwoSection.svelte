@@ -8,12 +8,12 @@
 
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
-  import { goto } from '$app/navigation';
   import { gsap } from 'gsap';
   import type { Project, ProjectCard } from '$lib/data/projectsData';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
-  
-  // Create an event dispatcher to signal when animations are done.
+  // --- MODIFICATION: Import the new transition store ---
+  import { transitionStore } from '$lib/stores/transitionStore';
+
   const dispatch = createEventDispatcher();
 
   export let project: Project;
@@ -37,9 +37,7 @@
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
 
     const tl = gsap.timeline({
-      // Add an onComplete callback to the timeline.
       onComplete: () => {
-        // Signal that the animation has finished.
         dispatch('animationComplete');
       }
     });
@@ -70,7 +68,13 @@
   
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
-    goto(`/projects/${project.slug}${aspectLink}`);
+    // --- MODIFICATION: Use the transition store for navigation ---
+    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}${aspectLink}`);
+  }
+
+  function handleReadMoreClick() {
+    // --- MODIFICATION: Use the transition store for navigation ---
+    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}`);
   }
 </script>
 
@@ -90,7 +94,7 @@
       </div>
       
       {#if project.readMoreLinkText}
-        <button class="read-more-btn" on:click={() => goto(`/projects/${project.slug}`)} bind:this={readMoreBtn}>
+        <button class="read-more-btn" on:click={handleReadMoreClick} bind:this={readMoreBtn}>
             {project.readMoreLinkText}
         </button>
       {/if}

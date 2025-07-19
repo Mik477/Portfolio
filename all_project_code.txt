@@ -91,8 +91,7 @@ export {};
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
     onTransitionComplete?: () => void;
-    // --- MODIFICATION: Expose the dispose method for the parent to call ---
-    dispose?: () => void;
+    onUnload?: () => void; // <<< ADDED
   };
 </script>
 
@@ -124,18 +123,6 @@ export {};
     isInitialized = true;
   }
 
-  /**
-   * Exposes the internal dispose method and resets the initialization state,
-   * making the component fully re-initializable by the preloader.
-   */
-  export function dispose() {
-    if (effectInstance) {
-      effectInstance.dispose();
-      effectInstance = null;
-      isInitialized = false; // CRITICAL: Reset for re-initialization
-    }
-  }
-
   export async function onEnterSection() {
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
 
@@ -160,6 +147,17 @@ export {};
       gsap.set(mainContainer, { autoAlpha: 0 });
     }
   }
+
+  // --- NEW Component API Method ---
+  export function onUnload() {
+    if (effectInstance) {
+      console.log('AboutImageEffect: Unloading and disposing Three.js resources.');
+      effectInstance.dispose();
+      effectInstance = null;
+    }
+    // Reset the initialization flag so it can be re-initialized if needed.
+    isInitialized = false;
+  }
   
   // --- Lifecycle ---
 
@@ -168,9 +166,9 @@ export {};
   });
 
   onDestroy(() => {
+    // onDestroy should also ensure cleanup, acting as a final safeguard.
+    onUnload();
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
-    // Call our new exposed dispose function on component destruction
-    dispose();
   });
 
   // --- DigitalDecayEffect Class ---
@@ -315,38 +313,17 @@ export {};
     public dispose(): void {
       this.stop();
       window.removeEventListener('resize', this.boundOnWindowResize);
-      if (this.renderer) {
-        if (this.renderer.domElement.parentElement) {
-          this.renderer.domElement.parentElement.removeChild(this.renderer.domElement);
-        }
-        this.renderer.dispose();
-      }
       if (this.bloomEffect) {
         this.bloomEffect.dispose();
       }
-      if (this.scene) {
-        // Dispose of all scene objects, geometries, materials, textures
-        this.scene.traverse(object => {
-          const obj = object as any;
-          if (obj.geometry) obj.geometry.dispose();
-          if (obj.material) {
-            if (Array.isArray(obj.material)) {
-              obj.material.forEach((material: any) => this.disposeMaterial(material));
-            } else {
-              this.disposeMaterial(obj.material);
-            }
-          }
-        });
-      }
-    }
-
-    private disposeMaterial(material: any) {
-      material.dispose();
-      for (const key of Object.keys(material)) {
-        const value = material[key];
-        if (value && typeof value === 'object' && 'isTexture' in value) {
-          value.dispose();
+      if (this.renderer) {
+        this.renderer.dispose();
+        if (this.renderer.domElement.parentNode) {
+            this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
         }
+      }
+      if (this.scene) {
+        // Basic scene disposal
       }
     }
 
@@ -638,7 +615,6 @@ export {};
     }
 
     private updateParticles(deltaTime: number): void {
-        if (!this.particleSystem) return;
         const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
         const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array;
         const colors = (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).array as Float32Array;
@@ -694,7 +670,7 @@ export {};
     }
     
     private updateBlackout(): void {
-        if (!this.imageRect || !this.blackoutMesh) return;
+        if (!this.imageRect) return;
 
         const dummy = new THREE.Object3D();
         const opacities = (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).array as Float32Array;
@@ -712,10 +688,8 @@ export {};
                 dummy.position.set(x, y, 0);
                 dummy.updateMatrix();
                 
-                if (instanceIdx < this.blackoutMesh.count) {
-                    this.blackoutMesh.setMatrixAt(instanceIdx, dummy.matrix);
-                    opacities[instanceIdx] = this.grid.cells[i].opacity;
-                }
+                this.blackoutMesh.setMatrixAt(instanceIdx, dummy.matrix);
+                opacities[instanceIdx] = this.grid.cells[i].opacity;
                 instanceIdx++;
             }
         }
@@ -727,7 +701,7 @@ export {};
   }
 </script>
 
-<div class="main-container" bind:this={mainContainer}>
+<div class="main-container gpu-prewarm-target" bind:this={mainContainer}>
   <div class="image-pane">
     <img src={imageUrl} alt="Profile" bind:this={imageElement}/>
   </div>
@@ -1098,8 +1072,6 @@ export {};
 
     // 2. Create the animation timeline.
     gsap.timeline({
-      // Increase the delay significantly. This makes the animation wait
-      // until the parent section has mostly finished its transition into view.
       delay: 0.5,
       onComplete: () => {
         dispatch('animationComplete');
@@ -1205,13 +1177,7 @@ export {};
   }
   .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
   .keyboard-buttons-wrapper { display: flex; align-items: flex-start; text-align: center; gap: calc(var(--keyboard-key-base-size) * 0.01); }
-  .key-position { 
-    perspective: 800px; 
-    transform: rotateY(0.05turn) rotateX(-0.1turn); 
-    /* --- MODIFICATION: Set initial state for pre-warming --- */
-    opacity: 0; 
-    visibility: hidden;
-  }
+  .key-position { perspective: 800px; transform: rotateY(0.05turn) rotateX(-0.1turn); }
   .key.call-to-action { width: 140px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
   .call-to-action-content { position: relative; }
   .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
@@ -1531,9 +1497,8 @@ export {};
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    /* --- MODIFICATION: Set initial state for pre-warming --- */
-    opacity: 0;
-    visibility: hidden;
+    opacity: 1;
+    visibility: visible;
     will-change: transform;
   }
   .card-wrap:hover .card-info {
@@ -1633,6 +1598,37 @@ export {};
 </style>
 --- END OF FILE src\lib\components\ParallaxCard.svelte ---
 
+--- START OF FILE src\lib\components\TransitionOverlay.svelte ---
+<!-- src/lib/components/TransitionOverlay.svelte -->
+<script lang="ts">
+  import { transitionStore } from '$lib/stores/transitionStore';
+  import { fade } from 'svelte/transition';
+
+  // --- MODIFICATION: Define the duration here to keep it in sync with the store ---
+  const TRANSITION_DURATION = 90; // ms
+</script>
+
+{#if $transitionStore.visible}
+  <div 
+    class="transition-overlay"
+    style="background-color: {$transitionStore.color};"
+    transition:fade={{ duration: TRANSITION_DURATION }}
+  ></div>
+{/if}
+
+<style>
+  .transition-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 99999; /* Must be on top of everything */
+    pointer-events: all; /* Block interactions during transition */
+  }
+</style>
+--- END OF FILE src\lib\components\TransitionOverlay.svelte ---
+
 --- START OF FILE src\lib\components\sections\AboutSection.svelte ---
 <!-- src/lib/components/sections/AboutSection.svelte -->
 <script context="module" lang="ts">
@@ -1640,19 +1636,21 @@ export {};
     onEnterSection: () => void;
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
+    // Add the new optional method to its type definition
     onTransitionComplete?: () => void;
-    // --- MODIFICATION: Add the new cooldown method to the interface ---
-    onCooldown?: () => void;
   };
 </script>
 
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import { siteConfig } from '$lib/data/siteConfig';
 
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
   import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
   import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
+
+  const dispatch = createEventDispatcher();
 
   type AboutSectionData = typeof siteConfig.aboutSection;
   export let data: AboutSectionData;
@@ -1662,24 +1660,6 @@ export {};
   let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
   let aboutImageEffectInstance: AboutImageEffectInstance | null = null;
 
-  // --- MODIFICATION: Implement the onCooldown method ---
-  /**
-   * Called by the orchestrator when this section is no longer a neighbor
-   * of the active section. This releases heavy resources.
-   */
-  export function onCooldown() {
-    // Tell the Three.js effect to dispose of its resources and reset itself.
-    if (aboutImageEffectInstance?.dispose) {
-      aboutImageEffectInstance.dispose();
-    }
-    // The KeyboardButtons component is lightweight, but we should reset it
-    // to its hidden state as well.
-    if (keyboardButtonsInstance) {
-      keyboardButtonsInstance.onLeaveSection();
-    }
-  }
-  // --- END MODIFICATION ---
-
   // This is called by the preload manager while the section is off-screen.
   export async function initializeEffect() {
     if (aboutImageEffectInstance?.initializeEffect) {
@@ -1688,18 +1668,22 @@ export {};
   }
 
   // This is called at the START of the page transition.
+  // It should only contain lightweight animations.
   export function onEnterSection(): void {
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onEnterSection();
     }
     if (aboutImageEffectInstance) {
+      // The image effect's onEnterSection just starts a simple fade-in.
       aboutImageEffectInstance.onEnterSection();
     }
   }
   
-  // This is called at the END of the page transition.
+  // FIX: This is called at the END of the page transition.
+  // It's for heavy, layout-dependent animations.
   export function onTransitionComplete() {
     if (aboutImageEffectInstance?.onTransitionComplete) {
+      // This starts the particle rendering, which depends on the final layout.
       aboutImageEffectInstance.onTransitionComplete();
     }
   }
@@ -1713,6 +1697,10 @@ export {};
       aboutImageEffectInstance.onLeaveSection();
     }
   }
+
+  function handleAnimationComplete() {
+    dispatch('animationComplete');
+  }
 </script>
 
 <div class="about-section-wrapper">
@@ -1724,6 +1712,7 @@ export {};
       socialLinks={data.socialLinks}
       {contactSectionIndex}
       {navigateToSection}
+      on:animationComplete={handleAnimationComplete}
     />
   </div>
 
@@ -1808,9 +1797,12 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
+
+  // Create an event dispatcher.
+  const dispatch = createEventDispatcher();
 
   type ContactSectionData = typeof siteConfig.contactSection;
   export let data: ContactSectionData;
@@ -1830,13 +1822,16 @@ export {};
     gsap.set(animatableElements, { autoAlpha: 0, y: 30 });
 
     // Create the staggered entrance timeline.
-    // The onComplete callback is no longer needed here.
     gsap.to(animatableElements, {
       autoAlpha: 1,
       y: 0,
       duration: 0.8,
       stagger: 0.15,
       ease: 'power2.out',
+      // Add an onComplete callback to the tween itself.
+      onComplete: () => {
+        dispatch('animationComplete');
+      }
     });
   }
 
@@ -2038,11 +2033,14 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import type { Project, ProjectCard } from '$lib/data/projectsData';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
+  // --- MODIFICATION: Import the new transition store ---
+  import { transitionStore } from '$lib/stores/transitionStore';
+  
+  const dispatch = createEventDispatcher();
 
   export let project: Project;
 
@@ -2053,10 +2051,7 @@ export {};
   let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
-    if (sectionEl) {
-      // --- MODIFICATION: Find the pre-warmable targets for the animation ---
-      cardWrapsToAnimate = gsap.utils.toArray(sectionEl.querySelectorAll('.gpu-prewarm-target'));
-    }
+    cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
   });
   
   export function onEnterSection() {
@@ -2064,16 +2059,18 @@ export {};
 
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
-    // The ParallaxCard component now starts as invisible by default for pre-warming.
-    // We just need to set its scale for the animation.
-    gsap.set(cardWrapsToAnimate, { scale: 0.97 });
+    gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
 
-    const tl = gsap.timeline(); // The onComplete callback is no longer needed.
+    const tl = gsap.timeline({
+      onComplete: () => {
+        dispatch('animationComplete');
+      }
+    });
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
       .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
       .to(cardWrapsToAnimate, { 
-          autoAlpha: 1, // Animate opacity to 1
+          autoAlpha: 1,
           scale: 1, 
           duration: 2.8, 
           stagger: 0.15, 
@@ -2097,7 +2094,13 @@ export {};
   
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
-    goto(`/projects/${project.slug}${aspectLink}`);
+    // --- MODIFICATION: Use the transition store for navigation ---
+    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}${aspectLink}`);
+  }
+
+  function handleReadMoreClick() {
+    // --- MODIFICATION: Use the transition store for navigation ---
+    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}`);
   }
 </script>
 
@@ -2117,7 +2120,7 @@ export {};
       </div>
       
       {#if project.readMoreLinkText}
-        <button class="read-more-btn" on:click={() => goto(`/projects/${project.slug}`)} bind:this={readMoreBtn}>
+        <button class="read-more-btn" on:click={handleReadMoreClick} bind:this={readMoreBtn}>
             {project.readMoreLinkText}
         </button>
       {/if}
@@ -2237,12 +2240,15 @@ export {};
 </script>
 
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import type { Project, ProjectCard } from '$lib/data/projectsData';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
-  
+  // --- MODIFICATION: Import the new transition store ---
+  import { transitionStore } from '$lib/stores/transitionStore';
+
+  const dispatch = createEventDispatcher();
+
   export let project: Project;
 
   let sectionEl: HTMLElement;
@@ -2252,10 +2258,7 @@ export {};
   let cardWrapsToAnimate: HTMLElement[] = [];
   
   onMount(() => {
-    if (sectionEl) {
-      // Find the pre-warmable targets for the animation
-      cardWrapsToAnimate = gsap.utils.toArray(sectionEl.querySelectorAll('.gpu-prewarm-target'));
-    }
+    cardWrapsToAnimate = Array.from(sectionEl.querySelectorAll('.card-wrap'));
   });
   
   export function onEnterSection() {
@@ -2263,16 +2266,18 @@ export {};
 
     gsap.set(headlineEl, { autoAlpha: 0, y: 50 });
     gsap.set(summaryEl, { autoAlpha: 0, y: 40 });
-    // The ParallaxCard component now starts as invisible by default for pre-warming.
-    // We just need to set its scale for the animation.
-    gsap.set(cardWrapsToAnimate, { scale: 0.97 });
+    gsap.set(cardWrapsToAnimate, { autoAlpha: 0, scale: 0.97 });
     if(readMoreBtn) gsap.set(readMoreBtn, { autoAlpha: 0 });
 
-    const tl = gsap.timeline(); // The onComplete callback is no longer needed.
+    const tl = gsap.timeline({
+      onComplete: () => {
+        dispatch('animationComplete');
+      }
+    });
     tl.to(headlineEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, "start")
       .to(summaryEl, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, "start+=0.1")
       .to(cardWrapsToAnimate, { 
-          autoAlpha: 1, // Animate opacity to 1
+          autoAlpha: 1,
           scale: 1, 
           duration: 2.8, 
           stagger: 0.15, 
@@ -2296,7 +2301,13 @@ export {};
   
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
-    goto(`/projects/${project.slug}${aspectLink}`);
+    // --- MODIFICATION: Use the transition store for navigation ---
+    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}${aspectLink}`);
+  }
+
+  function handleReadMoreClick() {
+    // --- MODIFICATION: Use the transition store for navigation ---
+    transitionStore.fadeToBlackAndNavigate(`/projects/${project.slug}`);
   }
 </script>
 
@@ -2316,7 +2327,7 @@ export {};
       </div>
       
       {#if project.readMoreLinkText}
-        <button class="read-more-btn" on:click={() => goto(`/projects/${project.slug}`)} bind:this={readMoreBtn}>
+        <button class="read-more-btn" on:click={handleReadMoreClick} bind:this={readMoreBtn}>
             {project.readMoreLinkText}
         </button>
       {/if}
@@ -2656,9 +2667,6 @@ export const siteConfig = {
 // src/lib/stores/preloadingStore.ts
 import { writable, derived, get } from 'svelte/store';
 
-// --- NEW: A type to define the possible states for a main page section ---
-export type SectionState = 'IDLE' | 'PRELOADING' | 'READY' | 'ACTIVE' | 'COOLING';
-
 export type TaskStatus = 'idle' | 'pending' | 'loading' | 'loaded' | 'error';
 export type AssetStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
@@ -2675,36 +2683,6 @@ const assetLoadingStatus = writable<Record<string, AssetStatus>>({});
 
 // This store tracks tasks for the initial site loading screen
 const tasks = writable<Record<string, PreloadTask>>({});
-
-// --- NEW: A store to manage the state of each main page section for the Neighbor Preloader ---
-const sectionStates = writable<Map<number, SectionState>>(new Map());
-
-export const sectionStateStore = {
-  subscribe: sectionStates.subscribe,
-  /** Initializes the state map for all sections. Should be called once on mount. */
-  init: (sectionCount: number) => {
-    sectionStates.update(map => {
-      for (let i = 0; i < sectionCount; i++) {
-        // Initialize all sections to IDLE, except for the first one which starts as ACTIVE
-        map.set(i, i === 0 ? 'ACTIVE' : 'IDLE');
-      }
-      return map;
-    });
-  },
-  /** Updates the state of a specific section. */
-  setState: (index: number, state: SectionState) => {
-    sectionStates.update(map => map.set(index, state));
-  },
-  /** Retrieves the current state of a specific section. */
-  getState: (index: number): SectionState | undefined => {
-    return get(sectionStates).get(index);
-  },
-  /** Resets the store. */
-  reset: () => {
-    sectionStates.set(new Map());
-  }
-};
-// --- END NEW ---
 
 // Configuration for the initial loading screen
 export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
@@ -2802,8 +2780,6 @@ export const preloadingStore = {
     tasks.set({});
     initialSiteLoadComplete.set(false);
     assetLoadingStatus.set({});
-    // --- MODIFICATION: Reset the section state store as well ---
-    sectionStateStore.reset();
   },
 
   getAssetStatus: (url: string): AssetStatus => {
@@ -2891,6 +2867,70 @@ export async function preloadAssets(urls: string[]): Promise<void> {
   await Promise.all(promises);
 }
 --- END OF FILE src\lib\stores\preloadingStore.ts ---
+
+--- START OF FILE src\lib\stores\sectionStateStore.ts ---
+// src/lib/stores/sectionStateStore.ts
+import { writable } from 'svelte/store';
+
+/**
+ * Defines the possible lifecycle states for a main page section.
+ * - IDLE: Not loaded, not a neighbor of the active section.
+ * - PRELOADING: Assets are being fetched and/or effects are being initialized.
+ * - READY: Fully prepared for a seamless transition.
+ * - ACTIVE: Currently visible to the user.
+ * - COOLDOWN: No longer a neighbor, can be unloaded to free resources.
+ */
+export type SectionState = 'IDLE' | 'PRELOADING' | 'READY' | 'ACTIVE' | 'COOLDOWN';
+
+/**
+ * A writable store that holds an array of states, one for each section
+ * in the main portfolio page.
+ */
+export const sectionStates = writable<SectionState[]>([]);
+--- END OF FILE src\lib\stores\sectionStateStore.ts ---
+
+--- START OF FILE src\lib\stores\transitionStore.ts ---
+// src/lib/stores/transitionStore.ts
+import { writable } from 'svelte/store';
+import { goto } from '$app/navigation';
+
+interface TransitionState {
+  visible: boolean;
+  color: string;
+}
+
+const { subscribe, update } = writable<TransitionState>({
+  visible: false,
+  color: '#000000', // Default to black for our fade effect
+});
+
+// --- MODIFICATION: Reduced transition duration for a "snappier" feel ---
+const TRANSITION_DURATION = 90; // ms
+
+export const transitionStore = {
+  subscribe,
+  /**
+   * Manages a smooth fade-to-black transition between routes.
+   * @param href The destination URL to navigate to.
+   */
+  fadeToBlackAndNavigate: (href: string) => {
+    // 1. Make the overlay visible to start the fade-in animation.
+    update(state => ({ ...state, visible: true }));
+
+    // 2. Wait for the fade-in animation to complete.
+    setTimeout(() => {
+      // 3. After the screen is black, perform the actual navigation.
+      goto(href).then(() => {
+        // 4. Once SvelteKit has loaded the new page, start fading out the overlay.
+        // A tiny delay ensures the new page's content has started rendering.
+        setTimeout(() => {
+            update(state => ({ ...state, visible: false }));
+        }, 50); 
+      });
+    }, TRANSITION_DURATION); // This duration MUST match the CSS/Svelte transition duration.
+  }
+};
+--- END OF FILE src\lib\stores\transitionStore.ts ---
 
 --- START OF FILE src\lib\three\BloomEffect.ts ---
 // src/lib/three/BloomEffect.ts
@@ -4005,10 +4045,27 @@ export class CreateParticles {
 --- START OF FILE src\routes\+layout.svelte ---
 <!-- src/routes/+layout.svelte -->
 <script lang="ts">
-  import '../app.css'; // Import global styles for keyboard buttons etc.
+  import '../app.css';
+  import TransitionOverlay from '$lib/components/TransitionOverlay.svelte';
 </script>
 
+<TransitionOverlay />
+
 <slot />
+
+<style>
+  /*
+    By placing this global style in the root layout, we guarantee
+    that the body's background color is always black. This component
+    is never unmounted during page transitions, so the style persists
+    and prevents the browser's default white background from ever showing.
+    This is the definitive fix for the "white flash".
+  */
+  :global(body) {
+    background-color: rgb(9 9 11);
+    color: rgb(245 245 247);
+  }
+</style>
 --- END OF FILE src\routes\+layout.svelte ---
 
 --- START OF FILE src\routes\+page.svelte ---
@@ -4018,7 +4075,8 @@ export class CreateParticles {
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
-  import { initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets, sectionStateStore, type SectionState } from '$lib/stores/preloadingStore';
+  import { initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
   import { gsap } from 'gsap';
 
   // Component Imports
@@ -4035,7 +4093,7 @@ export class CreateParticles {
     onLeaveSection: () => void;
     initializeEffect?: () => Promise<void>;
     onTransitionComplete?: () => void;
-    onCooldown?: () => void; // New optional method for resource cleanup
+    onUnload?: () => void;
   }
   import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
 
@@ -4067,6 +4125,7 @@ export class CreateParticles {
   const currentSectionIndex = writable(0);
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
+  const sectionStatesStore = sectionStates;
 
   // Page & Animation State
   let visibilityHideTimeoutId: number | undefined;
@@ -4087,16 +4146,119 @@ export class CreateParticles {
   let mainContainerPointerEvents = 'auto';
   $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
 
-  // Promise setup for initial load
+  // --- Promise setup for initial load ---
   let heroReadyResolver: () => void;
   const heroReadyPromise = new Promise<void>(resolve => {
     heroReadyResolver = resolve;
   });
 
-  // --- The New Neighbor Preload Manager ---
+  // --- The HYBRID Preload Manager ---
   const preloadManager = {
-    _isPreparing: new Set<number>(), // Prevents redundant parallel preparations
-    _isPrewarmingGpu: false,
+    isPrewarming: false,
+    
+    async updateNeighborStates(activeIndex: number) {
+      console.log(`[Preloader] Updating neighbors for ACTIVE section ${activeIndex}.`);
+      const currentStates = get(sectionStatesStore);
+      const desiredStates: SectionState[] = allSectionsData.map((_, i) => {
+        if (i === activeIndex) return 'ACTIVE';
+        if (i === activeIndex - 1 || i === activeIndex + 1) return 'READY';
+        return 'COOLDOWN';
+      });
+
+      const tasks: Promise<void>[] = [];
+
+      for (let i = 0; i < allSectionsData.length; i++) {
+        const currentState = currentStates[i];
+        const desiredState = desiredStates[i];
+
+        if (currentState !== desiredState) {
+          if ((currentState === 'IDLE' || currentState === 'COOLDOWN') && desiredState === 'READY') {
+            tasks.push(this.prepareSection(i));
+          }
+          if (currentState === 'READY' && desiredState === 'COOLDOWN') {
+            tasks.push(this.coolDownSection(i));
+          }
+        }
+      }
+      
+      sectionStatesStore.update(states => {
+        states[activeIndex] = 'ACTIVE';
+        return states;
+      });
+
+      await Promise.all(tasks);
+    },
+    
+    preWarmGpuLayers(sectionElement: HTMLElement | undefined) {
+      if (this.isPrewarming || !sectionElement) return;
+      this.isPrewarming = true;
+      setTimeout(() => {
+        const targets = sectionElement.querySelectorAll('.gpu-prewarm-target');
+        if (targets.length === 0) {
+          this.isPrewarming = false;
+          return;
+        }
+
+        console.log(`[Preloader] Pre-warming ${targets.length} GPU layers for section #${sectionElement.id}.`);
+        gsap.set(targets, {
+          autoAlpha: 0.001,
+          stagger: 0.05,
+          onComplete: () => {
+            gsap.set(targets, { autoAlpha: 0 });
+            this.isPrewarming = false;
+          }
+        });
+      }, 100);
+    },
+
+    async prepareSection(index: number) {
+      const currentState = get(sectionStatesStore)[index];
+      if (currentState !== 'IDLE' && currentState !== 'COOLDOWN') return;
+      
+      const sectionInfo = allSectionsData[index];
+      const instance = sectionInstances.get(sectionInfo.id);
+      const element = sectionElements[index];
+
+      if (!instance || !element) {
+        console.error(`[Preloader] Cannot prepare Section ${index}. Instance or element not found.`);
+        return;
+      }
+
+      sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
+      console.log(`[Preloader] PRELOADING Section ${index} (${sectionInfo.id})...`);
+
+      const urls = this.getSectionAssetUrls(index);
+      if (urls.length > 0) await preloadAssets(urls);
+      
+      if (instance.initializeEffect) await instance.initializeEffect();
+      
+      if (sectionInfo.id === 'about') {
+        console.log(`[Preloader] Performing WebGL Dry Run for Section ${index} (${sectionInfo.id})...`);
+        gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
+        instance.onEnterSection();
+        instance.onTransitionComplete?.();
+        await new Promise(resolve => setTimeout(resolve, 200));
+        instance.onLeaveSection();
+        gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+      } else if (sectionInfo.id.startsWith('project-')) {
+        this.preWarmGpuLayers(element);
+      }
+      
+      sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
+      console.log(`[Preloader] Section ${index} (${sectionInfo.id}) is now READY.`);
+    },
+
+    async coolDownSection(index: number) {
+      const sectionId = allSectionsData[index].id;
+      sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
+      console.log(`[Preloader] COOLING DOWN Section ${index} (${sectionId})...`);
+      
+      const instance = sectionInstances.get(sectionId);
+      instance?.onUnload?.();
+      
+      sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
+      console.log(`[Preloader] Section ${index} (${sectionId}) is now IDLE.`);
+    },
 
     getSectionAssetUrls(index: number): string[] {
       if (index < 0 || index >= allSectionsData.length) return [];
@@ -4111,94 +4273,14 @@ export class CreateParticles {
       }
       return urls.filter(Boolean);
     },
-    
-    _preWarmGpuLayers(sectionElement: HTMLElement | undefined) {
-      if (this._isPrewarmingGpu || !sectionElement) return;
-      this._isPrewarmingGpu = true;
-      
-      setTimeout(() => {
-        const targets = sectionElement.querySelectorAll('.gpu-prewarm-target');
-        if (targets.length === 0) {
-          this._isPrewarmingGpu = false;
-          return;
-        }
-        
-        gsap.set(targets, {
-          autoAlpha: 0.001,
-          stagger: 0.05,
-          onComplete: () => {
-            gsap.set(targets, { autoAlpha: 0 });
-            this._isPrewarmingGpu = false;
-          }
-        });
-      }, 100);
-    },
-
-    async _prepare(index: number) {
-      if (index < 0 || index >= allSectionsData.length || this._isPreparing.has(index)) return;
-      
-      const currentState = sectionStateStore.getState(index);
-      if (currentState === 'READY' || currentState === 'ACTIVE' || currentState === 'PRELOADING') return;
-
-      this._isPreparing.add(index);
-      sectionStateStore.setState(index, 'PRELOADING');
-      console.log(`[Preloader] START preparation for Section ${index}`);
-
-      try {
-        const instance = sectionInstances.get(allSectionsData[index].id);
-        const urls = this.getSectionAssetUrls(index);
-        
-        if (urls.length > 0) await preloadAssets(urls);
-        if (instance?.initializeEffect) await instance.initializeEffect();
-        
-        const targetSectionElement = sectionElements[index];
-        this._preWarmGpuLayers(targetSectionElement);
-
-        sectionStateStore.setState(index, 'READY');
-        console.log(`[Preloader] FINISH preparation for Section ${index}. State: READY.`);
-      } catch (error) {
-        console.error(`[Preloader] FAILED preparation for Section ${index}:`, error);
-        sectionStateStore.setState(index, 'IDLE');
-      } finally {
-        this._isPreparing.delete(index);
-      }
-    },
-
-    _cooldown(index: number) {
-      if (index < 0 || index >= allSectionsData.length) return;
-      const currentState = sectionStateStore.getState(index);
-      if (currentState === 'IDLE' || currentState === 'COOLING' || currentState === 'ACTIVE') return;
-
-      sectionStateStore.setState(index, 'COOLING');
-      console.log(`[Preloader] COOLING DOWN Section ${index}`);
-
-      const instance = sectionInstances.get(allSectionsData[index].id);
-      instance?.onCooldown?.();
-      
-      sectionStateStore.setState(index, 'IDLE');
-    },
-
-    updateNeighborStates(activeIndex: number) {
-      console.log(`[Preloader] Updating neighbor states around active index: ${activeIndex}`);
-      const neighborhood = [activeIndex - 1, activeIndex, activeIndex + 1];
-
-      for (let i = 0; i < allSectionsData.length; i++) {
-        const isNeighbor = neighborhood.includes(i);
-        const currentState = sectionStateStore.getState(i);
-
-        if (i === activeIndex) {
-          if (currentState !== 'ACTIVE') sectionStateStore.setState(i, 'ACTIVE');
-          continue;
-        }
-
-        if (isNeighbor) {
-          if (currentState === 'IDLE') this._prepare(i);
-        } else { // Is NOT a neighbor
-          if (currentState === 'READY') this._cooldown(i);
-        }
-      }
-    }
   };
+
+  function handleAnimationComplete() {
+    const nextNeighborIndex = get(currentSectionIndex) + 2;
+    if(nextNeighborIndex < allSectionsData.length) {
+      preloadManager.prepareSection(nextNeighborIndex);
+    }
+  }
 
   function handleVisibilityChange() {
     const currentIndex = get(currentSectionIndex);
@@ -4206,6 +4288,7 @@ export class CreateParticles {
     if (document.hidden) {
       visibilityHideTimeoutId = window.setTimeout(() => {
         if (document.hidden && !isTabHiddenAndPaused) {
+          console.log('[Visibility] Tab hidden, pausing current section animations.');
           currentInstance?.onLeaveSection();
           isTabHiddenAndPaused = true;
         }
@@ -4213,13 +4296,13 @@ export class CreateParticles {
     } else {
       clearTimeout(visibilityHideTimeoutId);
       if (isTabHiddenAndPaused) {
-        console.log("[Visibility] Tab refocused. Re-validating preloader state.");
-        preloadManager.updateNeighborStates(currentIndex);
+        console.log('[Visibility] Tab focused, re-engaging animations and re-validating neighbors.');
         currentInstance?.onEnterSection();
         requestAnimationFrame(() => {
           currentInstance?.onTransitionComplete?.();
         });
         isTabHiddenAndPaused = false;
+        preloadManager.updateNeighborStates(currentIndex);
       }
     }
   }
@@ -4227,15 +4310,14 @@ export class CreateParticles {
   onMount(() => {
     const mountLogic = async () => {
       await tick();
+      
+      sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
 
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
       if (sectionElements.some(el => !el)) {
         console.error("Could not find all section elements in the DOM.");
         return;
       }
-      
-      sectionStateStore.init(allSectionsData.length);
-
       sectionElements.forEach((sectionEl, index) => {
         const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
         sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.05, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
@@ -4244,9 +4326,12 @@ export class CreateParticles {
 
       const setupInitialLoad = async () => {
         const heroInitializationPromise = heroReadyPromise;
-        const aboutInitializationPromise = preloadManager._prepare(1);
+        const aboutInitializationPromise = preloadManager.prepareSection(1);
 
         await Promise.all([heroInitializationPromise, aboutInitializationPromise]);
+        
+        preloadManager.updateNeighborStates(0);
+        
         initialSiteLoadComplete.set(true);
       };
 
@@ -4286,7 +4371,7 @@ export class CreateParticles {
     setTimeout(() => {
       if (heroSectionInstance) {
         heroSectionInstance.onTransitionToHeroComplete();
-        preloadManager.updateNeighborStates(0);
+        preloadManager.prepareSection(2);
       }
       setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
     }, initialRevealDelay);
@@ -4317,6 +4402,8 @@ export class CreateParticles {
         isTransitioning.set(false);
         sectionBackgroundZooms[newIndex]?.restart();
         
+        preloadManager.updateNeighborStates(newIndex);
+        
         requestAnimationFrame(() => {
           newInstance?.onTransitionComplete?.();
         });
@@ -4324,8 +4411,6 @@ export class CreateParticles {
         if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
            heroSectionInstance.onTransitionToHeroComplete();
         }
-
-        preloadManager.updateNeighborStates(newIndex);
       } 
     }); 
     
@@ -4380,21 +4465,25 @@ export class CreateParticles {
             data={section.data as typeof siteConfig.aboutSection}
             {contactSectionIndex}
             {navigateToSection}
+            on:animationComplete={handleAnimationComplete}
           />
         {:else if section.id === `project-${projects[0].id}`}
           <ProjectOneSection
             bind:this={sectionInstancesArray[i + 1]}
             project={section.data as Project}
+            on:animationComplete={handleAnimationComplete}
           />
         {:else if section.id === `project-${projects[1].id}`}
           <ProjectTwoSection
             bind:this={sectionInstancesArray[i + 1]}
             project={section.data as Project}
+            on:animationComplete={handleAnimationComplete}
           />
         {:else if section.id === 'contact'}
           <ContactSection
             bind:this={sectionInstancesArray[i + 1]}
             data={section.data as typeof siteConfig.contactSection}
+            on:animationComplete={handleAnimationComplete}
           />
         {/if}
       </section>
@@ -4402,7 +4491,7 @@ export class CreateParticles {
   </main>
 
   <style>
-    :global(body) { background-color: rgb(9 9 11); color: rgb(245 245 247); }
+    /* --- MODIFICATION: The global body style has been removed from here. --- */
     .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
     .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
     .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
@@ -4434,26 +4523,31 @@ export class CreateParticles {
 <!-- src/routes/projects/[slug]/+layout.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { ArrowLeft } from 'lucide-svelte'; // A nice icon library for the back button
+  import { ArrowLeft } from 'lucide-svelte';
+  // --- MODIFICATION: Import the new transition store ---
+  import { transitionStore } from '$lib/stores/transitionStore';
 
   let showButton = false;
 
   onMount(() => {
-    // A slight delay ensures the button fades in after the page transition starts
     const timer = setTimeout(() => {
       showButton = true;
     }, 300);
 
     return () => clearTimeout(timer);
   });
+
+  function handleBackClick() {
+    // --- MODIFICATION: Use the transition store for navigation ---
+    transitionStore.fadeToBlackAndNavigate('/');
+  }
 </script>
 
 <div class="project-subpage-layout">
   <button 
     class="back-button"
     class:visible={showButton}
-    on:click={() => goto('/')}
+    on:click={handleBackClick}
     aria-label="Back to home"
   >
     <ArrowLeft size={24} />
@@ -4506,31 +4600,29 @@ export class CreateParticles {
     background-color: rgba(50, 50, 52, 0.9);
     transform: scale(1.05);
   }
-
-  /* Add lucide-svelte to your dev dependencies if you don't have it: npm install -D lucide-svelte */
 </style>
 --- END OF FILE src\routes\projects\[slug]\+layout.svelte ---
 
 --- START OF FILE src\routes\projects\[slug]\+page.svelte ---
 <!-- src/routes/projects/[slug]/+page.svelte -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { get, writable } from 'svelte/store';
   import { page } from '$app/stores';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
-  // FIX: Import the new generic preloadAssets and task management functions
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let data;
   const { project } = data;
 
-  // A unique task ID for this project's assets
+  // A unique task ID for this specific project's assets.
   const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
 
-  // A writable store to track when content for this specific page is ready.
+  // A local store to track when this page's content is ready to be shown.
   const isContentLoaded = writable(false);
 
+  // Combine the project overview and detailed sections into one scrollable list.
   const allSubSections = [
     { 
       id: 'overview', 
@@ -4545,6 +4637,7 @@ export class CreateParticles {
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
   let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
 
+  // State for the subpage's internal scrolling logic.
   let currentSectionIndex = 0;
   let isAnimating = false;
   let lastScrollTime = 0;
@@ -4552,16 +4645,18 @@ export class CreateParticles {
   const transitionDuration = 1.1;
 
   onMount(() => {
-    // FIX: Use the new centralized preloading system.
-    const runPreload = async () => {
-      // Register the task with the global preloading store.
+    // This function runs once when the component is created.
+    const runPreloadAndSetup = async () => {
+      // 1. Register a task with the global preloading store.
       startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
 
+      // 2. Gather all image URLs needed for this subpage.
       const assetUrls = allSubSections
         .filter(s => s.background.type === 'image')
         .map(s => s.background.value);
       
       try {
+        // 3. Use the global preloader to fetch assets. This is cache-aware.
         await preloadAssets(assetUrls);
         preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
         console.log(`All assets for project '${project.slug}' preloaded successfully.`);
@@ -4569,12 +4664,12 @@ export class CreateParticles {
         console.error(error);
         preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
       } finally {
-        // Once preloading is complete (success or fail), mark content as ready to be shown.
+        // 4. Mark content as ready to be shown, which will trigger the animation setup.
         isContentLoaded.set(true);
       }
     };
     
-    runPreload();
+    runPreloadAndSetup();
 
     return () => {
       window.removeEventListener('wheel', handleWheel);
@@ -4584,7 +4679,7 @@ export class CreateParticles {
     };
   });
 
-  // This reactive block ensures animation setup only runs *after* assets are loaded.
+  // This reactive block runs automatically when `isContentLoaded` becomes true.
   $: if ($isContentLoaded) {
     setupAnimations();
   }
@@ -4594,6 +4689,7 @@ export class CreateParticles {
 
       sectionElements = allSubSections.map(section => document.getElementById(section.id) as HTMLElement);
       
+      // Check the URL hash to determine the starting section.
       const urlHash = get(page).url.hash;
       const cleanHash = urlHash.startsWith('#') ? urlHash.substring(1) : null;
       
@@ -4606,6 +4702,7 @@ export class CreateParticles {
       }
       currentSectionIndex = initialIndex;
 
+      // Create animations for each section but keep them paused.
       sectionElements.forEach((sectionEl, index) => {
         const contentTl = gsap.timeline({ paused: true });
         const contentOverlay = sectionEl.querySelector('.subpage-content-overlay');
@@ -4629,6 +4726,7 @@ export class CreateParticles {
         }
       });
 
+      // Set initial visibility and positions.
       sectionElements.forEach((el, index) => {
         if (index === initialIndex) {
           gsap.set(el, { yPercent: 0, autoAlpha: 1 });
@@ -4639,6 +4737,7 @@ export class CreateParticles {
         }
       });
 
+      // Add event listeners for navigation.
       window.addEventListener('wheel', handleWheel, { passive: false });
       window.addEventListener('keydown', handleKeyDown);
   }
@@ -4653,6 +4752,7 @@ export class CreateParticles {
     const targetSectionEl = sectionElements[newIndex];
     const direction = newIndex > oldIndex ? 1 : -1;
 
+    // Reset and pause animations for the outgoing section.
     sectionContentTimelines[oldIndex]?.progress(0).pause();
     sectionBackgroundZooms[oldIndex]?.progress(0).pause();
 
@@ -4668,6 +4768,7 @@ export class CreateParticles {
     masterTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
     masterTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
     
+    // Play animations for the incoming section partway through the transition.
     masterTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
     masterTl.call(() => { sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
   }
@@ -4681,13 +4782,29 @@ export class CreateParticles {
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    if (isAnimating) return;
+    if (isAnimating) {
+        event.preventDefault();
+        return;
+    }
+    const currentTime = Date.now();
+    if (currentTime - lastScrollTime < scrollDebounce) {
+        event.preventDefault();
+        return;
+    }
     let newIndex = currentSectionIndex;
-    if (event.key === 'ArrowDown' || event.key === ' ') newIndex++;
-    if (event.key === 'ArrowUp') newIndex--;
-    navigateToSection(newIndex);
+    let shouldScroll = false;
+    switch (event.key) {
+        case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break;
+        case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break;
+        case 'Home': newIndex = 0; shouldScroll = true; break;
+        case 'End': newIndex = allSubSections.length - 1; shouldScroll = true; break;
+    }
+    if (shouldScroll && newIndex !== currentSectionIndex) {
+        event.preventDefault();
+        lastScrollTime = currentTime;
+        navigateToSection(newIndex);
+    }
   }
-
 </script>
 
 <svelte:head>
@@ -4759,12 +4876,13 @@ export class CreateParticles {
     z-index: 1;
     max-width: 800px;
     text-align: center;
-    padding: 2rem;
+    padding: 2rem 3rem;
     background-color: rgba(9, 9, 11, 0.75);
     backdrop-filter: blur(10px);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     opacity: 0;
+    visibility: hidden; /* Start hidden for GSAP */
   }
 
   .subpage-content-overlay h2 {
@@ -4774,6 +4892,7 @@ export class CreateParticles {
     margin-bottom: 1.5rem;
     text-shadow: 0 2px 20px rgba(0,0,0,0.5);
     opacity: 0;
+    visibility: hidden;
   }
 
   .subpage-content-overlay p {
@@ -4783,6 +4902,7 @@ export class CreateParticles {
     margin: 0 auto;
     color: #e2e8f0;
     opacity: 0;
+    visibility: hidden;
   }
 </style>
 --- END OF FILE src\routes\projects\[slug]\+page.svelte ---

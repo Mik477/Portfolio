@@ -1,26 +1,31 @@
 <!-- src/routes/projects/[slug]/+layout.svelte -->
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { goto } from '$app/navigation';
-  import { ArrowLeft } from 'lucide-svelte'; // A nice icon library for the back button
+  import { ArrowLeft } from 'lucide-svelte';
+  // --- MODIFICATION: Import the new transition store ---
+  import { transitionStore } from '$lib/stores/transitionStore';
 
   let showButton = false;
 
   onMount(() => {
-    // A slight delay ensures the button fades in after the page transition starts
     const timer = setTimeout(() => {
       showButton = true;
     }, 300);
 
     return () => clearTimeout(timer);
   });
+
+  function handleBackClick() {
+    // --- MODIFICATION: Use the transition store for navigation ---
+    transitionStore.fadeToBlackAndNavigate('/');
+  }
 </script>
 
 <div class="project-subpage-layout">
   <button 
     class="back-button"
     class:visible={showButton}
-    on:click={() => goto('/')}
+    on:click={handleBackClick}
     aria-label="Back to home"
   >
     <ArrowLeft size={24} />
@@ -73,6 +78,4 @@
     background-color: rgba(50, 50, 52, 0.9);
     transform: scale(1.05);
   }
-
-  /* Add lucide-svelte to your dev dependencies if you don't have it: npm install -D lucide-svelte */
 </style>
