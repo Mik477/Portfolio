@@ -4,12 +4,10 @@
   import { transitionStore } from '$lib/stores/transitionStore';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
 
-  // These props are passed down from the orchestrator through the wrapper.
   export let headline: string;
   export let summary: string;
   export let cards: ProjectCard[];
   export let slug: string;
-  // FIX: Make this prop optional by providing a default value.
   export let readMoreLinkText: string | undefined = undefined;
 
   function handleCardClick(card: ProjectCard) {
@@ -22,13 +20,7 @@
   }
 </script>
 
-<!-- 
-  This layout container is the direct child of the <slot> in ProjectSection.svelte.
-  It establishes a positioning context for its children.
--->
 <div class="layout-container">
-
-  <!-- Text Block: Positioned in the bottom-left corner -->
   <div class="text-block">
     <h2 class="anim-headline">{headline}</h2>
     <p class="anim-summary">{summary}</p>
@@ -39,7 +31,6 @@
     {/if}
   </div>
 
-  <!-- Cards Block: Positioned in the right-center area -->
   <div class="cards-block">
     {#each cards as card, i (card.id)}
       <div class="card-wrapper anim-card" style="--card-index: {i};">
@@ -49,7 +40,6 @@
       </div>
     {/each}
   </div>
-
 </div>
 
 <style>
@@ -60,7 +50,6 @@
     overflow: hidden;
   }
 
-  /* --- Text Block Styling (Bottom-Left) --- */
   .text-block {
     position: absolute;
     bottom: 12vh;
@@ -77,7 +66,6 @@
     letter-spacing: -0.02em;
     line-height: 1.1;
     text-shadow: 0 3px 15px rgba(0,0,0,0.3);
-    /* GSAP will set opacity/visibility */
   }
 
   p {
@@ -86,7 +74,6 @@
     line-height: 1.8;
     margin-bottom: 2.5rem;
     text-shadow: 0 2px 8px rgba(0,0,0,0.5);
-    /* GSAP will set opacity/visibility */
   }
 
   .read-more-btn {
@@ -100,7 +87,6 @@
     font-size: 1rem;
     font-weight: 500;
     transition: all 0.3s ease;
-    /* GSAP will set opacity/visibility */
   }
   .read-more-btn:hover {
     background-color: rgb(79 70 229);
@@ -108,7 +94,6 @@
     box-shadow: 0 4px 25px rgba(99 102 241 / 0.4);
   }
 
-  /* --- Cards Block Styling (Right-Side) --- */
   .cards-block {
     position: absolute;
     top: 50%;
@@ -121,29 +106,50 @@
     align-items: center;
     gap: 2rem;
   }
-
-  .card-wrapper {
-    /* GSAP will set opacity/visibility */
-  }
-
-  /*
-   This wrapper ensures the button functionality is clean and separate
-   from the ParallaxCard's internal hover/mouse logic.
-  */
+  
   .card-click-target {
     background: none;
     border: none;
     padding: 0;
     cursor: pointer;
-    border-radius: 10px; /* Match ParallaxCard's border-radius */
+    border-radius: 10px;
     transition: transform 0.3s ease, box-shadow 0.3s ease;
   }
+
+  .card-click-target :global(.card) {
+    box-shadow: inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
+  }
+
   .card-click-target:hover {
     transform: translateY(-8px) scale(1.02);
-    box-shadow: 0 15px 40px rgba(0,0,0,0.3);
   }
-  .card-click-target:focus-visible {
-    outline: 2px solid rgb(99 102 241);
-    outline-offset: 6px;
+
+  /* --- FIX: New, 3D-aware focus and hover styles --- */
+  .card-click-target:hover :global(.card),
+  .card-click-target:focus-visible :global(.card) {
+    box-shadow: 
+      /* Outer glow for hover/focus */
+      rgba(255, 255, 255, 0.2) 0 0 40px 5px, 
+      rgba(0, 0, 0, 0.66) 0 30px 60px 0, 
+      
+      /* Inner border */
+      inset #333 0 0 0 5px,
+      
+      /* Sharp white line inside border */
+      inset white 0 0 0 6px;
+  }
+
+  /* Add a distinct blue ring ONLY for focus, not hover */
+  .card-click-target:focus-visible :global(.card) {
+    box-shadow: 
+      /* Re-apply the hover glow so it persists during focus */
+      rgba(255, 255, 255, 0.2) 0 0 40px 5px, 
+      rgba(0, 0, 0, 0.66) 0 30px 60px 0, 
+
+      /* Re-apply the inner border */
+      inset #333 0 0 0 5px,
+
+      /* The NEW blue focus ring, replacing the white line */
+      inset rgb(99 102 241) 0 0 0 7px;
   }
 </style>

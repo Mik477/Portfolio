@@ -39,7 +39,7 @@
     if (!cardWrapElement) return;
     const rect = cardWrapElement.getBoundingClientRect();
     mouseX = e.clientX - rect.left - elementWidth / 2;
-    mouseY = e.clientY - rect.top - elementHeight / 2;
+    mouseY = e.clientY - rect.top - elementWidth / 2;
   }
 
   function handleMouseEnter() {
@@ -54,7 +54,6 @@
   }
 </script>
 
-<!-- FIX: Removed the 'gpu-prewarm-target' class from this div -->
 <div
   class="card-wrap"
   style:width
@@ -119,7 +118,7 @@
     background-color: #333;
     overflow: hidden;
     border-radius: 10px;
-    box-shadow: inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
+    /* --- FIX: Default box-shadow is removed. It will now be controlled by the parent layout. --- */
     transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
 

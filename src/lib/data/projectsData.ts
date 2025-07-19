@@ -48,32 +48,32 @@ export const projects: Project[] = [
   // Project 1 (Placeholder)
   {
     id: 'project-one',
-    slug: 'ai-churn-prediction',
-    headline: 'AI-Powered Customer Churn Prediction',
+    slug: 'BURA',
+    headline: 'BURA \n Long Range Recon UAV',
     summary: 'Leveraging machine learning to proactively identify and mitigate customer churn, improving retention rates.',
     background: {
       type: 'image',
-      value: '/images/projects/project-one/background.webp',
+      value: '/images/projects/project-one/background_2.webp',
     },
     tags: ['Machine Learning', 'Python', 'Scikit-learn', 'Data Analysis'],
     cards: [
       {
-        id: 'p1-data-exploration',
-        title: 'Data Exploration',
+        id: 'p1_sensors',
+        title: 'Sensor Array',
         image: '/images/projects/project-one/card-data.jpg',
-        description: 'Deep dive into dataset characteristics.',
+        description: 'Elaborat Camera System',
         aspectLink: '#data-exploration' // This #hash is important
       },
       {
-        id: 'p1-model-building',
-        title: 'Model Building',
+        id: 'p1_3D_printing',
+        title: '3D-printing',
         image: '/images/projects/project-one/card-printing.webp',
         description: 'Developing predictive models.',
         aspectLink: '#model-building'
       },
       {
-        id: 'p1-results',
-        title: 'Results & Impact',
+        id: 'p1_making',
+        title: 'Building & Testing',
         image: '/images/projects/project-one/card-meWorking.webp',
         description: 'Analyzing model performance and business impact.',
         aspectLink: '#results'
