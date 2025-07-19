@@ -50,7 +50,7 @@ export const projects: Project[] = [
     id: 'project-one',
     slug: 'BURA',
     headline: 'BURA \n Long Range Recon UAV',
-    summary: 'Leveraging machine learning to proactively identify and mitigate customer churn, improving retention rates.',
+    summary: 'A fully 3D-Printed UAV designed for long-range, multi hour reconnaissance missions.',
     background: {
       type: 'image',
       value: '/images/projects/project-one/background_2.webp',
@@ -58,15 +58,15 @@ export const projects: Project[] = [
     tags: ['Machine Learning', 'Python', 'Scikit-learn', 'Data Analysis'],
     cards: [
       {
-        id: 'p1_sensors',
-        title: 'Sensor Array',
-        image: '/images/projects/project-one/card-data.jpg',
-        description: 'Elaborat Camera System',
+        id: 'p1_capability',
+        title: '  Capability  ',
+        image: '/images/projects/project-one/sensor.webp',
+        description: 'Elaborate Sensor Array for advanced autonomous capabilities',
         aspectLink: '#data-exploration' // This #hash is important
       },
       {
         id: 'p1_3D_printing',
-        title: '3D-printing',
+        title: '3D-Printing',
         image: '/images/projects/project-one/card-printing.webp',
         description: 'Developing predictive models.',
         aspectLink: '#model-building'
@@ -101,7 +101,7 @@ export const projects: Project[] = [
         }
     ],
     // --- MODIFICATION END ---
-    readMoreLinkText: "Explore Churn Prediction Project"
+    readMoreLinkText: "Explore More"
   },
   // Project 2 (Placeholder)
   {

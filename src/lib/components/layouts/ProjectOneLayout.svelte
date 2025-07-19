@@ -26,6 +26,9 @@
     <p class="anim-summary">{summary}</p>
     {#if readMoreLinkText}
       <button class="read-more-btn anim-button" on:click={handleReadMoreClick}>
+        <svg>
+          <rect x="0" y="0" fill="none" width="100%" height="100%"/>
+        </svg>
         <span>{readMoreLinkText}</span>
       </button>
     {/if}
@@ -76,23 +79,70 @@
     text-shadow: 0 2px 8px rgba(0,0,0,0.5);
   }
 
+  /* --- FIX: Updated Button Styles for Font Transition --- */
   .read-more-btn {
+    position: relative;
     padding: 0.875rem 2rem;
-    background-color: rgb(99 102 241 / 0.8);
-    backdrop-filter: blur(5px);
-    color: white;
-    border: 1px solid rgb(129 140 248 / 0.5);
-    border-radius: 8px;
-    cursor: pointer;
+    min-width: 220px;
+    
+    background-color: transparent;
+    backdrop-filter: blur(4px);
+    
+    /* Use the new font with a light initial weight */
+    font-family: 'Source Code Pro', monospace;
+    font-weight: 300; /* Light initial weight */
     font-size: 1rem;
-    font-weight: 500;
-    transition: all 0.3s ease;
+    color: white;
+    text-transform: uppercase;
+    
+    /* Set initial letter-spacing */
+    letter-spacing: 0.05em;
+
+    border: none;
+    cursor: pointer;
+    
+    /* Add font-weight and letter-spacing to the transition property */
+    transition: box-shadow 0.6s ease, font-weight 0.6s ease, letter-spacing 0.6s ease;
   }
+
+  .read-more-btn span {
+    position: relative;
+    z-index: 1;
+  }
+
+  .read-more-btn svg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .read-more-btn rect {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.7);
+    stroke-width: 1px;
+    stroke-dasharray: 400;
+    stroke-dashoffset: 400;
+    transition: stroke-dashoffset 0.8s cubic-bezier(0.19, 1, 0.22, 1), 
+                stroke-width 0.4s ease,
+                stroke 0.4s ease;
+  }
+
   .read-more-btn:hover {
-    background-color: rgb(79 70 229);
-    transform: translateY(-3px);
-    box-shadow: 0 4px 25px rgba(99 102 241 / 0.4);
+    box-shadow: 0 0 25px -5px rgba(255, 255, 255, 0.6);
+    
+    /* Animate to the bold weight and wider letter-spacing */
+    font-weight: 700; /* Bold hover weight */
+    letter-spacing: 0.1em; /* Wider spacing on hover */
   }
+
+  .read-more-btn:hover rect {
+    stroke-width: 2px;
+    stroke-dashoffset: 0;
+    stroke: rgba(255, 255, 255, 1);
+  }
+  /* --- FIX END --- */
 
   .cards-block {
     position: absolute;
@@ -124,32 +174,20 @@
     transform: translateY(-8px) scale(1.02);
   }
 
-  /* --- FIX: New, 3D-aware focus and hover styles --- */
   .card-click-target:hover :global(.card),
   .card-click-target:focus-visible :global(.card) {
     box-shadow: 
-      /* Outer glow for hover/focus */
       rgba(255, 255, 255, 0.2) 0 0 40px 5px, 
       rgba(0, 0, 0, 0.66) 0 30px 60px 0, 
-      
-      /* Inner border */
       inset #333 0 0 0 5px,
-      
-      /* Sharp white line inside border */
       inset white 0 0 0 6px;
   }
 
-  /* Add a distinct blue ring ONLY for focus, not hover */
   .card-click-target:focus-visible :global(.card) {
     box-shadow: 
-      /* Re-apply the hover glow so it persists during focus */
       rgba(255, 255, 255, 0.2) 0 0 40px 5px, 
       rgba(0, 0, 0, 0.66) 0 30px 60px 0, 
-
-      /* Re-apply the inner border */
       inset #333 0 0 0 5px,
-
-      /* The NEW blue focus ring, replacing the white line */
       inset rgb(99 102 241) 0 0 0 7px;
   }
 </style>
