@@ -39,7 +39,7 @@
     if (!cardWrapElement) return;
     const rect = cardWrapElement.getBoundingClientRect();
     mouseX = e.clientX - rect.left - elementWidth / 2;
-    mouseY = e.clientY - rect.top - elementWidth / 2;
+    mouseY = e.clientY - rect.top - elementHeight / 2;
   }
 
   function handleMouseEnter() {
@@ -77,31 +77,42 @@
 </div>
 
 <style>
+  :root {
+    /* === TUNING PARAMETERS START === */
+    /* Positioning */
+    --card-info-padding: 20px;
+    --card-title-bottom-anchor: 15%; /* Anchors title to the bottom third */
+    --card-description-bottom-anchor: 5%; /* Anchors description below the title */
+    
+    /* Animation */
+    --card-title-transition-duration: 0.8s;
+    --card-title-hover-lift: -40px; /* How far the title moves up on hover */
+
+    --card-description-fade-duration: 1.5s;
+    --card-description-slide-duration: 1.3s;
+    --card-description-initial-offset: 100px; /* How far the description starts below its final position */
+    /* === TUNING PARAMETERS END === */
+  }
+
   .card-wrap {
     margin: 10px;
     transform: perspective(800px);
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    opacity: 1;
-    visibility: visible;
-    will-change: transform;
   }
-  .card-wrap:hover .card-info {
-    transform: translateY(0);
+
+  .card-wrap:hover .card-title {
+    font-weight: 900;
+    letter-spacing: 0.03em;
+    transform: translateY(var(--card-title-hover-lift));
   }
+  
   .card-wrap:hover .card-description {
     opacity: 1;
-  }
-  .card-wrap:hover .card-info,
-  .card-wrap:hover .card-info p {
-    transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1);
-  }
-  .card-wrap:hover .card-info:after {
-    transition: 5s cubic-bezier(0.23, 1, 0.32, 1);
-    opacity: 1;
     transform: translateY(0);
   }
+  
   .card-wrap:hover .card-bg {
     transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1), opacity 5s cubic-bezier(0.23, 1, 0.32, 1);
     opacity: 0.8;
@@ -118,7 +129,6 @@
     background-color: #333;
     overflow: hidden;
     border-radius: 10px;
-    /* --- FIX: Default box-shadow is removed. It will now be controlled by the parent layout. --- */
     transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
   }
 
@@ -136,49 +146,54 @@
     pointer-events: none;
   }
 
+  /* FIX: The info box is now just a positioning context */
   .card-info {
-    padding: 20px;
     position: absolute;
     bottom: 0;
+    left: 0;
+    right: 0;
+    top: 0;
     color: #fff;
-    transform: translateY(40%);
-    transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+    padding: var(--card-info-padding);
+    text-align: center;
   }
   
+  /* FIX: The title is now absolutely positioned and decoupled */
+  .card-title {
+    position: absolute;
+    left: var(--card-info-padding);
+    right: var(--card-info-padding);
+    bottom: var(--card-title-bottom-anchor);
+    
+    font-size: clamp(1.4rem, 10vw, 2rem);
+    font-family: 'Playfair Display', serif;
+    font-weight: 400;
+    text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
+    letter-spacing: 0.01em;
+    
+    transform: translateY(0);
+    transition: 
+      font-weight var(--card-title-transition-duration) ease, 
+      letter-spacing var(--card-title-transition-duration) ease,
+      transform var(--card-title-transition-duration) cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  
+  /* FIX: The description is now also absolutely positioned and decoupled */
   .card-description {
+    position: absolute;
+    left: var(--card-info-padding);
+    right: var(--card-info-padding);
+    bottom: var(--card-description-bottom-anchor);
+
     opacity: 0;
-    transition: opacity 0.6s cubic-bezier(0.23, 1, 0.32, 1);
+    transform: translateY(var(--card-description-initial-offset));
+    
+    transition: 
+      opacity var(--card-description-fade-duration) cubic-bezier(0.16, 1, 0.3, 1),
+      transform var(--card-description-slide-duration) cubic-bezier(0.16, 1, 0.3, 1);
+    
     text-shadow: black 0 2px 3px;
     font-size: 0.9rem;
     line-height: 1.5;
-    will-change: opacity, transform;
-  }
-  
-  .card-info * {
-    position: relative;
-    z-index: 1;
-  }
-  .card-info:after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    z-index: 0;
-    width: 100%;
-    height: 100%;
-    background-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.6) 100%);
-    background-blend-mode: overlay;
-    opacity: 0;
-    transform: translateY(100%);
-    transition: 5s 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
-  }
-  
-  .card-info .card-title {
-    font-size: clamp(1.4rem, 10vw, 2rem);
-    font-family: 'Playfair Display', serif;
-    font-weight: 700;
-    text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
-    margin-bottom: 0.5rem;
-    opacity: 1; 
   }
 </style>

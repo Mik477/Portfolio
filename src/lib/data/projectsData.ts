@@ -73,7 +73,7 @@ export const projects: Project[] = [
       },
       {
         id: 'p1_making',
-        title: 'Building & Testing',
+        title: 'Testing',
         image: '/images/projects/project-one/card-meWorking.webp',
         description: 'Analyzing model performance and business impact.',
         aspectLink: '#results'
