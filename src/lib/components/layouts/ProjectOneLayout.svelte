@@ -9,13 +9,28 @@
   export let cards: ProjectCard[];
   export let slug: string;
   export let readMoreLinkText: string | undefined = undefined;
+  // FIX: Add the main project background prop to be used by the "Read More" button
+  export let background: Project['background'];
 
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
+    
+    // --- FIX: Proactively start downloading the subpage background image on click ---
+    // This "fire-and-forget" approach tells the browser to fetch and cache the image.
+    // We don't need to wait for it to finish.
+    const imageToPreload = new Image();
+    imageToPreload.src = card.image; // 'card.image' holds the URL for the sub-section's background
+    // --- END FIX ---
+
     transitionStore.fadeToBlackAndNavigate(`/projects/${slug}${aspectLink}`);
   }
 
   function handleReadMoreClick() {
+    // --- FIX: Apply the same preloading logic for the main project background ---
+    const imageToPreload = new Image();
+    imageToPreload.src = background.value;
+    // --- END FIX ---
+
     transitionStore.fadeToBlackAndNavigate(`/projects/${slug}`);
   }
 </script>
@@ -84,7 +99,6 @@
     padding: 0.875rem 2rem;
     min-width: 220px;
     
-    /* FIX: The computationally expensive backdrop-filter has been removed. */
     background-color: transparent;
     
     font-family: 'Source Code Pro', monospace;
