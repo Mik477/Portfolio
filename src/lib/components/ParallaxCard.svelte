@@ -33,7 +33,7 @@
   $: tY = !isNaN(mousePY) ? mousePY * -40 : 0;
   $: cardStyle = `transform: rotateY(${rX}deg) rotateX(${rY}deg);`;
   $: cardBgTransform = `transform: translateX(${tX}px) translateY(${tY}px);`;
-  $: cardBgImage = `background-image: url(${cardData.image});`;
+  $: cardBgImage = `background-image: url(${cardData.cardImage || cardData.image});`;
 
   function handleMouseMove(e: MouseEvent) {
     if (!cardWrapElement) return;
@@ -81,16 +81,19 @@
     /* === TUNING PARAMETERS START === */
     /* Positioning */
     --card-info-padding: 20px;
-    --card-title-bottom-anchor: 15%; /* Anchors title to the bottom third */
-    --card-description-bottom-anchor: 5%; /* Anchors description below the title */
+    --card-title-bottom-anchor: 15%;
+    --card-description-bottom-anchor: 5%;
     
     /* Animation */
     --card-title-transition-duration: 0.8s;
-    --card-title-hover-lift: -40px; /* How far the title moves up on hover */
+    --card-title-hover-lift: -40px;
+    /* FIX: New parameters to control font weight */
+    --card-title-initial-weight: 500; /* Starting weight (e.g., 400=normal) */
+    --card-title-hover-weight: 800;   /* Ending weight (e.g., 900=extra-bold) */
 
     --card-description-fade-duration: 1.5s;
     --card-description-slide-duration: 1.3s;
-    --card-description-initial-offset: 100px; /* How far the description starts below its final position */
+    --card-description-initial-offset: 100px;
     /* === TUNING PARAMETERS END === */
   }
 
@@ -103,7 +106,7 @@
   }
 
   .card-wrap:hover .card-title {
-    font-weight: 900;
+    font-weight: var(--card-title-hover-weight);
     letter-spacing: 0.03em;
     transform: translateY(var(--card-title-hover-lift));
   }
@@ -146,7 +149,6 @@
     pointer-events: none;
   }
 
-  /* FIX: The info box is now just a positioning context */
   .card-info {
     position: absolute;
     bottom: 0;
@@ -158,7 +160,6 @@
     text-align: center;
   }
   
-  /* FIX: The title is now absolutely positioned and decoupled */
   .card-title {
     position: absolute;
     left: var(--card-info-padding);
@@ -167,18 +168,19 @@
     
     font-size: clamp(1.4rem, 10vw, 2rem);
     font-family: 'Playfair Display', serif;
-    font-weight: 400;
     text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
     letter-spacing: 0.01em;
-    
     transform: translateY(0);
+    
+    /* FIX: Use the new variable for the initial weight */
+    font-weight: var(--card-title-initial-weight);
+    
     transition: 
       font-weight var(--card-title-transition-duration) ease, 
       letter-spacing var(--card-title-transition-duration) ease,
       transform var(--card-title-transition-duration) cubic-bezier(0.23, 1, 0.32, 1);
   }
   
-  /* FIX: The description is now also absolutely positioned and decoupled */
   .card-description {
     position: absolute;
     left: var(--card-info-padding);

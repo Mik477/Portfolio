@@ -3,7 +3,8 @@
 export interface ProjectCard {
   id: string; // Unique ID for this card, e.g., 'data-exploration'
   title: string;
-  image: string; // Path to card image, e.g., '/images/projects/project-one/card1.jpg'
+  image: string;
+  cardImage?: string; // Path to card image, e.g., '/images/projects/project-one/card1.jpg'
   description?: string; // Short description for the card
   effect?: string; // Identifier for the card's hover/interaction effect
   aspectLink?: string; // Anchor link for the subpage section, e.g., '#data-exploration-section'
@@ -60,22 +61,25 @@ export const projects: Project[] = [
       {
         id: 'p1_capability',
         title: '  Capability  ',
-        image: '/images/projects/project-one/sensor.webp',
+        image: '/images/projects/project-one/sub_bg_1.webp',
+        cardImage: '/images/projects/project-one/card1_cropped.webp',
         description: 'Elaborate Sensor Array for advanced autonomous capabilities',
         aspectLink: '#data-exploration' // This #hash is important
       },
       {
         id: 'p1_3D_printing',
         title: '3D-Printing',
-        image: '/images/projects/project-one/card-printing.webp',
-        description: 'Developing predictive models.',
+        image: '/images/projects/project-one/sub_bg_2.webp',
+        cardImage: '/images/projects/project-one/card2_cropped.webp',
+        description: 'Fully 3D-printed Airframe with LW-PLA and ASA',
         aspectLink: '#model-building'
       },
       {
         id: 'p1_making',
         title: 'Testing',
-        image: '/images/projects/project-one/card-meWorking.webp',
-        description: 'Analyzing model performance and business impact.',
+        image: '/images/projects/project-one/sub_bg_3.webp',
+        cardImage: '/images/projects/project-one/card3_cropped.webp',
+        description: 'Analyzing model performance and business impact',
         aspectLink: '#results'
       }
     ],
@@ -85,19 +89,19 @@ export const projects: Project[] = [
             id: 'data-exploration',
             title: 'In-Depth: Data Exploration',
             content: 'Detailed walkthrough of the data sources, features, and initial findings... This section describes the extensive process of cleaning, analyzing, and visualizing the raw customer data to identify patterns and potential predictors of churn.',
-            background: { type: 'image', value: '/images/projects/project-one/card-data.jpg' } // Using card images for now
+            background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' } // Using card images for now
         },
         {
             id: 'model-building',
             title: 'Model Building Strategy',
             content: 'Explanation of the algorithms chosen, feature engineering, and training process... We tested several models, including Logistic Regression, Random Forest, and Gradient Boosting, using cross-validation to ensure robustness.',
-            background: { type: 'image', value: '/images/projects/project-one/card-printing.webp' }
+            background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
         },
         {
             id: 'results',
             title: 'Achieved Results and Business Value',
             content: 'Presentation of model accuracy, key metrics, and the tangible benefits realized... The final model achieved an accuracy of 88% and an F1-score of 0.75, enabling targeted retention campaigns that reduced churn by 15%.',
-            background: { type: 'image', value: '/images/projects/project-one/card-meWorking.webp' }
+            background: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' }
         }
     ],
     // --- MODIFICATION END ---
@@ -119,21 +123,24 @@ export const projects: Project[] = [
       {
         id: 'p2-data-sourcing',
         title: 'Data Sourcing & ETL',
-        image: '/images/projects/project-one/card-data.jpg',
+        image: '/images/projects/project-one/sub_bg_3.webp',
+        cardImage: '/images/projects/project-one/card3_cropped.webp',
         description: 'Gathering and preparing data.',
         aspectLink: '#data-sourcing'
       },
       {
         id: 'p2-dashboard-design',
         title: 'Dashboard Design (UX/UI)',
-        image: '/images/projects/project-one/card-data.jpg',
+        image: '/images/projects/project-one/sub_bg_3.webp',
+        cardImage: '/images/projects/project-one/card3_cropped.webp',
         description: 'User-centric design.',
         aspectLink: '#dashboard-design'
       },
       {
         id: 'p2-key-insights',
         title: 'Key Insights & Features',
-        image: '/images/projects/project-one/card-data.jpg',
+        image: '/images/projects/project-one/sub_bg_3.webp',
+        cardImage: '/images/projects/project-one/card3_cropped.webp',
         description: 'Impactful visualizations.',
         aspectLink: '#key-insights'
       }

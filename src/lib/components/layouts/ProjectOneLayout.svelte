@@ -79,29 +79,24 @@
     text-shadow: 0 2px 8px rgba(0,0,0,0.5);
   }
 
-  /* --- FIX: Updated Button Styles for Font Transition --- */
   .read-more-btn {
     position: relative;
     padding: 0.875rem 2rem;
     min-width: 220px;
     
+    /* FIX: The computationally expensive backdrop-filter has been removed. */
     background-color: transparent;
-    backdrop-filter: blur(4px);
     
-    /* Use the new font with a light initial weight */
     font-family: 'Source Code Pro', monospace;
-    font-weight: 300; /* Light initial weight */
+    font-weight: 300;
     font-size: 1rem;
     color: white;
     text-transform: uppercase;
-    
-    /* Set initial letter-spacing */
     letter-spacing: 0.05em;
 
     border: none;
     cursor: pointer;
     
-    /* Add font-weight and letter-spacing to the transition property */
     transition: box-shadow 0.6s ease, font-weight 0.6s ease, letter-spacing 0.6s ease;
   }
 
@@ -131,10 +126,8 @@
 
   .read-more-btn:hover {
     box-shadow: 0 0 25px -5px rgba(255, 255, 255, 0.6);
-    
-    /* Animate to the bold weight and wider letter-spacing */
-    font-weight: 700; /* Bold hover weight */
-    letter-spacing: 0.1em; /* Wider spacing on hover */
+    font-weight: 700;
+    letter-spacing: 0.1em;
   }
 
   .read-more-btn:hover rect {
@@ -142,7 +135,6 @@
     stroke-dashoffset: 0;
     stroke: rgba(255, 255, 255, 1);
   }
-  /* --- FIX END --- */
 
   .cards-block {
     position: absolute;
