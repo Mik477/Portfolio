@@ -94,8 +94,6 @@
 
   // The HYBRID Preload Manager
   const preloadManager = {
-    isPrewarming: false,
-    
     async updateNeighborStates(activeIndex: number) {
       console.log(`[Preloader] Updating neighbors for ACTIVE section ${activeIndex}.`);
       const currentStates = get(sectionStatesStore);
@@ -190,8 +188,12 @@
         urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
       } else if (section.id.startsWith('project-')) {
         const p = section.data as Project;
-        urls.push(p.background.value);
-        p.cards.forEach(card => urls.push(card.image));
+        // FIX: Only preload the FIRST background image and the card images.
+        // The component itself will handle preloading the rest of the cycle.
+        if (p.backgrounds && p.backgrounds.length > 0) {
+          urls.push(p.backgrounds[0].value);
+        }
+        p.cards.forEach(card => urls.push(card.cardImage || card.image));
       }
       return urls.filter(Boolean);
     },
@@ -244,7 +246,7 @@
       sectionElements.forEach((sectionEl, index) => {
         const sectionData = allSectionsData[index];
         if (sectionData.id.startsWith('project-')) {
-          const bgTarget = sectionEl.querySelector('.background-image-container') as HTMLElement;
+          const bgTarget = sectionEl.querySelector('.background-zoom-target') as HTMLElement;
           sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.08, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
         }
         gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
@@ -363,7 +365,6 @@
   <meta name="description" content={siteConfig.description} />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-  <!-- FIX: Updated font import to use the variable font version of Playfair Display -->
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400..900&display=swap" rel="stylesheet">
 </svelte:head>
 
@@ -420,7 +421,7 @@
   </main>
 
   <style>
-    .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0, 0.2, 1); }
+    .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0.2, 1); }
     .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
     .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
     

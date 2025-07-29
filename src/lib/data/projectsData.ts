@@ -1,70 +1,69 @@
 // src/lib/data/projectsData.ts
 
 export interface ProjectCard {
-  id: string; // Unique ID for this card, e.g., 'data-exploration'
+  id: string;
   title: string;
-  image: string;
-  cardImage?: string; // Path to card image, e.g., '/images/projects/project-one/card1.jpg'
-  description?: string; // Short description for the card
-  effect?: string; // Identifier for the card's hover/interaction effect
-  aspectLink?: string; // Anchor link for the subpage section, e.g., '#data-exploration-section'
+  image: string; // The large background for the sub-section
+  cardImage?: string; // The small, optimized image for the main page card
+  description?: string;
+  aspectLink?: string;
 }
 
-// --- MODIFICATION START ---
-// Add a background property to the sub-page section interface
 export interface ProjectSubPageSection {
-    id: string; // Corresponds to aspectLink from a card, used for scrolling
+    id: string;
     title: string;
-    content: string; // Can be HTML or Markdown, we'll decide how to render it
+    content: string;
     background: {
       type: 'image' | 'video' | 'color';
       value: string;
     };
 }
-// --- MODIFICATION END ---
 
+// FIX: Renamed 'background' to 'backgrounds' and made it an array
 export interface Project {
-  id: string; // Unique ID for the project, e.g., 'project-alpha'
-  slug: string; // URL-friendly slug for the project subpage, e.g., 'customer-churn-prediction'
+  id: string;
+  slug: string;
   headline: string;
-  headlineAnimation?: { // Optional: override default headline animation
+  headlineAnimation?: {
     type?: string;
     duration?: number;
     delay?: number;
     stagger?: number;
     ease?: string;
   };
-  summary: string; // A few sentences introducing the project
-  background: {
-    type: 'image' | 'video' | 'color'; // Type of background
-    value: string; // Path to image/video or color code
-  };
-  tags?: string[]; // e.g., ['Machine Learning', 'Python', 'TensorFlow']
+  summary: string;
+  backgrounds: { // The list of images to cycle through on the main page
+    type: 'image';
+    value: string;
+  }[];
+  tags?: string[];
   cards: ProjectCard[];
-  subPageSections: ProjectSubPageSection[]; // Content for the project detail page
+  subPageSections: ProjectSubPageSection[];
   readMoreLinkText?: string;
 }
 
 export const projects: Project[] = [
-  // Project 1 (Placeholder)
   {
     id: 'project-one',
     slug: 'BURA',
     headline: 'BURA \n Long Range Recon UAV',
     summary: 'A fully 3D-Printed UAV designed for long-range, multi hour reconnaissance missions.',
-    background: {
-      type: 'image',
-      value: '/images/projects/project-one/background_2.webp',
-    },
-    tags: ['Machine Learning', 'Python', 'Scikit-learn', 'Data Analysis'],
+    // FIX: Converted to an array for the cycling effect
+    backgrounds: [
+      { type: 'image', value: '/images/projects/project-one/Drone_Sunset.webp' },
+      { type: 'image', value: '/images/projects/project-one/clouds.webp' },
+      { type: 'image', value: '/images/projects/project-one/Me_and_Drone.webp' },
+      { type: 'image', value: '/images/projects/project-one/Drone_close_clouds.webp' },
+    ],
+    tags: ['3D Printing', 'UAV Design', 'Aerospace Engineering', 'Electronics'],
     cards: [
       {
         id: 'p1_capability',
-        title: '  Capability  ',
+        title: 'Capability',
         image: '/images/projects/project-one/sub_bg_1.webp',
         cardImage: '/images/projects/project-one/card1_cropped.webp',
         description: 'Elaborate Sensor Array for advanced autonomous capabilities',
-        aspectLink: '#data-exploration' // This #hash is important
+        aspectLink: '#capability'
       },
       {
         id: 'p1_3D_printing',
@@ -72,7 +71,7 @@ export const projects: Project[] = [
         image: '/images/projects/project-one/sub_bg_2.webp',
         cardImage: '/images/projects/project-one/card2_cropped.webp',
         description: 'Fully 3D-printed Airframe with LW-PLA and ASA',
-        aspectLink: '#model-building'
+        aspectLink: '#3d-printing'
       },
       {
         id: 'p1_making',
@@ -80,67 +79,67 @@ export const projects: Project[] = [
         image: '/images/projects/project-one/sub_bg_3.webp',
         cardImage: '/images/projects/project-one/card3_cropped.webp',
         description: 'Analyzing model performance and business impact',
-        aspectLink: '#results'
+        aspectLink: '#testing'
       }
     ],
-    // --- MODIFICATION START: Add background data to each sub-section ---
     subPageSections: [
         {
-            id: 'data-exploration',
-            title: 'In-Depth: Data Exploration',
-            content: 'Detailed walkthrough of the data sources, features, and initial findings... This section describes the extensive process of cleaning, analyzing, and visualizing the raw customer data to identify patterns and potential predictors of churn.',
-            background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' } // Using card images for now
+            id: 'capability',
+            title: 'Advanced Autonomous Capabilities',
+            content: 'Detailed walkthrough of the sensor suite, including high-resolution cameras, thermal imaging, and real-time data links, enabling sophisticated autonomous flight and data collection.',
+            background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' }
         },
         {
-            id: 'model-building',
-            title: 'Model Building Strategy',
-            content: 'Explanation of the algorithms chosen, feature engineering, and training process... We tested several models, including Logistic Regression, Random Forest, and Gradient Boosting, using cross-validation to ensure robustness.',
+            id: '3d-printing',
+            title: 'Innovative Airframe Manufacturing',
+            content: 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable, weather-resistant outer surfaces, optimizing for both strength and flight time.',
             background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
         },
         {
-            id: 'results',
-            title: 'Achieved Results and Business Value',
-            content: 'Presentation of model accuracy, key metrics, and the tangible benefits realized... The final model achieved an accuracy of 88% and an F1-score of 0.75, enabling targeted retention campaigns that reduced churn by 15%.',
+            id: 'testing',
+            title: 'Rigorous Field Testing & Validation',
+            content: 'Presentation of flight test data, including endurance, range, and payload capacity metrics. The UAV successfully demonstrated over 2 hours of flight time and a range of 50km.',
             background: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' }
         }
     ],
-    // --- MODIFICATION END ---
     readMoreLinkText: "Explore More"
   },
-  // Project 2 (Placeholder)
   {
     id: 'project-two',
     slug: 'interactive-data-visualization',
-    // ... (same structure, remember to add backgrounds to its subPageSections as well)
     headline: 'Interactive Dashboard for Sales Analytics',
     summary: 'Developing a dynamic dashboard to visualize sales trends and provide actionable insights for stakeholders.',
-    background: {
-      type: 'image',
-      value: '/images/projects/project-two/background.jpg',
-    },
-    tags: ['Data Visualization', 'Tableau (or similar)', 'JavaScript', 'SQL'],
+    // FIX: Converted to an array and using unique images
+    backgrounds: [
+      { type: 'image', value: '/images/projects/project-two/background.jpg' },
+      { type: 'image', value: '/images/projects/project-two/background2.jpg' },
+    ],
+    tags: ['Data Visualization', 'Tableau', 'JavaScript', 'SQL'],
     cards: [
       {
         id: 'p2-data-sourcing',
         title: 'Data Sourcing & ETL',
-        image: '/images/projects/project-one/sub_bg_3.webp',
-        cardImage: '/images/projects/project-one/card3_cropped.webp',
+        image: '/images/projects/project-two/card-data.jpg',
+        // FIX: Added unique cardImage
+        cardImage: '/images/projects/project-two/card-data-small.webp',
         description: 'Gathering and preparing data.',
         aspectLink: '#data-sourcing'
       },
       {
         id: 'p2-dashboard-design',
         title: 'Dashboard Design (UX/UI)',
-        image: '/images/projects/project-one/sub_bg_3.webp',
-        cardImage: '/images/projects/project-one/card3_cropped.webp',
+        image: '/images/projects/project-two/card-design.jpg',
+        // FIX: Added unique cardImage
+        cardImage: '/images/projects/project-two/card-design-small.webp',
         description: 'User-centric design.',
         aspectLink: '#dashboard-design'
       },
       {
         id: 'p2-key-insights',
         title: 'Key Insights & Features',
-        image: '/images/projects/project-one/sub_bg_3.webp',
-        cardImage: '/images/projects/project-one/card3_cropped.webp',
+        image: '/images/projects/project-two/card-insights.jpg',
+        // FIX: Added unique cardImage
+        cardImage: '/images/projects/project-two/card-insights-small.webp',
         description: 'Impactful visualizations.',
         aspectLink: '#key-insights'
       }
@@ -149,19 +148,19 @@ export const projects: Project[] = [
         {
             id: 'data-sourcing',
             title: 'Data Pipeline and ETL Processes',
-            content: 'Overview of how data was collected, cleaned, and transformed...',
+            content: 'Overview of how data was collected from multiple sources, cleaned, and transformed into a unified schema for analysis.',
             background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' }
         },
         {
             id: 'dashboard-design',
             title: 'Designing for User Experience',
-            content: 'The thought process behind the dashboard layout and interactivity...',
+            content: 'The thought process behind the dashboard layout, color schemes, and interactivity to ensure insights are intuitive and accessible to non-technical users.',
             background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' }
         },
         {
             id: 'key-insights',
             title: 'Unlocking Actionable Insights',
-            content: 'Examples of how the dashboard helps users discover trends...',
+            content: 'Examples of how the dashboard helps users discover key trends, identify top-performing regions, and forecast future sales with interactive filters.',
             background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' }
         }
     ],
