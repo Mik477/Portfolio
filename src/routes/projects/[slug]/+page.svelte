@@ -22,7 +22,7 @@
       id: 'overview', 
       title: project.headline,
       content: project.summary,
-      background: project.background
+      background: project.backgrounds[0]
     },
     ...project.subPageSections
   ];
@@ -46,7 +46,7 @@
 
       // 2. Gather all image URLs needed for this subpage.
       const assetUrls = allSubSections
-        .filter(s => s.background.type === 'image')
+        .filter(s => s.background && s.background.type === 'image')
         .map(s => s.background.value);
       
       try {
@@ -209,10 +209,16 @@
 <div class="subpage-container" class:loaded={$isContentLoaded}>
   {#each allSubSections as section, i (section.id)}
     <section id={section.id} class="subpage-fullscreen-section">
-      <div 
-        class="subpage-background-image"
-        style="background-image: url({section.background.value});"
-      ></div>
+      <!-- --- START OF FIX --- -->
+      <!-- Add a conditional wrapper to prevent rendering this div if a section has no background. -->
+      <!-- This makes the component robust and prevents the SSR crash. -->
+      {#if section.background}
+        <div 
+          class="subpage-background-image"
+          style="background-image: url({section.background.value});"
+        ></div>
+      {/if}
+      <!-- --- END OF FIX --- -->
       
       <div class="subpage-content-overlay">
         <h2>{section.title}</h2>

@@ -2264,12 +2264,11 @@ export {};
   let bgLayerA: HTMLDivElement;
   let bgLayerB: HTMLDivElement;
 
-  // --- NEW: Robust State Management ---
+  // --- State for Image Cycling ---
   let currentImageIndex = 0;
   let activeLayer: 'A' | 'B' = 'A';
   let cycleTimer: number | undefined;
   let isCycling = false;
-  let activeAnimations: gsap.core.Tween[] = [];
 
   function preloadNextImage() {
     if (project.backgrounds.length < 2) return;
@@ -2279,46 +2278,67 @@ export {};
     img.src = nextImageSrc;
   }
 
+  /**
+   * REWRITTEN & CORRECTED: Handles the core cross-fade and continuous zoom logic.
+   * This version ensures the outgoing layer continues its zoom during the fade.
+   */
   function transitionToNextImage() {
     if (project.backgrounds.length < 2 || !isCycling) return;
 
+    // 1. Identify layers and get the next image in the sequence.
     const layers = { A: bgLayerA, B: bgLayerB };
     const visibleLayer = layers[activeLayer];
     const hiddenLayer = activeLayer === 'A' ? layers.B : layers.A;
     
     currentImageIndex = (currentImageIndex + 1) % project.backgrounds.length;
     const nextImageSrc = project.backgrounds[currentImageIndex].value;
+    
+    // --- PRELOADING FIX ---
+    // Start preloading the *next* image immediately, so it's ready for the subsequent transition.
+    // This prevents a loading-induced stutter on the next cycle.
+    preloadNextImage();
 
-    gsap.set(hiddenLayer, { backgroundImage: `url(${nextImageSrc})`, scale: 1, opacity: 0 });
-
+    // 2. Get animation timing parameters from CSS.
     const totalLifetime = parseFloat(getComputedStyle(sectionWrapperEl).getPropertyValue('--image-total-lifetime'));
     const crossfadeDuration = parseFloat(getComputedStyle(sectionWrapperEl).getPropertyValue('--image-crossfade-duration'));
     
-    // This is the "rest" period before the next transition starts
+    // 3. The zoom must last for the image's entire visible lifetime PLUS its fade-out duration.
+    const totalZoomDuration = totalLifetime + crossfadeDuration;
+    
+    // 4. Calculate the delay until the *next* transition is triggered.
     const nextTransitionDelay = (totalLifetime - crossfadeDuration) * 1000;
 
-    // The long-running, continuous zoom for the new image
-    const zoomTween = gsap.to(hiddenLayer, {
-      scale: 'var(--image-zoom-amount)',
-      ease: 'none',
-      duration: totalLifetime // Zoom lasts for the entire lifetime
+    // 5. Set up the INCOMING (hidden) layer.
+    gsap.set(hiddenLayer, { 
+      backgroundImage: `url(${nextImageSrc})`, 
+      scale: 1, 
+      opacity: 0 
     });
 
-    // The short cross-fade animation
-    const fadeTween = gsap.to([hiddenLayer, visibleLayer], {
-      opacity: (i) => (i === 0 ? 1 : 0), // hidden -> 1, visible -> 0
+    // 6. Animate the INCOMING layer.
+    gsap.to(hiddenLayer, {
+      scale: 'var(--image-zoom-amount)',
+      ease: 'none',
+      duration: totalZoomDuration
+    });
+    gsap.to(hiddenLayer, {
+      opacity: 1,
+      ease: 'power2.inOut',
+      duration: crossfadeDuration
+    });
+
+    // 7. Animate the OUTGOING layer.
+    gsap.to(visibleLayer, {
+      opacity: 0,
       ease: 'power2.inOut',
       duration: crossfadeDuration,
       onComplete: () => {
+        gsap.killTweensOf(visibleLayer);
         gsap.set(visibleLayer, { opacity: 0 });
         activeLayer = activeLayer === 'A' ? 'B' : 'A';
-        preloadNextImage();
         cycleTimer = window.setTimeout(transitionToNextImage, nextTransitionDelay);
       }
     });
-
-    // Keep track of active animations so they can be killed on leave
-    activeAnimations = [zoomTween, fadeTween];
   }
 
   export function onEnterSection() {
@@ -2362,9 +2382,6 @@ export {};
     isCycling = false;
     clearTimeout(cycleTimer);
     
-    // Kill all active tweens to prevent them from completing off-screen
-    activeAnimations.forEach(tween => tween.kill());
-    activeAnimations = [];
     gsap.killTweensOf([bgLayerA, bgLayerB]);
 
     const animatableElements = gsap.utils.toArray(sectionWrapperEl.querySelectorAll('.anim-headline, .anim-summary, .anim-card, .anim-button'));
@@ -2376,7 +2393,6 @@ export {};
   
   onDestroy(() => {
     clearTimeout(cycleTimer);
-    activeAnimations.forEach(tween => tween.kill());
     gsap.killTweensOf([bgLayerA, bgLayerB]);
   });
 </script>
@@ -2511,9 +2527,10 @@ export const projects: Project[] = [
     summary: 'A fully 3D-Printed UAV designed for long-range, multi hour reconnaissance missions.',
     // FIX: Converted to an array for the cycling effect
     backgrounds: [
-      { type: 'image', value: '/images/projects/project-one/background_1.webp' },
-      { type: 'image', value: '/images/projects/project-one/background_2.webp' },
-      { type: 'image', value: '/images/projects/project-one/background_3.webp' },
+      { type: 'image', value: '/images/projects/project-one/Drone_Sunset.webp' },
+      { type: 'image', value: '/images/projects/project-one/clouds.webp' },
+      { type: 'image', value: '/images/projects/project-one/Me_and_Drone.webp' },
+      { type: 'image', value: '/images/projects/project-one/Drone_close_clouds.webp' },
     ],
     tags: ['3D Printing', 'UAV Design', 'Aerospace Engineering', 'Electronics'],
     cards: [

@@ -1,25 +1,28 @@
 // src/lib/data/projectsData.ts
 
+// --- MODIFICATION START: The ProjectCard no longer holds the sub-section's background. ---
+// It is now only responsible for its own appearance and linking.
 export interface ProjectCard {
-  id: string;
+  id: string; // Unique ID for this card, e.g., 'p1_capability'
   title: string;
-  image: string; // The large background for the sub-section
-  cardImage?: string; // The small, optimized image for the main page card
-  description?: string;
-  aspectLink?: string;
+  cardImage?: string; // Path to the small, optimized image for the main page card
+  description?: string; // Short description for the card
+  aspectLink?: string; // Anchor link for the subpage section, e.g., '#capability'
 }
+// --- MODIFICATION END ---
 
+// This interface is the definitive source for a sub-section's content and background.
 export interface ProjectSubPageSection {
-    id: string;
+    id: string; // Corresponds to aspectLink from a card, used for scrolling
     title: string;
-    content: string;
+    content: string; // Can be HTML or Markdown, we'll decide how to render it
     background: {
       type: 'image' | 'video' | 'color';
-      value: string;
+      value: string; // The URL for this specific section's background
     };
 }
 
-// FIX: Renamed 'background' to 'backgrounds' and made it an array
+// This is the main project interface, which holds all data for a project.
 export interface Project {
   id: string;
   slug: string;
@@ -47,8 +50,7 @@ export const projects: Project[] = [
     id: 'project-one',
     slug: 'BURA',
     headline: 'BURA \n Long Range Recon UAV',
-    summary: 'A fully 3D-Printed UAV designed for long-range, multi hour reconnaissance missions.',
-    // FIX: Converted to an array for the cycling effect
+    summary: 'A fully 3D-Printed UAV designed for long-range, multi-hour reconnaissance missions.',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-one/Drone_Sunset.webp' },
       { type: 'image', value: '/images/projects/project-one/clouds.webp' },
@@ -60,30 +62,29 @@ export const projects: Project[] = [
       {
         id: 'p1_capability',
         title: 'Capability',
-        image: '/images/projects/project-one/sub_bg_1.webp',
+        // MODIFICATION: Removed 'image' property. The background is now defined in the subPageSection below.
         cardImage: '/images/projects/project-one/card1_cropped.webp',
         description: 'Elaborate Sensor Array for advanced autonomous capabilities',
         aspectLink: '#capability'
       },
       {
-        id: 'p1_3D_printing',
+        id: 'p1_3d_printing',
         title: '3D-Printing',
-        image: '/images/projects/project-one/sub_bg_2.webp',
         cardImage: '/images/projects/project-one/card2_cropped.webp',
         description: 'Fully 3D-printed Airframe with LW-PLA and ASA',
         aspectLink: '#3d-printing'
       },
       {
-        id: 'p1_making',
+        id: 'p1_testing',
         title: 'Testing',
-        image: '/images/projects/project-one/sub_bg_3.webp',
         cardImage: '/images/projects/project-one/card3_cropped.webp',
-        description: 'Analyzing model performance and business impact',
+        description: 'Analyzing model performance and flight characteristics',
         aspectLink: '#testing'
       }
     ],
     subPageSections: [
         {
+            // FIX: ID now correctly matches the aspectLink from the card above.
             id: 'capability',
             title: 'Advanced Autonomous Capabilities',
             content: 'Detailed walkthrough of the sensor suite, including high-resolution cameras, thermal imaging, and real-time data links, enabling sophisticated autonomous flight and data collection.',
@@ -109,7 +110,6 @@ export const projects: Project[] = [
     slug: 'interactive-data-visualization',
     headline: 'Interactive Dashboard for Sales Analytics',
     summary: 'Developing a dynamic dashboard to visualize sales trends and provide actionable insights for stakeholders.',
-    // FIX: Converted to an array and using unique images
     backgrounds: [
       { type: 'image', value: '/images/projects/project-two/background.jpg' },
       { type: 'image', value: '/images/projects/project-two/background2.jpg' },
@@ -119,8 +119,6 @@ export const projects: Project[] = [
       {
         id: 'p2-data-sourcing',
         title: 'Data Sourcing & ETL',
-        image: '/images/projects/project-two/card-data.jpg',
-        // FIX: Added unique cardImage
         cardImage: '/images/projects/project-two/card-data-small.webp',
         description: 'Gathering and preparing data.',
         aspectLink: '#data-sourcing'
@@ -128,8 +126,6 @@ export const projects: Project[] = [
       {
         id: 'p2-dashboard-design',
         title: 'Dashboard Design (UX/UI)',
-        image: '/images/projects/project-two/card-design.jpg',
-        // FIX: Added unique cardImage
         cardImage: '/images/projects/project-two/card-design-small.webp',
         description: 'User-centric design.',
         aspectLink: '#dashboard-design'
@@ -137,8 +133,6 @@ export const projects: Project[] = [
       {
         id: 'p2-key-insights',
         title: 'Key Insights & Features',
-        image: '/images/projects/project-two/card-insights.jpg',
-        // FIX: Added unique cardImage
         cardImage: '/images/projects/project-two/card-insights-small.webp',
         description: 'Impactful visualizations.',
         aspectLink: '#key-insights'

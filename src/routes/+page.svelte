@@ -188,13 +188,25 @@
         urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
       } else if (section.id.startsWith('project-')) {
         const p = section.data as Project;
-        // FIX: Only preload the FIRST background image and the card images.
-        // The component itself will handle preloading the rest of the cycle.
+        
         if (p.backgrounds && p.backgrounds.length > 0) {
           urls.push(p.backgrounds[0].value);
+          if (p.backgrounds.length > 1) {
+            urls.push(p.backgrounds[1].value);
+          }
         }
-        p.cards.forEach(card => urls.push(card.cardImage || card.image));
+        
+        // --- START OF FIX ---
+        // Since `card.cardImage` is optional (`string | undefined`), we must check
+        // if it exists before pushing it to our `string[]` array to satisfy TypeScript.
+        p.cards.forEach(card => {
+          if (card.cardImage) {
+            urls.push(card.cardImage);
+          }
+        });
+        // --- END OF FIX ---
       }
+      // The filter is kept as a good practice, though the new check above makes it redundant for cardImage.
       return urls.filter(Boolean);
     },
   };

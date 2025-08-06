@@ -1,6 +1,6 @@
 <!-- src/lib/components/layouts/ProjectOneLayout.svelte -->
 <script lang="ts">
-  import type { Project, ProjectCard } from '$lib/data/projectsData';
+  import type { Project, ProjectCard, ProjectSubPageSection } from '$lib/data/projectsData';
   import { transitionStore } from '$lib/stores/transitionStore';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
 
@@ -9,23 +9,38 @@
   export let cards: ProjectCard[];
   export let slug: string;
   export let readMoreLinkText: string | undefined = undefined;
-  // FIX: Changed prop name from 'background' to 'backgrounds' to match the new data structure
   export let backgrounds: Project['backgrounds'];
+  // --- MODIFICATION: Added prop for subPageSections to enable intelligent preloading ---
+  export let subPageSections: ProjectSubPageSection[];
 
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
     
-    const imageToPreload = new Image();
-    imageToPreload.src = card.image;
+    // --- START OF FIX: Intelligent Preloading Logic ---
+    // 1. Clean the aspect link to get a pure ID (e.g., '#capability' -> 'capability')
+    const targetSectionId = aspectLink.replace(/^#/, '');
+
+    // 2. Find the corresponding sub-section in the project's data.
+    const targetSection = subPageSections.find(s => s.id === targetSectionId);
+    
+    // 3. If found, preload its specific background image.
+    if (targetSection && targetSection.background.type === 'image') {
+      const imageToPreload = new Image();
+      imageToPreload.src = targetSection.background.value;
+      console.log(`[Preloader] Proactively loading background for sub-section '${targetSectionId}': ${targetSection.background.value}`);
+    }
+    // --- END OF FIX ---
 
     transitionStore.fadeToBlackAndNavigate(`/projects/${slug}${aspectLink}`);
   }
 
   function handleReadMoreClick() {
-    // FIX: Preload the first image from the 'backgrounds' array
-    if (backgrounds && backgrounds.length > 0) {
+    // --- MODIFICATION: Preload the background for the FIRST sub-section (the overview). ---
+    // The overview's background is the first image in the main `backgrounds` array.
+    if (backgrounds && backgrounds.length > 0 && backgrounds[0].type === 'image') {
       const imageToPreload = new Image();
       imageToPreload.src = backgrounds[0].value;
+      console.log(`[Preloader] Proactively loading background for project overview: ${backgrounds[0].value}`);
     }
 
     transitionStore.fadeToBlackAndNavigate(`/projects/${slug}`);
