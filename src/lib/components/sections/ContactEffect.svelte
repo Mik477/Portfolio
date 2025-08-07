@@ -73,13 +73,11 @@
   }
 
   export function onUnload(): void {
-    // --- START OF THE FIX ---
     // Kill any pending GSAP animations on the container immediately.
     // This prevents any old onComplete callbacks from firing and interfering with a new instance.
     if (container) {
       gsap.killTweensOf(container);
     }
-    // --- END OF THE FIX ---
 
     if (effectInstance) {
       effectInstance.dispose();
