@@ -20,6 +20,13 @@
     }
 }
 
+/* This is the style we are moving from +layout.svelte */
+body {
+    background-color: rgb(9 9 11);
+    color: rgb(245 245 247);
+}
+
+
 @media (max-width: 768px) {
     :root { --keyboard-key-base-size: 3.5rem; }
 }
@@ -1652,7 +1659,7 @@ export {};
 --- START OF FILE src\lib\components\layouts\ProjectOneLayout.svelte ---
 <!-- src/lib/components/layouts/ProjectOneLayout.svelte -->
 <script lang="ts">
-  import type { Project, ProjectCard } from '$lib/data/projectsData';
+  import type { Project, ProjectCard, ProjectSubPageSection } from '$lib/data/projectsData';
   import { transitionStore } from '$lib/stores/transitionStore';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
 
@@ -1661,23 +1668,38 @@ export {};
   export let cards: ProjectCard[];
   export let slug: string;
   export let readMoreLinkText: string | undefined = undefined;
-  // FIX: Changed prop name from 'background' to 'backgrounds' to match the new data structure
   export let backgrounds: Project['backgrounds'];
+  // --- MODIFICATION: Added prop for subPageSections to enable intelligent preloading ---
+  export let subPageSections: ProjectSubPageSection[];
 
   function handleCardClick(card: ProjectCard) {
     const aspectLink = card.aspectLink || '';
     
-    const imageToPreload = new Image();
-    imageToPreload.src = card.image;
+    // --- START OF FIX: Intelligent Preloading Logic ---
+    // 1. Clean the aspect link to get a pure ID (e.g., '#capability' -> 'capability')
+    const targetSectionId = aspectLink.replace(/^#/, '');
+
+    // 2. Find the corresponding sub-section in the project's data.
+    const targetSection = subPageSections.find(s => s.id === targetSectionId);
+    
+    // 3. If found, preload its specific background image.
+    if (targetSection && targetSection.background.type === 'image') {
+      const imageToPreload = new Image();
+      imageToPreload.src = targetSection.background.value;
+      console.log(`[Preloader] Proactively loading background for sub-section '${targetSectionId}': ${targetSection.background.value}`);
+    }
+    // --- END OF FIX ---
 
     transitionStore.fadeToBlackAndNavigate(`/projects/${slug}${aspectLink}`);
   }
 
   function handleReadMoreClick() {
-    // FIX: Preload the first image from the 'backgrounds' array
-    if (backgrounds && backgrounds.length > 0) {
+    // --- MODIFICATION: Preload the background for the FIRST sub-section (the overview). ---
+    // The overview's background is the first image in the main `backgrounds` array.
+    if (backgrounds && backgrounds.length > 0 && backgrounds[0].type === 'image') {
       const imageToPreload = new Image();
       imageToPreload.src = backgrounds[0].value;
+      console.log(`[Preloader] Proactively loading background for project overview: ${backgrounds[0].value}`);
     }
 
     transitionStore.fadeToBlackAndNavigate(`/projects/${slug}`);
@@ -2006,12 +2028,402 @@ export {};
 </style>
 --- END OF FILE src\lib\components\sections\AboutSection.svelte ---
 
+--- START OF FILE src\lib\components\sections\ContactEffect.svelte ---
+<!-- src/lib/components/sections/ContactEffect.svelte -->
+<script context="module" lang="ts">
+  // Defines the public API for this component so the orchestrator can interact with it.
+  export type ContactEffectInstance = {
+    initializeEffect: () => Promise<void>;
+    onEnterSection: () => void;
+    onLeaveSection: () => void;
+    onTransitionComplete: () => void;
+    onUnload: () => void;
+  };
+</script>
+
+<script lang="ts">
+  import { onMount, onDestroy, tick } from 'svelte';
+  import * as THREE from 'three';
+  import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+  import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+  import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+  import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+  import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+  import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
+  import { gsap } from 'gsap';
+  import fragmentShaderCode from '$lib/three/contactRaymarching.glsl?raw';
+
+  let container: HTMLDivElement;
+  let effectInstance: RaymarchingEffect | null = null;
+  let isInitialized = false;
+
+  // --- Animation Lifecycle API Implementation (Refactored for Seamless Re-entry) ---
+
+  export async function initializeEffect(): Promise<void> {
+    if (isInitialized) return;
+    await tick();
+    if (!container) return;
+
+    effectInstance = new RaymarchingEffect(container);
+    effectInstance.init();
+    isInitialized = true;
+    console.log('[ContactEffect] Effect initialized and dry-run complete.');
+  }
+
+  export function onEnterSection(): void {
+    if (!container) return;
+    // --- FIX: On enter, ensure the component is visually hidden but ready.
+    // The fade-in will be handled by onTransitionComplete.
+    gsap.set(container, { autoAlpha: 0 });
+  }
+  
+  export function onTransitionComplete(): void {
+    if (effectInstance) {
+      // --- FIX: This is the new sequence for a smooth fade-in every time. ---
+      // 1. Reset the effect's internal state (especially the clock).
+      effectInstance.neutralizeState(0); // 0 duration for instant clock reset.
+      // 2. Start the animation loop so it's rendering when it becomes visible.
+      effectInstance.startAnimationLoop();
+      // 3. Fade the canvas in now that the section is stationary.
+      gsap.to(container, { autoAlpha: 1, duration: 1.5, ease: 'power2.inOut' });
+    }
+  }
+
+  export function onLeaveSection(): void {
+    if (!container) return;
+    gsap.killTweensOf(container);
+
+    // --- FIX: Smoothly neutralize the effect's state as it fades out. ---
+    if (effectInstance) {
+      effectInstance.neutralizeState(0.5); // Animate mouse to center over 0.5s.
+    }
+
+    gsap.to(container, {
+      autoAlpha: 0,
+      duration: 0.8,
+      ease: 'power2.out',
+      onComplete: () => {
+        if (effectInstance) {
+          effectInstance.stopAnimationLoop();
+        }
+        // --- FIX: Hard-set invisibility to prevent seeing a frozen frame on quick re-entry.
+        gsap.set(container, { autoAlpha: 0 }); 
+      }
+    });
+  }
+
+  export function onUnload(): void {
+    if (effectInstance) {
+      console.log('[ContactEffect] Unloading and disposing Three.js resources.');
+      effectInstance.dispose();
+      effectInstance = null;
+    }
+    isInitialized = false;
+  }
+
+  // --- Svelte Lifecycle ---
+
+  onMount(() => {
+    // Initialization is deferred to the Animation API.
+  });
+
+  onDestroy(() => {
+    onUnload();
+  });
+
+  // --- Three.js Raymarching Effect Class ---
+
+  class RaymarchingEffect {
+    private container: HTMLElement;
+    private camera!: THREE.OrthographicCamera;
+    private scene!: THREE.Scene;
+    private renderer!: THREE.WebGLRenderer;
+    private material!: THREE.ShaderMaterial;
+    private clock: THREE.Clock;
+    private bloomComposer!: EffectComposer;
+    private finalComposer!: EffectComposer;
+    private bloomPass!: UnrealBloomPass;
+
+    private mousePosition = new THREE.Vector2(0.5, 0.5); // Start at neutral center
+    private targetMousePosition = new THREE.Vector2(0.5, 0.5);
+    
+    private animationFrameId: number | null = null;
+    private isLooping = false;
+    private boundOnMouseMove: (event: MouseEvent) => void;
+
+    // ... (EFFECT PARAMETERS remain the same) ...
+    private readonly CAMERA_DISTANCE = 3.0;
+    private readonly BLOOM_STRENGTH = 0.3;
+    private readonly BLOOM_THRESHOLD = 0.2;
+    private readonly BLOOM_RADIUS = 0.5;
+    private readonly AMBIENT_INTENSITY = 0.05;
+    private readonly DIFFUSE_INTENSITY = 0.4;
+    private readonly SPECULAR_INTENSITY = 2.0;
+    private readonly SPECULAR_POWER = 8.0;
+    private readonly FRESNEL_POWER = 1.0;
+    private readonly CONTRAST = 1.2;
+    private readonly FOG_DENSITY = 0.15;
+    private readonly SPHERE_COUNT = 4;
+    private readonly BLEND_SMOOTHNESS = 0.3;
+    private readonly ANIMATION_SPEED = 1.0;
+    private readonly MOVEMENT_PATTERN = "orbital";
+    private readonly MOVEMENT_SPEED = 1.0;
+    private readonly MOVEMENT_SCALE = 1.0;
+    private readonly INDIVIDUAL_ROTATION = true;
+    private readonly MOUSE_PROXIMITY_EFFECT = true;
+    private readonly MOUSE_SMOOTHNESS = 0.1;
+    private readonly MIN_MOVEMENT_SCALE_ON_HOVER = 0.3;
+    private readonly MAX_MOVEMENT_SCALE_ON_HOVER = 1.0;
+
+    constructor(container: HTMLElement) {
+      this.container = container;
+      this.clock = new THREE.Clock();
+      this.boundOnMouseMove = this.onMouseMove.bind(this);
+    }
+
+    public init(): void {
+      this.scene = new THREE.Scene();
+      this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+      this.camera.position.z = 1;
+
+      this.setupRenderer();
+      this.setupMaterial();
+      
+      const geometry = new THREE.PlaneGeometry(2, 2);
+      const mesh = new THREE.Mesh(geometry, this.material);
+      this.scene.add(mesh);
+
+      this.setupPostProcessing();
+      this.onWindowResize();
+
+      this.finalComposer.render();
+      window.addEventListener('mousemove', this.boundOnMouseMove);
+    }
+    
+    // --- FIX: New method to gracefully reset the effect's state ---
+    public neutralizeState(duration: number = 0.5): void {
+      // 1. Kill any ongoing neutralization tweens to prevent conflicts.
+      gsap.killTweensOf(this.material.uniforms.uMousePosition.value);
+
+      // 2. Animate the mouse uniform back to the center over the specified duration.
+      gsap.to(this.material.uniforms.uMousePosition.value, {
+        x: 0.5,
+        y: 0.5,
+        duration: duration,
+        ease: 'power2.out'
+      });
+      
+      // 3. Reset the clock to prevent a large deltaTime jump when the loop restarts.
+      // This is crucial for preventing the effect from "jumping" forward in time.
+      this.clock = new THREE.Clock();
+    }
+
+    public startAnimationLoop(): void {
+      if (this.isLooping) return;
+      this.isLooping = true;
+      console.log('[ContactEffect] Started animation loop.');
+      this.animate();
+    }
+    
+    public stopAnimationLoop(): void {
+      if (!this.isLooping) return;
+      this.isLooping = false;
+      if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+      console.log('[ContactEffect] Stopped animation loop.');
+    }
+
+    private animate(): void {
+      if (!this.isLooping) return;
+      this.animationFrameId = requestAnimationFrame(() => this.animate());
+      this.render();
+    }
+
+    private render(): void {
+      this.mousePosition.x += (this.targetMousePosition.x - this.mousePosition.x) * this.MOUSE_SMOOTHNESS;
+      this.mousePosition.y += (this.targetMousePosition.y - this.mousePosition.y) * this.MOUSE_SMOOTHNESS;
+
+      this.material.uniforms.uMousePosition.value = this.mousePosition;
+      this.material.uniforms.uTime.value = this.clock.getElapsedTime() * this.ANIMATION_SPEED;
+
+      this.bloomComposer.render();
+      this.finalComposer.render();
+    }
+
+    public dispose(): void {
+      this.stopAnimationLoop();
+      window.removeEventListener('mousemove', this.boundOnMouseMove);
+      gsap.killTweensOf(this.material.uniforms.uMousePosition.value);
+      
+      this.scene.traverse(object => {
+        const obj = object as THREE.Mesh;
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach(material => material.dispose());
+          } else {
+            (obj.material as THREE.Material).dispose();
+          }
+        }
+      });
+      
+      this.renderer.dispose();
+      if (this.renderer.domElement.parentNode) {
+        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+      }
+    }
+
+    private onMouseMove(event: MouseEvent) {
+      this.targetMousePosition.x = event.clientX / window.innerWidth;
+      this.targetMousePosition.y = 1.0 - event.clientY / window.innerHeight;
+    }
+
+    // ... (onWindowResize, setupRenderer, setupMaterial, setupPostProcessing methods remain the same) ...
+    private onWindowResize(): void {
+      const width = this.container.clientWidth;
+      const height = this.container.clientHeight;
+      
+      this.renderer.setSize(width, height);
+      this.bloomComposer.setSize(width, height);
+      this.finalComposer.setSize(width, height);
+      
+      this.material.uniforms.uResolution.value.set(width, height);
+      
+      const fxaaPass = this.finalComposer.passes.find(pass => pass instanceof ShaderPass && pass.material.uniforms.resolution) as ShaderPass | undefined;
+      if (fxaaPass) {
+        fxaaPass.material.uniforms.resolution.value.set(1 / width, 1 / height);
+      }
+    }
+    
+    private setupRenderer(): void {
+      this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      this.renderer.setPixelRatio(window.devicePixelRatio);
+      this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+      this.renderer.setClearColor(0x000000, 0);
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.container.appendChild(this.renderer.domElement);
+    }
+
+    private setupMaterial(): void {
+      this.material = new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: 0 },
+          uResolution: { value: new THREE.Vector2() },
+          uSphereCount: { value: this.SPHERE_COUNT },
+          uAmbientIntensity: { value: this.AMBIENT_INTENSITY },
+          uDiffuseIntensity: { value: this.DIFFUSE_INTENSITY },
+          uSpecularIntensity: { value: this.SPECULAR_INTENSITY },
+          uSpecularPower: { value: this.SPECULAR_POWER },
+          uFresnelPower: { value: this.FRESNEL_POWER },
+          uBackgroundColor: { value: new THREE.Color(0x050505) },
+          uSphereColor: { value: new THREE.Color(0x000000) },
+          uLightColor: { value: new THREE.Color(0xffffff) },
+          uLightPosition: { value: new THREE.Vector3(1, 1, 1) },
+          uSmoothness: { value: this.BLEND_SMOOTHNESS },
+          uContrast: { value: this.CONTRAST },
+          uFogDensity: { value: this.FOG_DENSITY },
+          uAnimationSpeed: { value: this.ANIMATION_SPEED },
+          uCameraDistance: { value: this.CAMERA_DISTANCE },
+          uMovementPattern: { value: ["orbital", "wave", "chaos", "pulse"].indexOf(this.MOVEMENT_PATTERN) },
+          uMovementSpeed: { value: this.MOVEMENT_SPEED },
+          uMovementScale: { value: this.MOVEMENT_SCALE },
+          uIndividualRotation: { value: this.INDIVIDUAL_ROTATION },
+          uMousePosition: { value: new THREE.Vector2(0.5, 0.5) },
+          uMouseProximityEffect: { value: this.MOUSE_PROXIMITY_EFFECT },
+          uMinMovementScale: { value: this.MIN_MOVEMENT_SCALE_ON_HOVER },
+          uMaxMovementScale: { value: this.MAX_MOVEMENT_SCALE_ON_HOVER }
+        },
+        vertexShader: `
+          out vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: fragmentShaderCode,
+        glslVersion: THREE.GLSL3,
+        transparent: true
+      });
+    }
+    
+    private setupPostProcessing(): void {
+      const renderTarget = new THREE.WebGLRenderTarget(this.container.clientWidth, this.container.clientHeight, { format: THREE.RGBAFormat });
+      const bloomRenderTarget = new THREE.WebGLRenderTarget(this.container.clientWidth, this.container.clientHeight, { format: THREE.RGBAFormat });
+
+      const renderScene = new RenderPass(this.scene, this.camera);
+
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(this.container.clientWidth, this.container.clientHeight), this.BLOOM_STRENGTH, this.BLOOM_RADIUS, this.BLOOM_THRESHOLD);
+      
+      const finalPass = new ShaderPass(
+        new THREE.ShaderMaterial({
+          uniforms: {
+            baseTexture: { value: null },
+            bloomTexture: { value: bloomRenderTarget.texture }
+          },
+          vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+          fragmentShader: `
+            uniform sampler2D baseTexture;
+            uniform sampler2D bloomTexture;
+            varying vec2 vUv;
+            void main() {
+              vec4 baseColor = texture2D(baseTexture, vUv);
+              vec4 bloomColor = texture2D(bloomTexture, vUv);
+              gl_FragColor = vec4(baseColor.rgb + bloomColor.rgb * baseColor.a, baseColor.a);
+            }
+          `,
+          transparent: true,
+          depthWrite: false
+        }),
+        "baseTexture"
+      );
+
+      const fxaaPass = new ShaderPass(FXAAShader);
+      fxaaPass.material.uniforms['resolution'].value.set(1 / this.container.clientWidth, 1 / this.container.clientHeight);
+      const gammaCorrectionPass = new ShaderPass(GammaCorrectionShader);
+
+      this.bloomComposer = new EffectComposer(this.renderer, bloomRenderTarget);
+      this.bloomComposer.renderToScreen = false;
+      this.bloomComposer.addPass(renderScene);
+      this.bloomComposer.addPass(this.bloomPass);
+      
+      this.finalComposer = new EffectComposer(this.renderer, renderTarget);
+      this.finalComposer.addPass(renderScene);
+      finalPass.uniforms.baseTexture.value = this.finalComposer.renderTarget2.texture;
+      this.finalComposer.addPass(finalPass);
+      this.finalComposer.addPass(fxaaPass);
+      this.finalComposer.addPass(gammaCorrectionPass);
+    }
+  }
+</script>
+
+<div class="contact-effect-container" bind:this={container}></div>
+
+<style>
+  .contact-effect-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    visibility: hidden;
+    opacity: 0;
+  }
+</style>
+--- END OF FILE src\lib\components\sections\ContactEffect.svelte ---
+
 --- START OF FILE src\lib\components\sections\ContactSection.svelte ---
 <!-- src/lib/components/sections/ContactSection.svelte -->
 <script context="module" lang="ts">
+  // The public API now includes all optional methods to support the full lifecycle.
   export type ContactSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
+    initializeEffect?: () => Promise<void>;
+    onTransitionComplete?: () => void;
+    onUnload?: () => void;
   };
 </script>
 
@@ -2019,118 +2431,231 @@ export {};
   import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
+  
+  // 1. Import the new effect component and its instance type.
+  import ContactEffect from './ContactEffect.svelte';
+  import type { ContactEffectInstance } from './ContactEffect.svelte';
 
-  // Create an event dispatcher.
   const dispatch = createEventDispatcher();
 
   type ContactSectionData = typeof siteConfig.contactSection;
   export let data: ContactSectionData;
 
+  // 2. Create a binding for the child component instance.
+  let contactEffectInstance: ContactEffectInstance | null = null;
+  
   let sectionWrapper: HTMLElement;
-  let animatableElements: Element[] = [];
+  let animatableUiElements: Element[] = [];
 
   onMount(() => {
     if (sectionWrapper) {
-        animatableElements = gsap.utils.toArray(sectionWrapper.querySelectorAll('h2, p, a'));
+      // Select only the UI elements for the GSAP animation.
+      animatableUiElements = gsap.utils.toArray(sectionWrapper.querySelectorAll('.anim-ui-element'));
     }
   });
 
+  // --- Animation Lifecycle API Implementation (with Proxying) ---
+
+  export async function initializeEffect() {
+    // Proxy the call to the child effect component.
+    if (contactEffectInstance?.initializeEffect) {
+      await contactEffectInstance.initializeEffect();
+    }
+  }
+
   export function onEnterSection(): void {
-    if (animatableElements.length === 0) return;
+    // A. Trigger the fade-in of the background effect.
+    contactEffectInstance?.onEnterSection();
 
-    gsap.set(animatableElements, { autoAlpha: 0, y: 30 });
+    // B. Animate the surrounding UI elements in parallel.
+    if (animatableUiElements.length === 0) return;
+    gsap.set(animatableUiElements, { autoAlpha: 0, y: 30 });
 
-    // Create the staggered entrance timeline.
-    gsap.to(animatableElements, {
+    gsap.to(animatableUiElements, {
       autoAlpha: 1,
       y: 0,
-      duration: 0.8,
-      stagger: 0.15,
-      ease: 'power2.out',
-      // Add an onComplete callback to the tween itself.
+      duration: 1.2,
+      stagger: 0.2,
+      delay: 0.5, // Start UI animation slightly after the section starts transitioning in.
+      ease: 'power3.out',
       onComplete: () => {
         dispatch('animationComplete');
       }
     });
   }
 
+  export function onTransitionComplete() {
+    // Proxy the call to start the heavy rendering loop.
+    contactEffectInstance?.onTransitionComplete();
+  }
+
   export function onLeaveSection(): void {
-    if (animatableElements.length === 0) return;
-    
-    gsap.killTweensOf(animatableElements);
-    gsap.set(animatableElements, { autoAlpha: 0 });
+    // A. Trigger the fade-out of the background effect.
+    contactEffectInstance?.onLeaveSection();
+
+    // B. Immediately reset the surrounding UI elements.
+    if (animatableUiElements.length === 0) return;
+    gsap.killTweensOf(animatableUiElements);
+    gsap.set(animatableUiElements, { autoAlpha: 0 });
+  }
+  
+  export function onUnload() {
+    // Proxy the call to dispose of the effect's GPU resources.
+    contactEffectInstance?.onUnload();
   }
 </script>
 
-<div class="contact-content-wrapper" bind:this={sectionWrapper}>
-  <div class="content-center">
-    <h2>{data.title}</h2>
-    <p>{data.outroMessage}</p>
-    <p>Email: <a href="mailto:{data.email}">{data.email}</a></p>
-    {#if data.additionalLinks}
-      <div class="additional-links">
+<div class="contact-section-wrapper" bind:this={sectionWrapper}>
+  <!-- 
+    The ContactEffect component is placed here. It will create its own
+    absolutely positioned canvas that sits behind the content-overlay.
+  -->
+  <ContactEffect bind:this={contactEffectInstance} />
+
+  <!-- 
+    This overlay holds all the UI content and arranges it around the effect.
+  -->
+  <div class="content-overlay">
+    <div class="text-column anim-ui-element">
+      <h2>{data.title}</h2>
+      <p>{data.outroMessage}</p>
+    </div>
+
+    <div class="links-column">
+      <a href="mailto:{data.email}" class="contact-link anim-ui-element">
+        <span>Email Me</span>
+        <svg width="13px" height="10px" viewBox="0 0 13 10">
+          <path d="M1,5 L11,5"></path>
+          <polyline points="8 1 12 5 8 9"></polyline>
+        </svg>
+      </a>
+      {#if data.additionalLinks}
         {#each data.additionalLinks as link}
-          <a href={link.url} target="_blank" rel="noopener noreferrer">{link.name}</a>
+          <a href={link.url} target="_blank" rel="noopener noreferrer" class="contact-link anim-ui-element">
+            <span>{link.name}</span>
+            <svg width="13px" height="10px" viewBox="0 0 13 10">
+              <path d="M1,5 L11,5"></path>
+              <polyline points="8 1 12 5 8 9"></polyline>
+            </svg>
+          </a>
         {/each}
-      </div>
-    {/if}
+      {/if}
+    </div>
   </div>
 </div>
 
 <style>
-  .contact-content-wrapper {
+  .contact-section-wrapper {
     width: 100%;
     height: 100%;
+    position: relative;
+    overflow: hidden;
+    background-color: transparent; /* The effect provides the background */
+  }
+
+  .content-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1; /* Sits on top of the effect's canvas */
+    
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
     align-items: center;
-    text-align: center;
-    background-color: rgb(24 24 27);
-    color: rgb(245 245 247);
+    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 8vw), 3rem);
+    box-sizing: border-box;
+    pointer-events: none; /* Allows mouse interaction with the background effect */
   }
 
-  .content-center {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 2rem;
-  }
-
-  h2, p, a {
-    opacity: 0;
+  /* Columns for the layout */
+  .text-column, .links-column {
+    pointer-events: auto; /* Re-enable pointer events for the content itself */
+    opacity: 0; /* Start hidden for GSAP */
     visibility: hidden;
   }
 
+  .text-column {
+    text-align: left;
+    max-width: 450px;
+  }
+  
+  .links-column {
+    text-align: right;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1.5rem;
+  }
+
   h2 {
-    font-size: 2.5rem;
-    margin-bottom: 2rem;
+    font-size: clamp(2.5rem, 5vw, 3.5rem);
+    margin-bottom: 1.5rem;
     font-weight: 300;
     letter-spacing: -0.02em;
+    color: rgb(245 245 247);
   }
 
   p {
-    font-size: 1.15rem;
+    font-size: clamp(1rem, 2.2vw, 1.15rem);
     line-height: 1.8;
-    margin-bottom: 1.5rem;
     color: rgb(212 212 216);
   }
-
-  a {
-    color: rgb(99 102 241);
+  
+  /* Styling for the new contact buttons */
+  .contact-link {
+    font-family: 'Source Code Pro', monospace;
+    font-size: 1.1rem;
+    font-weight: 300;
+    color: #c7c7c7;
     text-decoration: none;
-    font-weight: 500;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
     transition: color 0.3s ease;
   }
-
-  a:hover {
-    color: rgb(129 140 248);
-    text-decoration: underline;
+  
+  .contact-link:hover {
+    color: #ffffff;
   }
 
-  .additional-links {
-    margin-top: 2rem;
-    display: flex;
-    gap: 2rem;
-    justify-content: center;
+  .contact-link span {
+    display: block;
+    transition: transform 0.3s ease;
+  }
+
+  .contact-link:hover span {
+    transform: translateX(-8px);
+  }
+
+  .contact-link svg {
+    margin-left: 10px;
+    stroke: #ffffff;
+    stroke-width: 2;
+    fill: none;
+    stroke-dasharray: 18;
+    stroke-dashoffset: 18;
+    transition: stroke-dashoffset 0.4s ease, transform 0.3s ease;
+  }
+
+  .contact-link:hover svg {
+    stroke-dashoffset: 0;
+  }
+
+  /* Responsive adjustments for smaller screens */
+  @media (max-width: 768px) {
+    .content-overlay {
+      flex-direction: column;
+      justify-content: center;
+      text-align: center;
+      gap: 3rem;
+    }
+    .text-column, .links-column {
+      text-align: center;
+      align-items: center;
+      max-width: 90%;
+    }
   }
 </style>
 --- END OF FILE src\lib\components\sections\ContactSection.svelte ---
@@ -2477,26 +3002,29 @@ export {};
 --- START OF FILE src\lib\data\projectsData.ts ---
 // src/lib/data/projectsData.ts
 
+// --- MODIFICATION START: The ProjectCard no longer holds the sub-section's background. ---
+// It is now only responsible for its own appearance and linking.
 export interface ProjectCard {
-  id: string;
+  id: string; // Unique ID for this card, e.g., 'p1_capability'
   title: string;
-  image: string; // The large background for the sub-section
-  cardImage?: string; // The small, optimized image for the main page card
-  description?: string;
-  aspectLink?: string;
+  cardImage?: string; // Path to the small, optimized image for the main page card
+  description?: string; // Short description for the card
+  aspectLink?: string; // Anchor link for the subpage section, e.g., '#capability'
 }
+// --- MODIFICATION END ---
 
+// This interface is the definitive source for a sub-section's content and background.
 export interface ProjectSubPageSection {
-    id: string;
+    id: string; // Corresponds to aspectLink from a card, used for scrolling
     title: string;
-    content: string;
+    content: string; // Can be HTML or Markdown, we'll decide how to render it
     background: {
       type: 'image' | 'video' | 'color';
-      value: string;
+      value: string; // The URL for this specific section's background
     };
 }
 
-// FIX: Renamed 'background' to 'backgrounds' and made it an array
+// This is the main project interface, which holds all data for a project.
 export interface Project {
   id: string;
   slug: string;
@@ -2524,8 +3052,7 @@ export const projects: Project[] = [
     id: 'project-one',
     slug: 'BURA',
     headline: 'BURA \n Long Range Recon UAV',
-    summary: 'A fully 3D-Printed UAV designed for long-range, multi hour reconnaissance missions.',
-    // FIX: Converted to an array for the cycling effect
+    summary: 'A fully 3D-Printed UAV designed for long-range, multi-hour reconnaissance missions.',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-one/Drone_Sunset.webp' },
       { type: 'image', value: '/images/projects/project-one/clouds.webp' },
@@ -2537,30 +3064,29 @@ export const projects: Project[] = [
       {
         id: 'p1_capability',
         title: 'Capability',
-        image: '/images/projects/project-one/sub_bg_1.webp',
+        // MODIFICATION: Removed 'image' property. The background is now defined in the subPageSection below.
         cardImage: '/images/projects/project-one/card1_cropped.webp',
         description: 'Elaborate Sensor Array for advanced autonomous capabilities',
         aspectLink: '#capability'
       },
       {
-        id: 'p1_3D_printing',
+        id: 'p1_3d_printing',
         title: '3D-Printing',
-        image: '/images/projects/project-one/sub_bg_2.webp',
         cardImage: '/images/projects/project-one/card2_cropped.webp',
         description: 'Fully 3D-printed Airframe with LW-PLA and ASA',
         aspectLink: '#3d-printing'
       },
       {
-        id: 'p1_making',
+        id: 'p1_testing',
         title: 'Testing',
-        image: '/images/projects/project-one/sub_bg_3.webp',
         cardImage: '/images/projects/project-one/card3_cropped.webp',
-        description: 'Analyzing model performance and business impact',
+        description: 'Analyzing model performance and flight characteristics',
         aspectLink: '#testing'
       }
     ],
     subPageSections: [
         {
+            // FIX: ID now correctly matches the aspectLink from the card above.
             id: 'capability',
             title: 'Advanced Autonomous Capabilities',
             content: 'Detailed walkthrough of the sensor suite, including high-resolution cameras, thermal imaging, and real-time data links, enabling sophisticated autonomous flight and data collection.',
@@ -2586,7 +3112,6 @@ export const projects: Project[] = [
     slug: 'interactive-data-visualization',
     headline: 'Interactive Dashboard for Sales Analytics',
     summary: 'Developing a dynamic dashboard to visualize sales trends and provide actionable insights for stakeholders.',
-    // FIX: Converted to an array and using unique images
     backgrounds: [
       { type: 'image', value: '/images/projects/project-two/background.jpg' },
       { type: 'image', value: '/images/projects/project-two/background2.jpg' },
@@ -2596,8 +3121,6 @@ export const projects: Project[] = [
       {
         id: 'p2-data-sourcing',
         title: 'Data Sourcing & ETL',
-        image: '/images/projects/project-two/card-data.jpg',
-        // FIX: Added unique cardImage
         cardImage: '/images/projects/project-two/card-data-small.webp',
         description: 'Gathering and preparing data.',
         aspectLink: '#data-sourcing'
@@ -2605,8 +3128,6 @@ export const projects: Project[] = [
       {
         id: 'p2-dashboard-design',
         title: 'Dashboard Design (UX/UI)',
-        image: '/images/projects/project-two/card-design.jpg',
-        // FIX: Added unique cardImage
         cardImage: '/images/projects/project-two/card-design-small.webp',
         description: 'User-centric design.',
         aspectLink: '#dashboard-design'
@@ -2614,8 +3135,6 @@ export const projects: Project[] = [
       {
         id: 'p2-key-insights',
         title: 'Key Insights & Features',
-        image: '/images/projects/project-two/card-insights.jpg',
-        // FIX: Added unique cardImage
         cardImage: '/images/projects/project-two/card-insights-small.webp',
         description: 'Impactful visualizations.',
         aspectLink: '#key-insights'
@@ -3055,6 +3574,289 @@ export class BloomEffect {
     }
 }
 --- END OF FILE src\lib\three\BloomEffect.ts ---
+
+--- START OF FILE src\lib\three\contactRaymarching.glsl ---
+// src/lib/three/contactRaymarching.glsl
+// This file contains the complete fragment shader logic for the contact section's raymarching effect.
+
+// Uniforms (inputs from our Three.js material in Svelte)
+uniform float uTime;
+uniform vec2 uResolution;
+uniform int uSphereCount;
+uniform float uAmbientIntensity;
+uniform float uDiffuseIntensity;
+uniform float uSpecularIntensity;
+uniform float uSpecularPower;
+uniform float uFresnelPower;
+uniform vec3 uBackgroundColor;
+uniform vec3 uSphereColor;
+uniform vec3 uLightColor;
+uniform vec3 uLightPosition;
+uniform float uSmoothness;
+uniform float uContrast;
+uniform float uFogDensity;
+uniform float uAnimationSpeed;
+uniform float uCameraDistance;
+uniform int uMovementPattern;
+uniform float uMovementSpeed;
+uniform float uMovementScale;
+uniform bool uIndividualRotation;
+uniform vec2 uMousePosition;
+uniform bool uMouseProximityEffect;
+uniform float uMinMovementScale;
+uniform float uMaxMovementScale;
+
+// Varyings (data passed from the vertex shader)
+in vec2 vUv;
+
+// Output color for the fragment
+out vec4 fragColor;
+
+// Constants
+const float PI = 3.14159265359;
+const float EPSILON = 0.0001;
+const int MAX_STEPS = 100;
+const float MAX_DIST = 100.0;
+
+// --- Helper Functions ---
+
+// Signed Distance Function for a sphere
+float sdSphere(vec3 p, float r) {
+  return length(p) - r;
+}
+
+// Smooth minimum function for blending shapes
+float smin(float a, float b, float k) {
+  float h = max(k - abs(a - b), 0.0) / k;
+  return min(a, b) - h * h * k * 0.25;
+}
+
+// Rotation matrix around the Y axis
+mat3 rotateY(float theta) {
+  float c = cos(theta);
+  float s = sin(theta);
+  return mat3(
+    c, 0, s,
+    0, 1, 0,
+    -s, 0, c
+  );
+}
+
+// Rotation matrix around the X axis
+mat3 rotateX(float theta) {
+  float c = cos(theta);
+  float s = sin(theta);
+  return mat3(
+    1, 0, 0,
+    0, c, -s,
+    0, s, c
+  );
+}
+
+// Rotation matrix around the Z axis
+mat3 rotateZ(float theta) {
+  float c = cos(theta);
+  float s = sin(theta);
+  return mat3(
+    c, -s, 0,
+    s, c, 0,
+    0, 0, 1
+  );
+}
+
+// Calculate distance to center for mouse proximity effect
+float getDistanceToCenter(vec2 pos) {
+  float dist = length(pos - vec2(0.5, 0.5)) * 2.0; // Normalized 0-1
+  return smoothstep(0.0, 1.0, dist);
+}
+
+// The main Signed Distance Function for the entire scene
+float sdf(vec3 pos) {
+  float result = MAX_DIST;
+  float t = uTime * uMovementSpeed;
+  
+  float dynamicMovementScale = uMovementScale;
+  if (uMouseProximityEffect) {
+    float distToCenter = getDistanceToCenter(uMousePosition);
+    float t_mouse = smoothstep(0.0, 1.0, distToCenter);
+    dynamicMovementScale = mix(uMinMovementScale, uMaxMovementScale, t_mouse);
+  }
+  
+  for (int i = 0; i < 10; i++) {
+    if (i >= uSphereCount) break;
+    
+    float speed = 0.5 + float(i) * 0.1;
+    float radius = 0.15 + float(i % 3) * 0.1;
+    float orbitRadius = (0.5 + float(i % 5) * 0.2) * dynamicMovementScale;
+    float phaseOffset = float(i) * PI * 0.2;
+    
+    vec3 offset;
+    
+    if (i == 0) {
+      offset = vec3(
+        sin(t * speed) * orbitRadius * 0.5,
+        sin(t * 0.5) * orbitRadius,
+        cos(t * speed * 0.7) * orbitRadius * 0.5
+      );
+    } 
+    else if (i == 1) {
+      offset = vec3(
+        sin(t * speed + PI) * orbitRadius * 0.5,
+        -sin(t * 0.5) * orbitRadius,
+        cos(t * speed * 0.7 + PI) * orbitRadius * 0.5
+      );
+    }
+    else if (uMovementPattern == 0) { // Orbital
+      offset = vec3(
+        sin(t * speed + phaseOffset) * orbitRadius,
+        cos(t * (speed * 0.7) + phaseOffset * 1.3) * (orbitRadius * 0.6),
+        sin(t * (speed * 0.5) + phaseOffset * 0.9) * (orbitRadius * 0.8)
+      );
+    } 
+    else if (uMovementPattern == 1) { // Wave
+      float wave = sin(t * 0.5) * 0.5;
+      offset = vec3(
+        sin(t * 0.2 + float(i) * 0.5) * orbitRadius,
+        sin(t * 0.3 + float(i) * 0.7 + wave) * orbitRadius * 0.5,
+        cos(t * 0.4 + float(i) * 0.6) * orbitRadius * 0.7
+      );
+    }
+    else if (uMovementPattern == 2) { // Chaos
+      offset = vec3(
+        sin(t * speed * 1.1 + sin(t * 0.4) * 2.0) * orbitRadius,
+        cos(t * speed * 0.9 + sin(t * 0.5) * 1.5) * orbitRadius * 0.8,
+        sin(t * speed * 0.7 + sin(t * 0.6) * 1.8) * orbitRadius * 0.6
+      );
+    }
+    else { // Pulse
+      float pulse = (sin(t * 0.8) * 0.5 + 0.5) * 0.5 + 0.5;
+      offset = vec3(
+        sin(t * speed + phaseOffset) * orbitRadius * pulse,
+        cos(t * (speed * 0.7) + phaseOffset * 1.3) * (orbitRadius * 0.6) * pulse,
+        sin(t * (speed * 0.5) + phaseOffset * 0.9) * (orbitRadius * 0.8) * pulse
+      );
+    }
+    
+    if (uIndividualRotation) {
+      float rotSpeed = t * (0.2 + float(i) * 0.05);
+      mat3 rot = rotateY(rotSpeed) * rotateX(rotSpeed * 0.7);
+      offset = rot * offset;
+    }
+    
+    float sphere = sdSphere(pos + offset, radius);
+    result = smin(result, sphere, uSmoothness);
+  }
+  
+  return result;
+}
+
+// Calculate the normal vector at a surface point
+vec3 calcNormal(vec3 p) {
+  vec2 e = vec2(EPSILON, 0.0);
+  return normalize(vec3(
+    sdf(p + e.xyy) - sdf(p - e.xyy),
+    sdf(p + e.yxy) - sdf(p - e.yxy),
+    sdf(p + e.yyx) - sdf(p - e.yyx)
+  ));
+}
+
+// The raymarching algorithm
+float raymarch(vec3 ro, vec3 rd) {
+  float t = 0.0;
+  for (int i = 0; i < MAX_STEPS; i++) {
+    vec3 p = ro + rd * t;
+    float d = sdf(p);
+    if (d < EPSILON) return t;
+    if (t > MAX_DIST) break;
+    t += d * 0.8;
+  }
+  return -1.0;
+}
+
+// Soft shadows calculation
+float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
+  float result = 1.0;
+  float t = mint;
+  for (int i = 0; i < 32; i++) {
+    if (t >= maxt) break;
+    float h = sdf(ro + rd * t);
+    if (h < EPSILON) return 0.0;
+    result = min(result, k * h / t);
+    t += h;
+  }
+  return result;
+}
+
+// Ambient occlusion calculation
+float ambientOcclusion(vec3 p, vec3 n) {
+  float occ = 0.0;
+  float weight = 1.0;
+  for (int i = 0; i < 5; i++) {
+    float dist = 0.01 + 0.02 * float(i * i);
+    float h = sdf(p + n * dist);
+    occ += (dist - h) * weight;
+    weight *= 0.85;
+  }
+  return clamp(1.0 - occ, 0.0, 1.0);
+}
+
+// Main lighting calculation
+vec3 lighting(vec3 p, vec3 rd, float t) {
+  if (t < 0.0) return vec3(0.0);
+  
+  vec3 normal = calcNormal(p);
+  vec3 viewDir = -rd;
+  
+  vec3 baseColor = uSphereColor;
+  vec3 ambient = baseColor * uAmbientIntensity;
+  
+  vec3 lightDir = normalize(uLightPosition);
+  float diff = max(dot(normal, lightDir), 0.0);
+  vec3 diffuse = baseColor * uLightColor * diff * uDiffuseIntensity;
+  
+  vec3 reflectDir = reflect(-lightDir, normal);
+  float spec = pow(max(dot(viewDir, reflectDir), 0.0), uSpecularPower);
+  vec3 specular = uLightColor * spec * uSpecularIntensity;
+  
+  float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), uFresnelPower);
+  specular *= fresnel;
+  
+  float ao = ambientOcclusion(p, normal);
+  float shadow = softShadow(p, lightDir, 0.01, 10.0, 16.0);
+  
+  vec3 color = ambient * ao + (diffuse * shadow + specular) * ao;
+  color = pow(color, vec3(uContrast));
+  
+  return color;
+}
+
+
+// --- Main Shader Program Entry Point ---
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy * 2.0 - uResolution.xy) / uResolution.y;
+  
+  vec3 ro = vec3(0.0, 0.0, -uCameraDistance);
+  vec3 rd = normalize(vec3(uv, 1.0));
+  
+  float camRotY = sin(uTime * 0.1) * 0.1;
+  float camRotX = cos(uTime * 0.08) * 0.05;
+  rd = rotateY(camRotY) * rotateX(camRotX) * rd;
+  
+  float t = raymarch(ro, rd);
+  vec3 p = ro + rd * t;
+  vec3 color = lighting(p, rd, t);
+  
+  if (t > 0.0) {
+    float fogAmount = 1.0 - exp(-t * uFogDensity);
+    color = mix(color, uBackgroundColor, fogAmount);
+    fragColor = vec4(color, 1.0);
+  } else {
+    // This provides the transparent background for our effect.
+    fragColor = vec4(0.0, 0.0, 0.0, 0.0);
+  }
+}
+--- END OF FILE src\lib\three\contactRaymarching.glsl ---
 
 --- START OF FILE src\lib\three\heroParticleLogic.ts ---
 // src/lib/three/heroParticleLogic.ts
@@ -4088,6 +4890,7 @@ export class CreateParticles {
 --- START OF FILE src\routes\+layout.svelte ---
 <!-- src/routes/+layout.svelte -->
 <script lang="ts">
+  // Import the global stylesheet. This is the new line.
   import '../app.css';
   import TransitionOverlay from '$lib/components/TransitionOverlay.svelte';
 </script>
@@ -4096,19 +4899,10 @@ export class CreateParticles {
 
 <slot />
 
-<style>
-  /*
-    By placing this global style in the root layout, we guarantee
-    that the body's background color is always black. This component
-    is never unmounted during page transitions, so the style persists
-    and prevents the browser's default white background from ever showing.
-    This is the definitive fix for the "white flash".
-  */
-  :global(body) {
-    background-color: rgb(9 9 11);
-    color: rgb(245 245 247);
-  }
-</style>
+<!-- 
+  The <style> block has been removed from here and its contents
+  have been moved to src/app.css, as per SvelteKit best practices.
+-->
 --- END OF FILE src\routes\+layout.svelte ---
 
 --- START OF FILE src\routes\+page.svelte ---
@@ -4118,7 +4912,7 @@ export class CreateParticles {
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
-  import { initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
   import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
   import { gsap } from 'gsap';
 
@@ -4129,7 +4923,6 @@ export class CreateParticles {
   import ContactSection from '$lib/components/sections/ContactSection.svelte';
   import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
   import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
-  // import ProjectTwoLayout from '$lib/components/layouts/ProjectTwoLayout.svelte';
 
   // Type Imports
   interface IAnimatedComponent {
@@ -4209,7 +5002,6 @@ export class CreateParticles {
   // The HYBRID Preload Manager
   const preloadManager = {
     async updateNeighborStates(activeIndex: number) {
-      console.log(`[Preloader] Updating neighbors for ACTIVE section ${activeIndex}.`);
       const currentStates = get(sectionStatesStore);
       const desiredStates: SectionState[] = allSectionsData.map((_, i) => {
         if (i === activeIndex) return 'ACTIVE';
@@ -4249,29 +5041,26 @@ export class CreateParticles {
       const instance = sectionInstances.get(sectionInfo.id);
       const element = sectionElements[index];
 
-      if (!instance || !element) {
-        console.error(`[Preloader] Cannot prepare Section ${index}. Instance or element not found.`);
-        return;
-      }
+      if (!instance || !element) return;
 
       sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
-      console.log(`[Preloader] PRELOADING Section ${index} (${sectionInfo.id})...`);
 
       const urls = this.getSectionAssetUrls(index);
       if (urls.length > 0) await preloadAssets(urls);
       
       if (instance.initializeEffect) await instance.initializeEffect();
       
-      if (sectionInfo.id === 'about') {
-        console.log(`[Preloader] Performing WebGL Dry Run for Section ${index} (${sectionInfo.id})...`);
+      // --- START OF FIX: Add 'contact' to the WebGL Dry Run list ---
+      // This ensures our new effect is also pre-warmed during the initial site load.
+      if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         instance.onEnterSection();
         instance.onTransitionComplete?.();
         await new Promise(resolve => setTimeout(resolve, 200));
         instance.onLeaveSection();
         gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+      // --- END OF FIX ---
       } else if (sectionInfo.id.startsWith('project-')) {
-        console.log(`[Preloader] Performing GPU Dry Run for Section ${index} (${sectionInfo.id})...`);
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         await new Promise(resolve => requestAnimationFrame(resolve));
         await new Promise(resolve => requestAnimationFrame(resolve));
@@ -4279,19 +5068,16 @@ export class CreateParticles {
       }
       
       sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
-      console.log(`[Preloader] Section ${index} (${sectionInfo.id}) is now READY.`);
     },
 
     async coolDownSection(index: number) {
       const sectionId = allSectionsData[index].id;
       sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
-      console.log(`[Preloader] COOLING DOWN Section ${index} (${sectionId})...`);
       
       const instance = sectionInstances.get(sectionId);
       instance?.onUnload?.();
       
       sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
-      console.log(`[Preloader] Section ${index} (${sectionId}) is now IDLE.`);
     },
 
     getSectionAssetUrls(index: number): string[] {
@@ -4302,12 +5088,13 @@ export class CreateParticles {
         urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
       } else if (section.id.startsWith('project-')) {
         const p = section.data as Project;
-        // FIX: Only preload the FIRST background image and the card images.
-        // The component itself will handle preloading the rest of the cycle.
         if (p.backgrounds && p.backgrounds.length > 0) {
           urls.push(p.backgrounds[0].value);
+          if (p.backgrounds.length > 1) urls.push(p.backgrounds[1].value);
         }
-        p.cards.forEach(card => urls.push(card.cardImage || card.image));
+        p.cards.forEach(card => {
+          if (card.cardImage) urls.push(card.cardImage);
+        });
       }
       return urls.filter(Boolean);
     },
@@ -4326,7 +5113,6 @@ export class CreateParticles {
     if (document.hidden) {
       visibilityHideTimeoutId = window.setTimeout(() => {
         if (document.hidden && !isTabHiddenAndPaused) {
-          console.log('[Visibility] Tab hidden, pausing current section animations.');
           currentInstance?.onLeaveSection();
           isTabHiddenAndPaused = true;
         }
@@ -4334,11 +5120,8 @@ export class CreateParticles {
     } else {
       clearTimeout(visibilityHideTimeoutId);
       if (isTabHiddenAndPaused) {
-        console.log('[Visibility] Tab focused, re-engaging animations and re-validating neighbors.');
         currentInstance?.onEnterSection();
-        requestAnimationFrame(() => {
-          currentInstance?.onTransitionComplete?.();
-        });
+        requestAnimationFrame(() => currentInstance?.onTransitionComplete?.());
         isTabHiddenAndPaused = false;
         preloadManager.updateNeighborStates(currentIndex);
       }
@@ -4350,13 +5133,8 @@ export class CreateParticles {
       await tick();
       
       sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
-
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
-      if (sectionElements.some(el => !el)) {
-        console.error("Could not find all section elements in the DOM.");
-        return;
-      }
-      
+
       sectionElements.forEach((sectionEl, index) => {
         const sectionData = allSectionsData[index];
         if (sectionData.id.startsWith('project-')) {
@@ -4367,13 +5145,8 @@ export class CreateParticles {
       });
 
       const setupInitialLoad = async () => {
-        const heroInitializationPromise = heroReadyPromise;
-        const aboutInitializationPromise = preloadManager.prepareSection(1);
-
-        await Promise.all([heroInitializationPromise, aboutInitializationPromise]);
-        
+        await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
         preloadManager.updateNeighborStates(0);
-        
         initialSiteLoadComplete.set(true);
       };
 
@@ -4387,9 +5160,7 @@ export class CreateParticles {
     mountLogic();
     
     unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
-        if (complete && !hasStartedInitialReveal) {
-            startInitialReveal();
-        }
+        if (complete && !hasStartedInitialReveal) startInitialReveal();
     });
 
     return () => {
@@ -4442,13 +5213,8 @@ export class CreateParticles {
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
-        
         preloadManager.updateNeighborStates(newIndex);
-        
-        requestAnimationFrame(() => {
-          newInstance?.onTransitionComplete?.();
-        });
-
+        requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
         if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
            heroSectionInstance.onTransitionToHeroComplete();
         }
@@ -4671,7 +5437,7 @@ export class CreateParticles {
       id: 'overview', 
       title: project.headline,
       content: project.summary,
-      background: project.background
+      background: project.backgrounds[0]
     },
     ...project.subPageSections
   ];
@@ -4695,7 +5461,7 @@ export class CreateParticles {
 
       // 2. Gather all image URLs needed for this subpage.
       const assetUrls = allSubSections
-        .filter(s => s.background.type === 'image')
+        .filter(s => s.background && s.background.type === 'image')
         .map(s => s.background.value);
       
       try {
@@ -4858,10 +5624,16 @@ export class CreateParticles {
 <div class="subpage-container" class:loaded={$isContentLoaded}>
   {#each allSubSections as section, i (section.id)}
     <section id={section.id} class="subpage-fullscreen-section">
-      <div 
-        class="subpage-background-image"
-        style="background-image: url({section.background.value});"
-      ></div>
+      <!-- --- START OF FIX --- -->
+      <!-- Add a conditional wrapper to prevent rendering this div if a section has no background. -->
+      <!-- This makes the component robust and prevents the SSR crash. -->
+      {#if section.background}
+        <div 
+          class="subpage-background-image"
+          style="background-image: url({section.background.value});"
+        ></div>
+      {/if}
+      <!-- --- END OF FIX --- -->
       
       <div class="subpage-content-overlay">
         <h2>{section.title}</h2>

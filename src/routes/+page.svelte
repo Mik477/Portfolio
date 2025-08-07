@@ -4,7 +4,7 @@
   import { writable, get } from 'svelte/store';
   import { siteConfig } from '$lib/data/siteConfig';
   import { projects, type Project } from '$lib/data/projectsData';
-  import { initialSiteLoadComplete, preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
   import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
   import { gsap } from 'gsap';
 
@@ -15,7 +15,6 @@
   import ContactSection from '$lib/components/sections/ContactSection.svelte';
   import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
   import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
-  // import ProjectTwoLayout from '$lib/components/layouts/ProjectTwoLayout.svelte';
 
   // Type Imports
   interface IAnimatedComponent {
@@ -95,7 +94,6 @@
   // The HYBRID Preload Manager
   const preloadManager = {
     async updateNeighborStates(activeIndex: number) {
-      console.log(`[Preloader] Updating neighbors for ACTIVE section ${activeIndex}.`);
       const currentStates = get(sectionStatesStore);
       const desiredStates: SectionState[] = allSectionsData.map((_, i) => {
         if (i === activeIndex) return 'ACTIVE';
@@ -135,29 +133,26 @@
       const instance = sectionInstances.get(sectionInfo.id);
       const element = sectionElements[index];
 
-      if (!instance || !element) {
-        console.error(`[Preloader] Cannot prepare Section ${index}. Instance or element not found.`);
-        return;
-      }
+      if (!instance || !element) return;
 
       sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
-      console.log(`[Preloader] PRELOADING Section ${index} (${sectionInfo.id})...`);
 
       const urls = this.getSectionAssetUrls(index);
       if (urls.length > 0) await preloadAssets(urls);
       
       if (instance.initializeEffect) await instance.initializeEffect();
       
-      if (sectionInfo.id === 'about') {
-        console.log(`[Preloader] Performing WebGL Dry Run for Section ${index} (${sectionInfo.id})...`);
+      // --- START OF FIX: Add 'contact' to the WebGL Dry Run list ---
+      // This ensures our new effect is also pre-warmed during the initial site load.
+      if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         instance.onEnterSection();
         instance.onTransitionComplete?.();
         await new Promise(resolve => setTimeout(resolve, 200));
         instance.onLeaveSection();
         gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+      // --- END OF FIX ---
       } else if (sectionInfo.id.startsWith('project-')) {
-        console.log(`[Preloader] Performing GPU Dry Run for Section ${index} (${sectionInfo.id})...`);
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         await new Promise(resolve => requestAnimationFrame(resolve));
         await new Promise(resolve => requestAnimationFrame(resolve));
@@ -165,19 +160,16 @@
       }
       
       sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
-      console.log(`[Preloader] Section ${index} (${sectionInfo.id}) is now READY.`);
     },
 
     async coolDownSection(index: number) {
       const sectionId = allSectionsData[index].id;
       sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
-      console.log(`[Preloader] COOLING DOWN Section ${index} (${sectionId})...`);
       
       const instance = sectionInstances.get(sectionId);
       instance?.onUnload?.();
       
       sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
-      console.log(`[Preloader] Section ${index} (${sectionId}) is now IDLE.`);
     },
 
     getSectionAssetUrls(index: number): string[] {
@@ -188,25 +180,14 @@
         urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
       } else if (section.id.startsWith('project-')) {
         const p = section.data as Project;
-        
         if (p.backgrounds && p.backgrounds.length > 0) {
           urls.push(p.backgrounds[0].value);
-          if (p.backgrounds.length > 1) {
-            urls.push(p.backgrounds[1].value);
-          }
+          if (p.backgrounds.length > 1) urls.push(p.backgrounds[1].value);
         }
-        
-        // --- START OF FIX ---
-        // Since `card.cardImage` is optional (`string | undefined`), we must check
-        // if it exists before pushing it to our `string[]` array to satisfy TypeScript.
         p.cards.forEach(card => {
-          if (card.cardImage) {
-            urls.push(card.cardImage);
-          }
+          if (card.cardImage) urls.push(card.cardImage);
         });
-        // --- END OF FIX ---
       }
-      // The filter is kept as a good practice, though the new check above makes it redundant for cardImage.
       return urls.filter(Boolean);
     },
   };
@@ -218,43 +199,53 @@
     }
   }
 
-  function handleVisibilityChange() {
+  // --- START OF THE FIX ---
+  // The logic inside this function has been updated to fully re-initialize the effect.
+  async function handleVisibilityChange() {
     const currentIndex = get(currentSectionIndex);
     const currentInstance = sectionInstances.get(allSectionsData[currentIndex].id);
+    
+    if (!currentInstance) return;
+
     if (document.hidden) {
       visibilityHideTimeoutId = window.setTimeout(() => {
         if (document.hidden && !isTabHiddenAndPaused) {
-          console.log('[Visibility] Tab hidden, pausing current section animations.');
-          currentInstance?.onLeaveSection();
+          console.log(`[Visibility] Tab hidden for >${HIDE_BUFFER_DURATION}ms. Pausing effect.`);
+          currentInstance.onLeaveSection();
           isTabHiddenAndPaused = true;
         }
       }, HIDE_BUFFER_DURATION);
     } else {
       clearTimeout(visibilityHideTimeoutId);
       if (isTabHiddenAndPaused) {
-        console.log('[Visibility] Tab focused, re-engaging animations and re-validating neighbors.');
-        currentInstance?.onEnterSection();
+        console.log('[Visibility] Tab visible again. Re-initializing effect from scratch.');
+        
+        // 1. Unload and destroy the old, potentially corrupted effect instance.
+        currentInstance.onUnload?.();
+
+        // 2. Re-initialize the effect, creating a brand new instance.
+        await currentInstance.initializeEffect?.();
+
+        // 3. Run the standard entry animation on the new, clean instance.
+        currentInstance.onEnterSection();
         requestAnimationFrame(() => {
-          currentInstance?.onTransitionComplete?.();
+          currentInstance.onTransitionComplete?.();
         });
+
         isTabHiddenAndPaused = false;
         preloadManager.updateNeighborStates(currentIndex);
       }
     }
   }
+  // --- END OF THE FIX ---
 
   onMount(() => {
     const mountLogic = async () => {
       await tick();
       
       sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
-
       sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
-      if (sectionElements.some(el => !el)) {
-        console.error("Could not find all section elements in the DOM.");
-        return;
-      }
-      
+
       sectionElements.forEach((sectionEl, index) => {
         const sectionData = allSectionsData[index];
         if (sectionData.id.startsWith('project-')) {
@@ -265,13 +256,8 @@
       });
 
       const setupInitialLoad = async () => {
-        const heroInitializationPromise = heroReadyPromise;
-        const aboutInitializationPromise = preloadManager.prepareSection(1);
-
-        await Promise.all([heroInitializationPromise, aboutInitializationPromise]);
-        
+        await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
         preloadManager.updateNeighborStates(0);
-        
         initialSiteLoadComplete.set(true);
       };
 
@@ -285,9 +271,7 @@
     mountLogic();
     
     unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
-        if (complete && !hasStartedInitialReveal) {
-            startInitialReveal();
-        }
+        if (complete && !hasStartedInitialReveal) startInitialReveal();
     });
 
     return () => {
@@ -340,13 +324,8 @@
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
-        
         preloadManager.updateNeighborStates(newIndex);
-        
-        requestAnimationFrame(() => {
-          newInstance?.onTransitionComplete?.();
-        });
-
+        requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
         if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
            heroSectionInstance.onTransitionToHeroComplete();
         }

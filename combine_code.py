@@ -12,6 +12,7 @@ ALLOWED_EXTENSIONS = {
     ".html",
     ".json",
     ".md",
+    ".glsl",
     # Add any other text-based file extensions you want to include
 }
 EXCLUDED_DIRS = {

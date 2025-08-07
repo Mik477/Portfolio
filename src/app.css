@@ -19,6 +19,13 @@
     }
 }
 
+/* This is the style we are moving from +layout.svelte */
+body {
+    background-color: rgb(9 9 11);
+    color: rgb(245 245 247);
+}
+
+
 @media (max-width: 768px) {
     :root { --keyboard-key-base-size: 3.5rem; }
 }
