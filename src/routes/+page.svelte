@@ -65,6 +65,7 @@
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
   const sectionStatesStore = sectionStates;
+  const isLeavingHero = writable(false);
 
   // Page & Animation State
   let visibilityHideTimeoutId: number | undefined;
@@ -142,8 +143,6 @@
       
       if (instance.initializeEffect) await instance.initializeEffect();
       
-      // --- START OF FIX: Add 'contact' to the WebGL Dry Run list ---
-      // This ensures our new effect is also pre-warmed during the initial site load.
       if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         instance.onEnterSection();
@@ -151,7 +150,6 @@
         await new Promise(resolve => setTimeout(resolve, 200));
         instance.onLeaveSection();
         gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-      // --- END OF FIX ---
       } else if (sectionInfo.id.startsWith('project-')) {
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         await new Promise(resolve => requestAnimationFrame(resolve));
@@ -199,18 +197,13 @@
     }
   }
 
-  // --- START OF THE FIX ---
-  // The logic inside this function has been updated to fully re-initialize the effect.
   async function handleVisibilityChange() {
     const currentIndex = get(currentSectionIndex);
     const currentInstance = sectionInstances.get(allSectionsData[currentIndex].id);
-    
     if (!currentInstance) return;
-
     if (document.hidden) {
       visibilityHideTimeoutId = window.setTimeout(() => {
         if (document.hidden && !isTabHiddenAndPaused) {
-          console.log(`[Visibility] Tab hidden for >${HIDE_BUFFER_DURATION}ms. Pausing effect.`);
           currentInstance.onLeaveSection();
           isTabHiddenAndPaused = true;
         }
@@ -218,26 +211,19 @@
     } else {
       clearTimeout(visibilityHideTimeoutId);
       if (isTabHiddenAndPaused) {
-        console.log('[Visibility] Tab visible again. Re-initializing effect from scratch.');
-        
-        // 1. Unload and destroy the old, potentially corrupted effect instance.
-        currentInstance.onUnload?.();
-
-        // 2. Re-initialize the effect, creating a brand new instance.
-        await currentInstance.initializeEffect?.();
-
-        // 3. Run the standard entry animation on the new, clean instance.
+        if (currentInstance.onUnload && currentInstance.initializeEffect) {
+          currentInstance.onUnload();
+          await currentInstance.initializeEffect();
+        }
         currentInstance.onEnterSection();
         requestAnimationFrame(() => {
           currentInstance.onTransitionComplete?.();
         });
-
         isTabHiddenAndPaused = false;
         preloadManager.updateNeighborStates(currentIndex);
       }
     }
   }
-  // --- END OF THE FIX ---
 
   onMount(() => {
     const mountLogic = async () => {
@@ -309,6 +295,10 @@
     isAnimating.set(true); 
     isTransitioning.set(true); 
 
+    if (oldIndex === 0 && newIndex > 0) {
+      isLeavingHero.set(true);
+    }
+
     const oldInstance = sectionInstances.get(allSectionsData[oldIndex].id);
     const newInstance = sectionInstances.get(allSectionsData[newIndex].id);
     
@@ -324,6 +314,7 @@
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
+        isLeavingHero.set(false);
         preloadManager.updateNeighborStates(newIndex);
         requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
         if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
@@ -362,7 +353,12 @@
 <div>
   <LoadingScreen /> 
 
-  <div class="particle-effect-layer" class:initial-state={$isInitialReveal} style="pointer-events: {particleLayerPointerEvents};">
+  <div 
+    class="particle-effect-layer" 
+    class:initial-state={$isInitialReveal}
+    class:on-top={$isLeavingHero}
+    style="pointer-events: {particleLayerPointerEvents};"
+  >
     <HeroSection
       bind:this={heroSectionInstance}
       activeSectionIndex={$currentSectionIndex}
@@ -412,9 +408,33 @@
   </main>
 
   <style>
-    .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0.2, 1); }
+    .particle-effect-layer { 
+      position: fixed; 
+      top: 0; 
+      left: 0; 
+      width: 100vw; 
+      height: 100vh; 
+      z-index: 0; /* Default state: behind main content */
+      background-color: rgb(9 9 11); 
+      transition: opacity 1.5s cubic-bezier(0.4, 0.2, 1); 
+    }
+
+    /* --- START OF FIX --- */
+    /* This class is now applied only when transitioning away from the hero section. */
+    .particle-effect-layer.on-top {
+      z-index: 2; /* Promoted state: on top of main content */
+      background-color: transparent; /* Makes the layer see-through, leaving only the particles. */
+    }
+    /* --- END OF FIX --- */
+
     .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
-    .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
+    .portfolio-container { 
+      position: relative; 
+      width: 100%; 
+      height: 100vh; 
+      overflow: hidden; 
+      z-index: 1; /* Default state: on top of hero particles */
+    }
     
     .full-screen-section {
       height: 100%;

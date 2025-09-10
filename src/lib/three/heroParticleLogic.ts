@@ -111,7 +111,6 @@ export class Environment {
     if (this.renderer && !this.animationLoopCallback) {
         this.animationLoopCallback = () => { this.render(); };
         this.renderer.setAnimationLoop(this.animationLoopCallback);
-        console.log("HeroParticleLogic: Animation loop started.");
     }
   }
 
@@ -119,7 +118,6 @@ export class Environment {
     if (this.renderer && this.animationLoopCallback) {
         this.renderer.setAnimationLoop(null);
         this.animationLoopCallback = null;
-        console.log("HeroParticleLogic: Animation loop stopped.");
     }
   }
 
@@ -148,6 +146,13 @@ export class Environment {
 
   public render() {
     const deltaTime = this.clock.getDelta();
+    
+    // --- START OF FIX ---
+    // Force the scene to render against a solid black background internally.
+    // This stabilizes the input for the bloom pass, preventing flashing when the
+    // DOM element's background is transparent during transitions.
+    this.scene.background = new THREE.Color(0x000000);
+    // --- END OF FIX ---
 
     if (this.createParticles) {
       this.createParticles.render(); 
@@ -209,7 +214,6 @@ export class Environment {
   }
 
   public dispose() {
-    console.log("HeroParticleLogic: Disposing Environment");
     this.stopAnimationLoop();
     this.unbindWindowResize();
     if (this.createParticles) {
@@ -248,7 +252,6 @@ interface ParticleData {
   area: number;
   ease: number;
   distortionThreshold: number;
-  // maxCooldownTime: number; // REMOVED - Replaced by min/max duration
   minFadeOutRate: number;
   maxFadeOutRate: number;
   minSymbolSize: number;
@@ -259,10 +262,9 @@ interface ParticleData {
   symbolMinProb: number;
   symbolMaxProb: number;
   symbolHeatRequirement: number;
-  // --- NEW Cooldown Parameters ---
   particleCooldownDurationMin: number;
   particleCooldownDurationMax: number;
-  symbolCooldownSpeedMultiplier: number;  // --- END NEW Cooldown Parameters ---
+  symbolCooldownSpeedMultiplier: number;
 }
 
 // Screen size categories for responsive design
@@ -310,12 +312,10 @@ export class CreateParticles {
   private lastKnownHeight: number = 0;
   private needsParticleRegeneration: boolean = false;
 
-  // These constants control the symbol color variation
-  private readonly SYMBOL_HUE_SHIFT_RANGE = 0.03;           // Controls hue variation (green tint shifts)
-  private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.08;  // Controls brightness variation
-  private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.45;      // Minimum brightness to prevent too-dark symbols
+  private readonly SYMBOL_HUE_SHIFT_RANGE = 0.03;
+  private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.08;
+  private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.45;
 
-  // Screen size breakpoints
   private readonly SCREEN_SIZES = {
     mobile: { maxWidth: 640 },
     tablet: { minWidth: 641, maxWidth: 1024 },
@@ -325,59 +325,16 @@ export class CreateParticles {
     ultrawide: { minWidth: 2561 }
   };
 
-  // Responsive particle parameters for different screen sizes
   private readonly RESPONSIVE_PARAMS: Record<ScreenSizeType, Partial<ParticleData>> = {
-    mobile: {
-      amount: 1200,
-      particleSize: 1.0,
-      textSize: 12,
-      minSymbolSize: 7,
-      maxSymbolSize: 11,
-      area: 150
-    },
-    tablet: {
-      amount: 1800,
-      particleSize: 1.1,
-      textSize: 14,
-      minSymbolSize: 7,
-      maxSymbolSize: 11,
-      area: 200
-    },
-    laptop: {
-      amount: 2200,
-      particleSize: 1.2,
-      textSize: 15,
-      minSymbolSize: 6.5,
-      maxSymbolSize: 11,
-      area: 230
-    },
-    desktop: {
-      amount: 2400,
-      particleSize: 1.4,
-      textSize: 16,
-      minSymbolSize: 7,
-      maxSymbolSize: 11,
-      area: 250
-    },
-    large: {
-      amount: 2700,
-      particleSize: 1.55,
-      textSize: 18,
-      minSymbolSize: 8,
-      maxSymbolSize: 11,
-      area: 280
-    },
-    ultrawide: {
-      amount: 2900,
-      particleSize: 1.6,
-      textSize: 20,
-      minSymbolSize: 9,
-      maxSymbolSize: 16,
-      area: 300
-    }
+    mobile: { amount: 1200, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
+    tablet: { amount: 1800, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
+    laptop: { amount: 2200, particleSize: 1.2, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
+    desktop: { amount: 2400, particleSize: 1.4, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
+    large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 8, maxSymbolSize: 11, area: 280 },
+    ultrawide: { amount: 2900, particleSize: 1.6, textSize: 20, minSymbolSize: 9, maxSymbolSize: 16, area: 300 }
   };
 
-  private symbolTextureRows: number = 6; // Add this property declaration
+  private symbolTextureRows: number = 6;
 
   constructor(scene: THREE.Scene, font: Font, particleImg: THREE.Texture, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, hostContainer: HTMLElement) {
     this.scene = scene;
@@ -410,7 +367,6 @@ export class CreateParticles {
 
     this.bloomSymbolColor = new THREE.Color(0.0, 0.95, 0.05); 
 
-    // Base configuration (will be adjusted for screen size)
     this.data = { 
       text: "Hi, I'm\nMiká",
       amount: 2700,
@@ -434,24 +390,11 @@ export class CreateParticles {
       symbolCooldownSpeedMultiplier: 3.1,
     };
     
-    // Track the container dimensions to detect significant changes
     this.lastKnownWidth = this.hostContainer.clientWidth;
     this.lastKnownHeight = this.hostContainer.clientHeight;
     
-    // Determine initial screen size and apply responsive settings
     this.currentScreenSizeType = this.getScreenSizeType();
     this.applyResponsiveParameters(this.currentScreenSizeType);
-    
-    // Log the detected screen size and particle configuration
-    console.log(`🖥️ Hero Particle Effect - Screen Size Detection:`);
-    console.log(`   Screen dimensions: ${this.lastKnownWidth}x${this.lastKnownHeight}px`);
-    console.log(`   Detected screen type: ${this.currentScreenSizeType.toUpperCase()}`);
-    console.log(`   Particle configuration:`);
-    console.log(`     • Particle count: ${this.data.amount}`);
-    console.log(`     • Particle size: ${this.data.particleSize}`);
-    console.log(`     • Text size: ${this.data.textSize}px`);
-    console.log(`     • Symbol size range: ${this.data.minSymbolSize} - ${this.data.maxSymbolSize}`);
-    console.log(`     • Effect area: ${this.data.area}`);
     
     this.boundOnMouseDown = this.onMouseDown.bind(this);
     this.boundOnMouseMove = this.onMouseMove.bind(this);
@@ -495,24 +438,18 @@ export class CreateParticles {
     this.cooldownRates = new Array(count);
     this.symbolIndicesAttributeValues = new Array(count);
     this.fadeOutRates = new Array(count);
-    // Remove symbolSizesMultipliers array since we generate sizes dynamically
     
     for (let i = 0; i < count; i++) {
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
       
-      // --- MODIFIED Cooldown Rate Calculation ---
       const randomDuration = this.data.particleCooldownDurationMin + 
                              Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
-      this.cooldownRates[i] = 1 / Math.max(1, randomDuration); // Rate is 1/duration. Ensure duration > 0.
-      // --- END MODIFIED ---
-
+      this.cooldownRates[i] = 1 / Math.max(1, randomDuration);
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
-      // Remove pre-calculation of symbol sizes
     }
   }
 
   private createMatrixSymbolsTexture() {
-    // Calculate required rows based on symbol count
     const cols = 8;
     const symbolSize = 64;
     const rows = Math.ceil(this.matrixSymbols.length / cols);
@@ -522,17 +459,14 @@ export class CreateParticles {
     canvas.height = rows * symbolSize;
     const ctx = canvas.getContext('2d')!;
     
-    // Clear canvas with transparent background
     ctx.fillStyle = 'rgba(0,0,0,0)'; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Improved font rendering settings
     ctx.font = 'bold 48px "Courier New", monospace';
     ctx.textAlign = 'center'; 
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#00FF00';
     
-    // Enable better text rendering (remove invalid textRenderingOptimization)
     if (ctx.imageSmoothingEnabled !== undefined) {
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
@@ -544,7 +478,6 @@ export class CreateParticles {
       const x = col * symbolSize + symbolSize / 2; 
       const y = row * symbolSize + symbolSize / 2;
       
-      // Add slight padding to prevent edge clipping
       const symbol = this.matrixSymbols[i];
       ctx.fillText(symbol, x, y);
     }
@@ -557,11 +490,7 @@ export class CreateParticles {
     this.symbolsTexture.wrapS = THREE.ClampToEdgeWrapping;
     this.symbolsTexture.wrapT = THREE.ClampToEdgeWrapping;
     
-    // Store the row count for the shader
     this.symbolTextureRows = rows;
-    
-    // Log texture info for debugging
-    console.log(`Symbol texture created: ${cols}x${rows} grid (${this.matrixSymbols.length} symbols)`);
   }
 
   private setupPlaneArea() {
@@ -647,7 +576,7 @@ export class CreateParticles {
       uniforms: {
         pointTexture: { value: this.particleImg },
         symbolsTexture: { value: this.symbolsTexture },
-        symbolRows: { value: this.symbolTextureRows } // Add dynamic row count uniform
+        symbolRows: { value: this.symbolTextureRows }
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
@@ -708,20 +637,17 @@ export class CreateParticles {
   }
 
   private getVariedSymbolColor(): THREE.Color {
-    const variedColor = this.bloomSymbolColor.clone(); // Base color: (0.0, 0.95, 0.05)
+    const variedColor = this.bloomSymbolColor.clone();
     const hsl = { h: 0, s: 0, l: 0 };
     variedColor.getHSL(hsl); 
 
-    // HUE VARIATION: Shifts the green tint slightly
     const hueOffset = (Math.random() - 0.5) * this.SYMBOL_HUE_SHIFT_RANGE;
     hsl.h += hueOffset;
     hsl.h = (hsl.h + 1.0) % 1.0; 
 
-    // LUMINANCE VARIATION: Makes some symbols brighter/dimmer
     const luminanceReduction = Math.random() * this.SYMBOL_LUMINANCE_REDUCTION_MAX;
     hsl.l -= luminanceReduction;
     
-    // Ensure minimum brightness
     hsl.l = Math.max(this.SYMBOL_MIN_LUMINANCE_TARGET, hsl.l);
     hsl.l = Math.min(1.0, hsl.l);
 
@@ -796,7 +722,6 @@ export class CreateParticles {
                 this.particleStates[i] = 1; 
                 symbolStates.setX(i, 1.0);
                 
-                // FIXED: Generate random size and symbol index each time a particle becomes a symbol
                 const randomSymbolSize = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
                 const randomSymbolIndex = Math.floor(Math.random() * this.matrixSymbols.length);
                 
@@ -818,12 +743,9 @@ export class CreateParticles {
              sizes.setX(i, newSize);
              attributesNeedUpdate = true;
           }
-          // --- MODIFIED Symbol Cooldown ---
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier));
-          // --- END MODIFIED ---
           
-          // FIXED: Use a small tolerance instead of exact comparison to handle floating point precision
-          const fadeThreshold = this.data.particleSize + 0.01; // Small tolerance for floating point comparison
+          const fadeThreshold = this.data.particleSize + 0.01;
           if (newSize <= fadeThreshold) {
             this.particleStates[i] = 0; 
             symbolStates.setX(i, 0.0);
@@ -838,7 +760,7 @@ export class CreateParticles {
           }
         }
         
-        if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) { // For normal particles
+        if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) {
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
         }
 
@@ -897,13 +819,10 @@ export class CreateParticles {
       sizes.setX(i, this.data.particleSize); 
       symbolStates.setX(i, 0.0); 
       
-      // Generate fresh random symbol indices
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
       symbolIndicesBuffer.setX(i, this.symbolIndicesAttributeValues[i]);
 
-      // Generate fresh random fade out rates
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
-      // Don't pre-calculate symbol sizes anymore - they're generated when particles become symbols
     }
     colors.needsUpdate = true; sizes.needsUpdate = true; 
     symbolStates.needsUpdate = true; symbolIndicesBuffer.needsUpdate = true;
@@ -940,7 +859,6 @@ export class CreateParticles {
   private applyResponsiveParameters(screenType: ScreenSizeType): void {
     const params = this.RESPONSIVE_PARAMS[screenType];
     
-    // Apply the responsive parameters to the data object
     if (params.amount !== undefined) this.data.amount = params.amount;
     if (params.particleSize !== undefined) this.data.particleSize = params.particleSize;
     if (params.textSize !== undefined) this.data.textSize = params.textSize;
@@ -953,7 +871,6 @@ export class CreateParticles {
     const currentWidth = this.hostContainer.clientWidth;
     const currentHeight = this.hostContainer.clientHeight;
     
-    // Check if dimensions have changed significantly (more than 10% or 100px)
     const widthChange = Math.abs(currentWidth - this.lastKnownWidth);
     const heightChange = Math.abs(currentHeight - this.lastKnownHeight);
     const significantChange = widthChange > 100 || heightChange > 100 || 
@@ -964,7 +881,6 @@ export class CreateParticles {
       const newScreenType = this.getScreenSizeType();
       
       if (newScreenType !== this.currentScreenSizeType) {
-        console.log(`🖥️ Screen size change detected: ${this.currentScreenSizeType} → ${newScreenType}`);
         this.currentScreenSizeType = newScreenType;
         this.applyResponsiveParameters(newScreenType);
         this.lastKnownWidth = currentWidth;
@@ -980,11 +896,6 @@ export class CreateParticles {
   public regenerateParticles(): void {
     if (!this.needsParticleRegeneration) return;
     
-    console.log(`🔄 Regenerating particles for ${this.currentScreenSizeType} screen size:`);
-    console.log(`   New particle count: ${this.data.amount}`);
-    console.log(`   New particle size: ${this.data.particleSize}`);
-    
-    // Remove existing particles
     if (this.particles) {
       this.scene.remove(this.particles);
       this.particles.geometry.dispose();
@@ -992,7 +903,6 @@ export class CreateParticles {
       if (material) material.dispose();
     }
     
-    // Recreate particles with new parameters
     this.createText();
     
     this.needsParticleRegeneration = false;

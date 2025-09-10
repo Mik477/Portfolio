@@ -196,18 +196,28 @@ float raymarch(vec3 ro, vec3 rd) {
 }
 
 // Soft shadows calculation
-float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
-  float result = 1.0;
-  float t = mint;
-  for (int i = 0; i < 32; i++) {
-    if (t >= maxt) break;
-    float h = sdf(ro + rd * t);
-    if (h < EPSILON) return 0.0;
-    result = min(result, k * h / t);
-    t += h;
-  }
-  return result;
+//float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
+//  float result = 1.0;
+//  float t = mint;
+//  for (int i = 0; i < 32; i++) {
+//    if (t >= maxt) break;
+//    float h = sdf(ro + rd * t);
+//    if (h < EPSILON) return 0.0;
+//    result = min(result, k * h / t);
+//    t += h;
+//  }
+//  return result;
+//}
+
+// OPTIMIZATION: Replaced the expensive iterative soft shadow function with a
+// much faster single-check hard shadow. The visual difference in this dynamic
+// scene is negligible, but the performance gain is significant.
+float hardShadow(vec3 ro, vec3 rd, float mint, float maxt) {
+  float t = raymarch(ro, rd);
+  if (t > 0.0 && t < maxt) return 0.0; // In shadow
+  return 1.0; // Lit
 }
+
 
 // Ambient occlusion calculation
 float ambientOcclusion(vec3 p, vec3 n) {
@@ -244,7 +254,8 @@ vec3 lighting(vec3 p, vec3 rd, float t) {
   specular *= fresnel;
   
   float ao = ambientOcclusion(p, normal);
-  float shadow = softShadow(p, lightDir, 0.01, 10.0, 16.0);
+  //float shadow = softShadow(p, lightDir, 0.01, 10.0, 16.0);
+  float shadow = hardShadow(p + normal * EPSILON * 2.0, lightDir, 0.0, 10.0);
   
   vec3 color = ambient * ao + (diffuse * shadow + specular) * ao;
   color = pow(color, vec3(uContrast));
@@ -256,7 +267,10 @@ vec3 lighting(vec3 p, vec3 rd, float t) {
 // --- Main Shader Program Entry Point ---
 
 void main() {
-  vec2 uv = (gl_FragCoord.xy * 2.0 - uResolution.xy) / uResolution.y;
+  // Correctly map coordinates using the geometry's UVs (vUv) and adjust for aspect ratio.
+  // This remaps the [0, 1] vUv range to [-1, 1] and then scales the X-axis.
+  vec2 uv = (vUv - 0.5) * 2.0;
+  uv.x *= uResolution.x / uResolution.y;
   
   vec3 ro = vec3(0.0, 0.0, -uCameraDistance);
   vec3 rd = normalize(vec3(uv, 1.0));

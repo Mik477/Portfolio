@@ -2031,7 +2031,7 @@ export {};
 --- START OF FILE src\lib\components\sections\ContactEffect.svelte ---
 <!-- src/lib/components/sections/ContactEffect.svelte -->
 <script context="module" lang="ts">
-  // Defines the public API for this component so the orchestrator can interact with it.
+  // Public instance API for the orchestrator to call.
   export type ContactEffectInstance = {
     initializeEffect: () => Promise<void>;
     onEnterSection: () => void;
@@ -2051,41 +2051,35 @@ export {};
   import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
   import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
   import { gsap } from 'gsap';
-  import fragmentShaderCode from '$lib/three/contactRaymarching.glsl?raw';
+  import type { ShaderMaterial } from 'three';
 
   let container: HTMLDivElement;
   let effectInstance: RaymarchingEffect | null = null;
   let isInitialized = false;
 
-  // --- Animation Lifecycle API Implementation (Refactored for Seamless Re-entry) ---
-
+  // -----------------------------
+  // Animation Lifecycle API
+  // -----------------------------
   export async function initializeEffect(): Promise<void> {
     if (isInitialized) return;
     await tick();
     if (!container) return;
 
     effectInstance = new RaymarchingEffect(container);
-    effectInstance.init();
+    await effectInstance.init();
     isInitialized = true;
-    console.log('[ContactEffect] Effect initialized and dry-run complete.');
   }
 
   export function onEnterSection(): void {
     if (!container) return;
-    // --- FIX: On enter, ensure the component is visually hidden but ready.
-    // The fade-in will be handled by onTransitionComplete.
     gsap.set(container, { autoAlpha: 0 });
   }
-  
+
   export function onTransitionComplete(): void {
     if (effectInstance) {
-      // --- FIX: This is the new sequence for a smooth fade-in every time. ---
-      // 1. Reset the effect's internal state (especially the clock).
-      effectInstance.neutralizeState(0); // 0 duration for instant clock reset.
-      // 2. Start the animation loop so it's rendering when it becomes visible.
+      effectInstance.neutralizeState(0);
       effectInstance.startAnimationLoop();
-      // 3. Fade the canvas in now that the section is stationary.
-      gsap.to(container, { autoAlpha: 1, duration: 1.5, ease: 'power2.inOut' });
+      gsap.to(container, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
     }
   }
 
@@ -2093,69 +2087,72 @@ export {};
     if (!container) return;
     gsap.killTweensOf(container);
 
-    // --- FIX: Smoothly neutralize the effect's state as it fades out. ---
     if (effectInstance) {
-      effectInstance.neutralizeState(0.5); // Animate mouse to center over 0.5s.
+      effectInstance.neutralizeState(0.45);
     }
 
     gsap.to(container, {
       autoAlpha: 0,
-      duration: 0.8,
+      duration: 0.7,
       ease: 'power2.out',
       onComplete: () => {
         if (effectInstance) {
           effectInstance.stopAnimationLoop();
         }
-        // --- FIX: Hard-set invisibility to prevent seeing a frozen frame on quick re-entry.
-        gsap.set(container, { autoAlpha: 0 }); 
+        gsap.set(container, { autoAlpha: 0 });
       }
     });
   }
 
   export function onUnload(): void {
+    if (container) {
+      gsap.killTweensOf(container);
+    }
+
     if (effectInstance) {
-      console.log('[ContactEffect] Unloading and disposing Three.js resources.');
       effectInstance.dispose();
       effectInstance = null;
     }
     isInitialized = false;
   }
 
-  // --- Svelte Lifecycle ---
-
   onMount(() => {
-    // Initialization is deferred to the Animation API.
+    // Initialization deferred to the animation lifecycle API.
   });
 
   onDestroy(() => {
     onUnload();
   });
 
-  // --- Three.js Raymarching Effect Class ---
-
+  // -----------------------------
+  // RaymarchingEffect class
+  // -----------------------------
   class RaymarchingEffect {
     private container: HTMLElement;
-    private camera!: THREE.OrthographicCamera;
-    private scene!: THREE.Scene;
+
+    // ThreeJS core
     private renderer!: THREE.WebGLRenderer;
-    private material!: THREE.ShaderMaterial;
-    private clock: THREE.Clock;
+    private scene!: THREE.Scene;
+    private camera!: THREE.OrthographicCamera;
+    private material!: ShaderMaterial;
+    private quad!: THREE.Mesh;
+
+    // Post-processing
     private bloomComposer!: EffectComposer;
     private finalComposer!: EffectComposer;
     private bloomPass!: UnrealBloomPass;
 
-    private mousePosition = new THREE.Vector2(0.5, 0.5); // Start at neutral center
-    private targetMousePosition = new THREE.Vector2(0.5, 0.5);
-    
+    // Animation & input
+    private clock: THREE.Clock;
     private animationFrameId: number | null = null;
     private isLooping = false;
-    private boundOnMouseMove: (event: MouseEvent) => void;
+    private boundOnMouseMove: (e: MouseEvent) => void;
+    private boundOnResize: () => void;
+    private mousePos = new THREE.Vector2(0.5, 0.5);   // smoothed pointer (for shader)
+    private targetMouse = new THREE.Vector2(0.5, 0.5); // raw pointer target
 
-    // ... (EFFECT PARAMETERS remain the same) ...
-    private readonly CAMERA_DISTANCE = 3.0;
-    private readonly BLOOM_STRENGTH = 0.3;
-    private readonly BLOOM_THRESHOLD = 0.2;
-    private readonly BLOOM_RADIUS = 0.5;
+    // ----- PARAMETERS (grouped & commented for easy tuning) -----
+    // Visual / lighting defaults (moody)
     private readonly AMBIENT_INTENSITY = 0.05;
     private readonly DIFFUSE_INTENSITY = 0.4;
     private readonly SPECULAR_INTENSITY = 2.0;
@@ -2163,178 +2160,173 @@ export {};
     private readonly FRESNEL_POWER = 1.0;
     private readonly CONTRAST = 1.2;
     private readonly FOG_DENSITY = 0.15;
-    private readonly SPHERE_COUNT = 4;
-    private readonly BLEND_SMOOTHNESS = 0.3;
+
+    // Motion & spheres
+    private SPHERE_COUNT = 6; // default matches "moody" preset
+    private readonly MAX_SPHERES = 12; // keep consistent with shader define
+    private readonly BLEND_SMOOTHNESS = 0.42;
     private readonly ANIMATION_SPEED = 1.0;
-    private readonly MOVEMENT_PATTERN = "orbital";
+    private readonly CAMERA_DISTANCE = 3.0;
+    private readonly MOVEMENT_PATTERN = 0;
     private readonly MOVEMENT_SPEED = 1.0;
     private readonly MOVEMENT_SCALE = 1.0;
     private readonly INDIVIDUAL_ROTATION = true;
     private readonly MOUSE_PROXIMITY_EFFECT = true;
-    private readonly MOUSE_SMOOTHNESS = 0.1;
-    private readonly MIN_MOVEMENT_SCALE_ON_HOVER = 0.3;
-    private readonly MAX_MOVEMENT_SCALE_ON_HOVER = 1.0;
+    private readonly MOUSE_SMOOTHNESS = 0.12; // how quickly mousePos lerps to targetMouse
+
+    // Movement smoothing / inertia (frame-rate independent)
+    private readonly SCALE_SMOOTHING_RATE = 4.0;   // higher = faster response, lower = heavier inertia
+    private readonly POSITION_SMOOTHING_RATE = 9.0;
+
+    // Movement extents
+    private readonly MIN_MOVEMENT_SCALE_ON_HOVER = 0.1;
+    private readonly MAX_MOVEMENT_SCALE_ON_HOVER = 1.6;
+
+    // LOD / Perf tuning
+    private baseMaxSteps = 80;
+    private minMaxSteps = 28;
+    private pixelRatioCap = 2;
+    private reducedPixelRatio = 1.0;
+
+    // CPU -> GPU sphere buffer (x, y, z, radius) for each sphere
+    private sphereData: Float32Array;
+    private sphereParams: Array<{
+      speed: number;
+      radius: number;
+      orbitBase: number;
+      phase: number;
+      rotOffset: number;
+      pos: THREE.Vector3;        // current smoothed position
+      targetPos: THREE.Vector3;  // instantaneous target position
+    }>;
+
+    // internal smoothing state
+    private smoothedScale = this.MOVEMENT_SCALE;
+
+    // Internal state
+    private isDisposed = false;
 
     constructor(container: HTMLElement) {
       this.container = container;
       this.clock = new THREE.Clock();
       this.boundOnMouseMove = this.onMouseMove.bind(this);
+      this.boundOnResize = this.onWindowResize.bind(this);
+
+      // prepare typed arrays and params
+      this.sphereData = new Float32Array(this.MAX_SPHERES * 4);
+      this.sphereParams = [];
+      for (let i = 0; i < this.MAX_SPHERES; i++) {
+        this.sphereParams.push({
+          speed: 0.55 + i * 0.12,
+          radius: 0.12 + (i % 3) * 0.06,
+          orbitBase: 0.45 + (i % 5) * 0.14,
+          phase: i * Math.PI * 0.21,
+          rotOffset: Math.random() * Math.PI * 2,
+          pos: new THREE.Vector3(),
+          targetPos: new THREE.Vector3()
+        });
+      }
     }
 
-    public init(): void {
+    // init is async because we attempt to dynamically import the optimized shader (fallback handled)
+    public async init(): Promise<void> {
       this.scene = new THREE.Scene();
       this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
       this.camera.position.z = 1;
 
       this.setupRenderer();
-      this.setupMaterial();
-      
+      const frag = await this.loadShaderWithFallback();
+      this.setupMaterial(frag);
+
       const geometry = new THREE.PlaneGeometry(2, 2);
-      const mesh = new THREE.Mesh(geometry, this.material);
-      this.scene.add(mesh);
+      this.quad = new THREE.Mesh(geometry, this.material);
+      this.scene.add(this.quad);
 
       this.setupPostProcessing();
-      this.onWindowResize();
+      this.onWindowResize(); // sync sizes and uniforms
 
-      this.finalComposer.render();
-      window.addEventListener('mousemove', this.boundOnMouseMove);
-    }
-    
-    // --- FIX: New method to gracefully reset the effect's state ---
-    public neutralizeState(duration: number = 0.5): void {
-      // 1. Kill any ongoing neutralization tweens to prevent conflicts.
-      gsap.killTweensOf(this.material.uniforms.uMousePosition.value);
+      // warm GPU/state
+      try { this.finalComposer.render(); } catch (e) { /* noop */ }
 
-      // 2. Animate the mouse uniform back to the center over the specified duration.
-      gsap.to(this.material.uniforms.uMousePosition.value, {
-        x: 0.5,
-        y: 0.5,
-        duration: duration,
-        ease: 'power2.out'
-      });
-      
-      // 3. Reset the clock to prevent a large deltaTime jump when the loop restarts.
-      // This is crucial for preventing the effect from "jumping" forward in time.
-      this.clock = new THREE.Clock();
+      window.addEventListener('mousemove', this.boundOnMouseMove, { passive: true });
+      window.addEventListener('resize', this.boundOnResize);
     }
 
-    public startAnimationLoop(): void {
-      if (this.isLooping) return;
-      this.isLooping = true;
-      console.log('[ContactEffect] Started animation loop.');
-      this.animate();
-    }
-    
-    public stopAnimationLoop(): void {
-      if (!this.isLooping) return;
-      this.isLooping = false;
-      if (this.animationFrameId) {
-        cancelAnimationFrame(this.animationFrameId);
-        this.animationFrameId = null;
-      }
-      console.log('[ContactEffect] Stopped animation loop.');
-    }
-
-    private animate(): void {
-      if (!this.isLooping) return;
-      this.animationFrameId = requestAnimationFrame(() => this.animate());
-      this.render();
-    }
-
-    private render(): void {
-      this.mousePosition.x += (this.targetMousePosition.x - this.mousePosition.x) * this.MOUSE_SMOOTHNESS;
-      this.mousePosition.y += (this.targetMousePosition.y - this.mousePosition.y) * this.MOUSE_SMOOTHNESS;
-
-      this.material.uniforms.uMousePosition.value = this.mousePosition;
-      this.material.uniforms.uTime.value = this.clock.getElapsedTime() * this.ANIMATION_SPEED;
-
-      this.bloomComposer.render();
-      this.finalComposer.render();
-    }
-
-    public dispose(): void {
-      this.stopAnimationLoop();
-      window.removeEventListener('mousemove', this.boundOnMouseMove);
-      gsap.killTweensOf(this.material.uniforms.uMousePosition.value);
-      
-      this.scene.traverse(object => {
-        const obj = object as THREE.Mesh;
-        if (obj.geometry) obj.geometry.dispose();
-        if (obj.material) {
-          if (Array.isArray(obj.material)) {
-            obj.material.forEach(material => material.dispose());
-          } else {
-            (obj.material as THREE.Material).dispose();
-          }
-        }
-      });
-      
-      this.renderer.dispose();
-      if (this.renderer.domElement.parentNode) {
-        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+    // Try optimized shader first, fallback to previous shader.
+    private async loadShaderWithFallback(): Promise<string> {
+      try {
+        const mod = await import('$lib/three/contactRaymarching_optimized.glsl?raw');
+        return (mod && (mod.default ?? mod)) as string;
+      } catch (err) {
+        const fallback = await import('$lib/three/contactRaymarching.glsl?raw');
+        return (fallback && (fallback.default ?? fallback)) as string;
       }
     }
 
-    private onMouseMove(event: MouseEvent) {
-      this.targetMousePosition.x = event.clientX / window.innerWidth;
-      this.targetMousePosition.y = 1.0 - event.clientY / window.innerHeight;
-    }
-
-    // ... (onWindowResize, setupRenderer, setupMaterial, setupPostProcessing methods remain the same) ...
-    private onWindowResize(): void {
-      const width = this.container.clientWidth;
-      const height = this.container.clientHeight;
-      
-      this.renderer.setSize(width, height);
-      this.bloomComposer.setSize(width, height);
-      this.finalComposer.setSize(width, height);
-      
-      this.material.uniforms.uResolution.value.set(width, height);
-      
-      const fxaaPass = this.finalComposer.passes.find(pass => pass instanceof ShaderPass && pass.material.uniforms.resolution) as ShaderPass | undefined;
-      if (fxaaPass) {
-        fxaaPass.material.uniforms.resolution.value.set(1 / width, 1 / height);
-      }
-    }
-    
     private setupRenderer(): void {
       this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      this.renderer.setPixelRatio(window.devicePixelRatio);
+      const effectivePixelRatio = Math.min(window.devicePixelRatio || 1, this.pixelRatioCap);
+      this.renderer.setPixelRatio(effectivePixelRatio);
       this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
       this.renderer.setClearColor(0x000000, 0);
-      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      try {
+        // @ts-ignore
+        this.renderer.outputColorSpace = (THREE as any).SRGBColorSpace ?? (THREE as any).sRGBEncoding;
+      } catch (e) { /* ignore for older three versions */ }
       this.container.appendChild(this.renderer.domElement);
     }
 
-    private setupMaterial(): void {
+    private setupMaterial(fragmentShaderCode: string): void {
+      const initialSteps = this.computeAdaptiveMaxSteps(this.SPHERE_COUNT);
+      const sphereUniformArray = this.sphereData;
+
+      // Uniforms: keep names compatible with optimized shader.
+      const uniforms: Record<string, any> = {
+        uTime: { value: 0.0 },
+        uResolution: { value: new THREE.Vector2(this.container.clientWidth, this.container.clientHeight) },
+        uSphereCount: { value: this.SPHERE_COUNT },
+
+        // Lighting / look
+        uAmbientIntensity: { value: this.AMBIENT_INTENSITY },
+        uDiffuseIntensity: { value: this.DIFFUSE_INTENSITY },
+        uSpecularIntensity: { value: this.SPECULAR_INTENSITY },
+        uSpecularPower: { value: this.SPECULAR_POWER },
+        uFresnelPower: { value: this.FRESNEL_POWER },
+        uContrast: { value: this.CONTRAST },
+
+        // Colors & lights
+        uBackgroundColor: { value: new THREE.Color(0x050505) },
+        uSphereColor: { value: new THREE.Color(0x000000) }, // dark spheres by default
+        uLightColor: { value: new THREE.Color(0xffffff) },
+        uLightPosition: { value: new THREE.Vector3(1.0, 1.0, 1.0) },
+
+        // Blend / smoothing
+        uSmoothness: { value: this.BLEND_SMOOTHNESS },
+
+        // Fog & camera
+        uFogDensity: { value: this.FOG_DENSITY },
+        uCameraDistance: { value: this.CAMERA_DISTANCE },
+
+        // Movement & interaction (kept for CPU-driven motion)
+        uAnimationSpeed: { value: this.ANIMATION_SPEED },
+        uMovementPattern: { value: this.MOVEMENT_PATTERN },
+        uMovementSpeed: { value: this.MOVEMENT_SPEED },
+        uMovementScale: { value: this.MOVEMENT_SCALE },
+        uIndividualRotation: { value: this.INDIVIDUAL_ROTATION },
+        uMousePosition: { value: new THREE.Vector2(0.5, 0.5) },
+        uMouseProximityEffect: { value: this.MOUSE_PROXIMITY_EFFECT },
+        uMinMovementScale: { value: this.MIN_MOVEMENT_SCALE_ON_HOVER },
+        uMaxMovementScale: { value: this.MAX_MOVEMENT_SCALE_ON_HOVER },
+
+        // Packed sphere data (x, y, z, r)
+        uSpheres: { value: sphereUniformArray },
+
+        // runtime step control
+        uMaxSteps: { value: initialSteps }
+      };
+
       this.material = new THREE.ShaderMaterial({
-        uniforms: {
-          uTime: { value: 0 },
-          uResolution: { value: new THREE.Vector2() },
-          uSphereCount: { value: this.SPHERE_COUNT },
-          uAmbientIntensity: { value: this.AMBIENT_INTENSITY },
-          uDiffuseIntensity: { value: this.DIFFUSE_INTENSITY },
-          uSpecularIntensity: { value: this.SPECULAR_INTENSITY },
-          uSpecularPower: { value: this.SPECULAR_POWER },
-          uFresnelPower: { value: this.FRESNEL_POWER },
-          uBackgroundColor: { value: new THREE.Color(0x050505) },
-          uSphereColor: { value: new THREE.Color(0x000000) },
-          uLightColor: { value: new THREE.Color(0xffffff) },
-          uLightPosition: { value: new THREE.Vector3(1, 1, 1) },
-          uSmoothness: { value: this.BLEND_SMOOTHNESS },
-          uContrast: { value: this.CONTRAST },
-          uFogDensity: { value: this.FOG_DENSITY },
-          uAnimationSpeed: { value: this.ANIMATION_SPEED },
-          uCameraDistance: { value: this.CAMERA_DISTANCE },
-          uMovementPattern: { value: ["orbital", "wave", "chaos", "pulse"].indexOf(this.MOVEMENT_PATTERN) },
-          uMovementSpeed: { value: this.MOVEMENT_SPEED },
-          uMovementScale: { value: this.MOVEMENT_SCALE },
-          uIndividualRotation: { value: this.INDIVIDUAL_ROTATION },
-          uMousePosition: { value: new THREE.Vector2(0.5, 0.5) },
-          uMouseProximityEffect: { value: this.MOUSE_PROXIMITY_EFFECT },
-          uMinMovementScale: { value: this.MIN_MOVEMENT_SCALE_ON_HOVER },
-          uMaxMovementScale: { value: this.MAX_MOVEMENT_SCALE_ON_HOVER }
-        },
+        uniforms,
         vertexShader: `
           out vec2 vUv;
           void main() {
@@ -2345,24 +2337,47 @@ export {};
         fragmentShader: fragmentShaderCode,
         glslVersion: THREE.GLSL3,
         transparent: true
-      });
+      }) as ShaderMaterial;
+
+      // compile-time defines for shader array sizes & step bounds (keeps in sync with JS)
+      this.material.defines = this.material.defines || {};
+      this.material.defines.MAX_SPHERES = String(this.MAX_SPHERES);
+      this.material.defines.MAX_STEPS = String(initialSteps);
+      // tunable shadow steps (compile-time). If you change, shader recompile required.
+      this.material.defines.SHADOW_STEPS = String(16);
+      this.material.needsUpdate = true;
+
+      // keep typed-array reference for uSpheres (no heavy allocation at runtime)
+      this.material.uniforms.uSpheres.value = sphereUniformArray;
     }
-    
+
     private setupPostProcessing(): void {
-      const renderTarget = new THREE.WebGLRenderTarget(this.container.clientWidth, this.container.clientHeight, { format: THREE.RGBAFormat });
-      const bloomRenderTarget = new THREE.WebGLRenderTarget(this.container.clientWidth, this.container.clientHeight, { format: THREE.RGBAFormat });
+      const width = Math.max(1, this.container.clientWidth);
+      const height = Math.max(1, this.container.clientHeight);
+
+      const renderTarget = new THREE.WebGLRenderTarget(width, height, { format: THREE.RGBAFormat });
+      const bloomRenderTarget = new THREE.WebGLRenderTarget(width, height, { format: THREE.RGBAFormat });
 
       const renderScene = new RenderPass(this.scene, this.camera);
+      // slightly stronger/clean bloom defaults that match "moody" preset
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.30, 0.5, 0.20);
 
-      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(this.container.clientWidth, this.container.clientHeight), this.BLOOM_STRENGTH, this.BLOOM_RADIUS, this.BLOOM_THRESHOLD);
-      
+      this.bloomComposer = new EffectComposer(this.renderer, bloomRenderTarget);
+      this.bloomComposer.renderToScreen = false;
+      this.bloomComposer.addPass(renderScene);
+      this.bloomComposer.addPass(this.bloomPass);
+
+      this.finalComposer = new EffectComposer(this.renderer, renderTarget);
+      this.finalComposer.addPass(renderScene);
+
+      // Compose bloom + base while preserving transparency (apply bloom only where base has alpha)
       const finalPass = new ShaderPass(
         new THREE.ShaderMaterial({
           uniforms: {
             baseTexture: { value: null },
             bloomTexture: { value: bloomRenderTarget.texture }
           },
-          vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+          vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
           fragmentShader: `
             uniform sampler2D baseTexture;
             uniform sampler2D bloomTexture;
@@ -2370,6 +2385,7 @@ export {};
             void main() {
               vec4 baseColor = texture2D(baseTexture, vUv);
               vec4 bloomColor = texture2D(bloomTexture, vUv);
+              // preserve transparency: blend bloom only where base exists
               gl_FragColor = vec4(baseColor.rgb + bloomColor.rgb * baseColor.a, baseColor.a);
             }
           `,
@@ -2383,35 +2399,306 @@ export {};
       fxaaPass.material.uniforms['resolution'].value.set(1 / this.container.clientWidth, 1 / this.container.clientHeight);
       const gammaCorrectionPass = new ShaderPass(GammaCorrectionShader);
 
-      this.bloomComposer = new EffectComposer(this.renderer, bloomRenderTarget);
-      this.bloomComposer.renderToScreen = false;
-      this.bloomComposer.addPass(renderScene);
-      this.bloomComposer.addPass(this.bloomPass);
-      
-      this.finalComposer = new EffectComposer(this.renderer, renderTarget);
-      this.finalComposer.addPass(renderScene);
-      finalPass.uniforms.baseTexture.value = this.finalComposer.renderTarget2.texture;
       this.finalComposer.addPass(finalPass);
       this.finalComposer.addPass(fxaaPass);
       this.finalComposer.addPass(gammaCorrectionPass);
+
+      // hook up finalPass baseTexture to composer target (if available)
+      finalPass.uniforms.baseTexture.value = this.finalComposer.renderTarget2?.texture ?? null;
+    }
+
+    // Public controls
+    public startAnimationLoop(): void {
+      if (this.isLooping) return;
+      this.isLooping = true;
+      this.clock.start();
+      this.animate();
+    }
+
+    public stopAnimationLoop(): void {
+      if (!this.isLooping) return;
+      this.isLooping = false;
+      if (this.animationFrameId !== null) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+      this.clock.stop();
+    }
+
+    // Smoothly reset interactive state (mouse) and clock
+    public neutralizeState(duration = 0.6): void {
+      gsap.killTweensOf(this.targetMouse);
+      gsap.to(this.targetMouse, {
+        x: 0.5,
+        y: 0.5,
+        duration,
+        ease: 'power2.out'
+      });
+      // reset clock to avoid abrupt jumps in procedural movement
+      this.clock = new THREE.Clock();
+    }
+
+    // core animate loop
+    private animate(): void {
+      if (!this.isLooping || this.isDisposed) return;
+      this.animationFrameId = requestAnimationFrame(() => this.animate());
+      this.render();
+    }
+
+    // primary render path: update CPU sphere buffer, uniforms, run composer
+    private render(): void {
+      // compute delta (frame-rate independent smoothing)
+      const dt = Math.min(0.05, this.clock.getDelta()); // clamp dt to avoid spikes
+      const elapsed = this.clock.getElapsedTime() * this.ANIMATION_SPEED;
+
+      // Smooth mouse target -> smoothed mouse for shader
+      this.mousePos.x += (this.targetMouse.x - this.mousePos.x) * (1.0 - Math.exp(-this.MOUSE_SMOOTHNESS * 60.0 * dt));
+      this.mousePos.y += (this.targetMouse.y - this.mousePos.y) * (1.0 - Math.exp(-this.MOUSE_SMOOTHNESS * 60.0 * dt));
+
+      if (this.material && this.material.uniforms) {
+        this.material.uniforms.uTime.value = elapsed;
+        const mp: THREE.Vector2 = this.material.uniforms.uMousePosition.value as THREE.Vector2;
+        if (mp) { mp.x = this.mousePos.x; mp.y = this.mousePos.y; }
+
+        this.material.uniforms.uSphereCount.value = Math.min(this.SPHERE_COUNT, this.MAX_SPHERES);
+        this.material.uniforms.uResolution.value.set(this.container.clientWidth, this.container.clientHeight);
+      }
+
+      // update sphere positions (CPU) using smoothedScale and per-sphere lerp
+      this.updateSphereData(elapsed, dt);
+
+      // render (bloom composer + final composer pipeline)
+      try {
+        if (this.bloomComposer) this.bloomComposer.render();
+        if (this.finalComposer) this.finalComposer.render();
+        else this.renderer.render(this.scene, this.camera);
+      } catch (e) {
+        console.warn('ContactEffect: render exception', e);
+      }
+    }
+
+    // CPU-side sphere motion (fast), writes into this.sphereData
+    private updateSphereData(t: number, dt: number): void {
+      // 1) compute immediate targetScale based on mouse distance from center
+      let targetScale = this.MOVEMENT_SCALE;
+      if (this.MOUSE_PROXIMITY_EFFECT) {
+        const dx = this.targetMouse.x - 0.5;
+        const dy = this.targetMouse.y - 0.5;
+        let distToCenter = Math.hypot(dx, dy) * 2.0;
+        distToCenter = Math.min(Math.max(distToCenter, 0.0), 1.0);
+        // IMPORTANT: inverted mapping — farther pointer => LARGER orbit
+        targetScale = this.MIN_MOVEMENT_SCALE_ON_HOVER + (this.MAX_MOVEMENT_SCALE_ON_HOVER - this.MIN_MOVEMENT_SCALE_ON_HOVER) * distToCenter;
+      }
+
+      // 2) smooth overall scale (frame-rate independent)
+      const scaleAlpha = 1.0 - Math.exp(-this.SCALE_SMOOTHING_RATE * dt);
+      this.smoothedScale += (targetScale - this.smoothedScale) * scaleAlpha;
+
+      // 3) per-sphere compute instantaneous target position using smoothedScale,
+      //    then smooth each sphere's position toward its target via lerp using POSITION_SMOOTHING_RATE
+      const posAlpha = 1.0 - Math.exp(-this.POSITION_SMOOTHING_RATE * dt);
+      const count = Math.min(this.SPHERE_COUNT, this.MAX_SPHERES);
+      let idx = 0;
+
+      for (let i = 0; i < this.MAX_SPHERES; i++) {
+        if (i < count) {
+          const sp = this.sphereParams[i];
+          const speed = sp.speed;
+          const radius = sp.radius;
+          const orbit = sp.orbitBase * this.smoothedScale;
+          const phase = sp.phase;
+
+          // compute raw target (same movement patterns as before)
+          let tx = 0, ty = 0, tz = 0;
+          if (this.MOVEMENT_PATTERN === 0) {
+            tx = Math.sin(t * speed + phase) * orbit;
+            ty = Math.cos(t * (speed * 0.72) + phase * 1.2) * (orbit * 0.55);
+            tz = Math.sin(t * (speed * 0.48) + phase * 0.9) * (orbit * 0.9);
+          } else if (this.MOVEMENT_PATTERN === 1) {
+            const wave = Math.sin(t * 0.5) * 0.5;
+            tx = Math.sin(t * 0.2 + i * 0.5) * orbit;
+            ty = Math.sin(t * 0.3 + i * 0.7 + wave) * orbit * 0.5;
+            tz = Math.cos(t * 0.4 + i * 0.6) * orbit * 0.7;
+          } else if (this.MOVEMENT_PATTERN === 2) {
+            tx = Math.sin(t * speed * 1.1 + Math.sin(t * 0.4) * 2.0) * orbit;
+            ty = Math.cos(t * speed * 0.9 + Math.sin(t * 0.5) * 1.5) * orbit * 0.8;
+            tz = Math.sin(t * speed * 0.7 + Math.sin(t * 0.6) * 1.8) * orbit * 0.6;
+          } else {
+            const pulse = (Math.sin(t * 0.8) * 0.5 + 0.5) * 0.5 + 0.5;
+            tx = Math.sin(t * speed + phase) * orbit * pulse;
+            ty = Math.cos(t * (speed * 0.7) + phase * 1.3) * (orbit * 0.6) * pulse;
+            tz = Math.sin(t * (speed * 0.5) + phase * 0.9) * (orbit * 0.8) * pulse;
+          }
+
+          // optional local rotation
+          if (this.INDIVIDUAL_ROTATION) {
+            const rs = t * (0.15 + i * 0.04) + sp.rotOffset;
+            const c = Math.cos(rs);
+            const s = Math.sin(rs);
+            const rx = tx * c + tz * s;
+            const rz = -tx * s + tz * c;
+            tx = rx; tz = rz;
+          }
+
+          // set instantaneous target and lerp current pos toward it
+          sp.targetPos.set(tx, ty, tz);
+          sp.pos.lerp(sp.targetPos, posAlpha);
+
+          // pack into sphereData typed array
+          this.sphereData[idx++] = sp.pos.x;
+          this.sphereData[idx++] = sp.pos.y;
+          this.sphereData[idx++] = sp.pos.z;
+          this.sphereData[idx++] = sp.radius;
+        } else {
+          // unused slot marker
+          this.sphereData[idx++] = 0;
+          this.sphereData[idx++] = 0;
+          this.sphereData[idx++] = 0;
+          this.sphereData[idx++] = -9999.0;
+        }
+      }
+
+      // push to GPU uniform (no allocation)
+      if (this.material?.uniforms?.uSpheres) {
+        this.material.uniforms.uSpheres.value = this.sphereData;
+      }
+
+      // Update uMaxSteps adaptively if desired (optionally throttle recompile)
+      const newSteps = this.computeAdaptiveMaxSteps(this.SPHERE_COUNT);
+      if (this.material) {
+        // runtime uniform (fast)
+        if (this.material.uniforms.uMaxSteps) this.material.uniforms.uMaxSteps.value = newSteps;
+        // update define (rare) if different
+        if (String(this.material.defines?.MAX_STEPS) !== String(newSteps)) {
+          this.material.defines = this.material.defines || {};
+          this.material.defines.MAX_STEPS = String(newSteps);
+          this.material.needsUpdate = true;
+        }
+      }
+    }
+
+    // compute adaptive max steps based on sphere count to reduce raymarch cost
+    private computeAdaptiveMaxSteps(sphereCount: number): number {
+      const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+      const reduction = Math.floor((sphereCount / this.MAX_SPHERES) * (this.baseMaxSteps - this.minMaxSteps));
+      return clamp(this.baseMaxSteps - reduction, this.minMaxSteps, this.baseMaxSteps);
+    }
+
+    // Interaction
+    private onMouseMove(e: MouseEvent) {
+      const rect = this.container.getBoundingClientRect();
+      const nx = (e.clientX - rect.left) / rect.width;
+      const ny = 1.0 - (e.clientY - rect.top) / rect.height; // match shader Y orientation
+      this.targetMouse.x = nx;
+      this.targetMouse.y = ny;
+
+      // quick immediate update to uniform for snappy feel
+      if (this.material && this.material.uniforms && this.material.uniforms.uMousePosition) {
+        const mp: THREE.Vector2 = this.material.uniforms.uMousePosition.value as THREE.Vector2;
+        if (mp) {
+          mp.x = this.targetMouse.x;
+          mp.y = this.targetMouse.y;
+        }
+      }
+    }
+
+    // Resize handling and LOD adjustments
+    private onWindowResize(): void {
+      if (!this.renderer) return;
+      const width = Math.max(1, this.container.clientWidth);
+      const height = Math.max(1, this.container.clientHeight);
+
+      const effectivePixelRatio = (this.SPHERE_COUNT > 6) ? this.reducedPixelRatio : Math.min(window.devicePixelRatio || 1, this.pixelRatioCap);
+      this.renderer.setPixelRatio(effectivePixelRatio);
+      this.renderer.setSize(width, height);
+
+      if (this.bloomComposer) this.bloomComposer.setSize(width, height);
+      if (this.finalComposer) this.finalComposer.setSize(width, height);
+
+      const fxaaPass = (this.finalComposer?.passes || []).find((p: any) => p?.material?.uniforms?.resolution) as ShaderPass | undefined;
+      if (fxaaPass) {
+        fxaaPass.material.uniforms['resolution'].value.set(1 / width, 1 / height);
+      }
+
+      if (this.material && this.material.uniforms && this.material.uniforms.uResolution) {
+        (this.material.uniforms.uResolution.value as THREE.Vector2).set(width, height);
+      }
+
+      // adapt steps if necessary (keeps shader uniform & define in sync)
+      const newSteps = this.computeAdaptiveMaxSteps(this.SPHERE_COUNT);
+      if (this.material) {
+        if (this.material.uniforms.uMaxSteps) this.material.uniforms.uMaxSteps.value = newSteps;
+        if (String(this.material.defines?.MAX_STEPS) !== String(newSteps)) {
+          this.material.defines = this.material.defines || {};
+          this.material.defines.MAX_STEPS = String(newSteps);
+          this.material.needsUpdate = true;
+        }
+      }
+    }
+
+    public setSphereCount(count: number): void {
+      this.SPHERE_COUNT = Math.max(0, Math.min(count, this.MAX_SPHERES));
+      if (this.material?.uniforms?.uSphereCount) this.material.uniforms.uSphereCount.value = this.SPHERE_COUNT;
+      this.onWindowResize();
+    }
+
+    // Dispose and clean everything
+    public dispose(): void {
+      this.isDisposed = true;
+      this.stopAnimationLoop();
+      window.removeEventListener('mousemove', this.boundOnMouseMove);
+      window.removeEventListener('resize', this.boundOnResize);
+
+      try {
+        if (this.quad) {
+          this.quad.geometry?.dispose();
+          (this.quad.material as THREE.Material)?.dispose();
+          this.scene.remove(this.quad);
+        }
+      } catch (e) { /* ignore */ }
+
+      try {
+        (this.bloomComposer as any)?.dispose?.();
+        (this.finalComposer as any)?.dispose?.();
+      } catch (e) { /* ignore */ }
+
+      try {
+        if (this.renderer) {
+          this.renderer.forceContextLoss();
+          const canvas = this.renderer.domElement;
+          if (canvas && canvas.parentNode) canvas.parentNode.removeChild(canvas);
+          // @ts-ignore
+          this.renderer.domElement = null;
+          // @ts-ignore
+          this.renderer.context = null;
+          // @ts-ignore
+          this.renderer = null;
+        }
+      } catch (e) { /* ignore */ }
     }
   }
 </script>
 
+<!-- container for the canvas. The effect creates and appends the canvas internally -->
 <div class="contact-effect-container" bind:this={container}></div>
 
 <style>
   .contact-effect-container {
     position: absolute;
-    top: 0;
-    left: 0;
+    inset: 0;
+    z-index: 0;
+    visibility: hidden; /* orchestrator toggles via gsap autoAlpha */
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* ensure canvas fills parent */
+  .contact-effect-container canvas {
     width: 100%;
     height: 100%;
-    z-index: 0;
-    visibility: hidden;
-    opacity: 0;
+    display: block;
   }
 </style>
+
 --- END OF FILE src\lib\components\sections\ContactEffect.svelte ---
 
 --- START OF FILE src\lib\components\sections\ContactSection.svelte ---
@@ -3575,182 +3862,96 @@ export class BloomEffect {
 }
 --- END OF FILE src\lib\three\BloomEffect.ts ---
 
---- START OF FILE src\lib\three\contactRaymarching.glsl ---
-// src/lib/three/contactRaymarching.glsl
-// This file contains the complete fragment shader logic for the contact section's raymarching effect.
+--- START OF FILE src\lib\three\contactRaymarching_optimized.glsl ---
+//version 300 es
+precision highp float;
+precision highp int;
 
-// Uniforms (inputs from our Three.js material in Svelte)
+/* contactRaymarching_optimized.glsl
+   Reworked to match the original visual style:
+   - Phong-style specular (reflect) * Fresnel
+   - Iterative softShadow (tunable steps)
+   - Central-difference normal (like original)
+   - No internal tone-mapping / gamma (postprocess handles that)
+   - Keeps packed uSpheres[x,y,z,r] input and uMaxSteps
+*/
+
+#ifndef MAX_SPHERES
+  #define MAX_SPHERES 12
+#endif
+#ifndef MAX_STEPS
+  #define MAX_STEPS 96
+#endif
+#define MAX_SPHERES4 (MAX_SPHERES * 4)
+#define SHADOW_STEPS 16      // tunable: increase for softer shadows (costly)
+
+out vec4 fragColor;
+in vec2 vUv;
+
+/* Uniforms */
 uniform float uTime;
-uniform vec2 uResolution;
-uniform int uSphereCount;
+uniform vec2  uResolution;
+
+uniform int   uSphereCount;
+uniform float uSpheres[MAX_SPHERES4];
+
+uniform vec3  uSphereColor;
+uniform vec3  uLightColor;
+uniform vec3  uLightPosition;
+
 uniform float uAmbientIntensity;
 uniform float uDiffuseIntensity;
 uniform float uSpecularIntensity;
-uniform float uSpecularPower;
 uniform float uFresnelPower;
-uniform vec3 uBackgroundColor;
-uniform vec3 uSphereColor;
-uniform vec3 uLightColor;
-uniform vec3 uLightPosition;
-uniform float uSmoothness;
+uniform float uSpecularPower;
 uniform float uContrast;
+uniform vec3  uBackgroundColor;
 uniform float uFogDensity;
-uniform float uAnimationSpeed;
 uniform float uCameraDistance;
-uniform int uMovementPattern;
-uniform float uMovementSpeed;
-uniform float uMovementScale;
-uniform bool uIndividualRotation;
-uniform vec2 uMousePosition;
-uniform bool uMouseProximityEffect;
-uniform float uMinMovementScale;
-uniform float uMaxMovementScale;
+uniform int   uMaxSteps;
 
-// Varyings (data passed from the vertex shader)
-in vec2 vUv;
+uniform float uSmoothness; // smoothing for smin (from Svelte)
 
-// Output color for the fragment
-out vec4 fragColor;
-
-// Constants
-const float PI = 3.14159265359;
+/* Constants */
+const float PI = 3.141592653589793;
 const float EPSILON = 0.0001;
-const int MAX_STEPS = 100;
+const float HIT_EPS = 0.0025;
+const float STEP_SCALE = 0.92;
+const float MIN_STEP = 0.0005;
 const float MAX_DIST = 100.0;
 
-// --- Helper Functions ---
-
-// Signed Distance Function for a sphere
-float sdSphere(vec3 p, float r) {
-  return length(p) - r;
+/* Helpers */
+vec4 sphereAt(int i) {
+  int b = i * 4;
+  return vec4(uSpheres[b], uSpheres[b + 1], uSpheres[b + 2], uSpheres[b + 3]);
 }
 
-// Smooth minimum function for blending shapes
-float smin(float a, float b, float k) {
-  float h = max(k - abs(a - b), 0.0) / k;
-  return min(a, b) - h * h * k * 0.25;
+float sdSphere(vec3 p, vec4 s) {
+  return length(p - s.xyz) - s.w;
 }
 
-// Rotation matrix around the Y axis
-mat3 rotateY(float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return mat3(
-    c, 0, s,
-    0, 1, 0,
-    -s, 0, c
-  );
+float smin_smooth(float a, float b, float k) {
+  // smooth min; uses uniform uSmoothness (passed into k from JS)
+  float kk = max(k, 0.0001);
+  float h = clamp(0.5 + 0.5 * (b - a) / kk, 0.0, 1.0);
+  return mix(b, a, h) - kk * h * (1.0 - h) * 0.25;
 }
 
-// Rotation matrix around the X axis
-mat3 rotateX(float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return mat3(
-    1, 0, 0,
-    0, c, -s,
-    0, s, c
-  );
-}
-
-// Rotation matrix around the Z axis
-mat3 rotateZ(float theta) {
-  float c = cos(theta);
-  float s = sin(theta);
-  return mat3(
-    c, -s, 0,
-    s, c, 0,
-    0, 0, 1
-  );
-}
-
-// Calculate distance to center for mouse proximity effect
-float getDistanceToCenter(vec2 pos) {
-  float dist = length(pos - vec2(0.5, 0.5)) * 2.0; // Normalized 0-1
-  return smoothstep(0.0, 1.0, dist);
-}
-
-// The main Signed Distance Function for the entire scene
-float sdf(vec3 pos) {
-  float result = MAX_DIST;
-  float t = uTime * uMovementSpeed;
-  
-  float dynamicMovementScale = uMovementScale;
-  if (uMouseProximityEffect) {
-    float distToCenter = getDistanceToCenter(uMousePosition);
-    float t_mouse = smoothstep(0.0, 1.0, distToCenter);
-    dynamicMovementScale = mix(uMinMovementScale, uMaxMovementScale, t_mouse);
-  }
-  
-  for (int i = 0; i < 10; i++) {
+/* Scene SDF */
+float sdf(vec3 p) {
+  float d = MAX_DIST;
+  for (int i = 0; i < MAX_SPHERES; ++i) {
     if (i >= uSphereCount) break;
-    
-    float speed = 0.5 + float(i) * 0.1;
-    float radius = 0.15 + float(i % 3) * 0.1;
-    float orbitRadius = (0.5 + float(i % 5) * 0.2) * dynamicMovementScale;
-    float phaseOffset = float(i) * PI * 0.2;
-    
-    vec3 offset;
-    
-    if (i == 0) {
-      offset = vec3(
-        sin(t * speed) * orbitRadius * 0.5,
-        sin(t * 0.5) * orbitRadius,
-        cos(t * speed * 0.7) * orbitRadius * 0.5
-      );
-    } 
-    else if (i == 1) {
-      offset = vec3(
-        sin(t * speed + PI) * orbitRadius * 0.5,
-        -sin(t * 0.5) * orbitRadius,
-        cos(t * speed * 0.7 + PI) * orbitRadius * 0.5
-      );
-    }
-    else if (uMovementPattern == 0) { // Orbital
-      offset = vec3(
-        sin(t * speed + phaseOffset) * orbitRadius,
-        cos(t * (speed * 0.7) + phaseOffset * 1.3) * (orbitRadius * 0.6),
-        sin(t * (speed * 0.5) + phaseOffset * 0.9) * (orbitRadius * 0.8)
-      );
-    } 
-    else if (uMovementPattern == 1) { // Wave
-      float wave = sin(t * 0.5) * 0.5;
-      offset = vec3(
-        sin(t * 0.2 + float(i) * 0.5) * orbitRadius,
-        sin(t * 0.3 + float(i) * 0.7 + wave) * orbitRadius * 0.5,
-        cos(t * 0.4 + float(i) * 0.6) * orbitRadius * 0.7
-      );
-    }
-    else if (uMovementPattern == 2) { // Chaos
-      offset = vec3(
-        sin(t * speed * 1.1 + sin(t * 0.4) * 2.0) * orbitRadius,
-        cos(t * speed * 0.9 + sin(t * 0.5) * 1.5) * orbitRadius * 0.8,
-        sin(t * speed * 0.7 + sin(t * 0.6) * 1.8) * orbitRadius * 0.6
-      );
-    }
-    else { // Pulse
-      float pulse = (sin(t * 0.8) * 0.5 + 0.5) * 0.5 + 0.5;
-      offset = vec3(
-        sin(t * speed + phaseOffset) * orbitRadius * pulse,
-        cos(t * (speed * 0.7) + phaseOffset * 1.3) * (orbitRadius * 0.6) * pulse,
-        sin(t * (speed * 0.5) + phaseOffset * 0.9) * (orbitRadius * 0.8) * pulse
-      );
-    }
-    
-    if (uIndividualRotation) {
-      float rotSpeed = t * (0.2 + float(i) * 0.05);
-      mat3 rot = rotateY(rotSpeed) * rotateX(rotSpeed * 0.7);
-      offset = rot * offset;
-    }
-    
-    float sphere = sdSphere(pos + offset, radius);
-    result = smin(result, sphere, uSmoothness);
+    vec4 s = sphereAt(i);
+    if (s.w <= 0.0) continue;
+    float ds = sdSphere(p, s);
+    d = smin_smooth(d, ds, uSmoothness);
+    if (d < -0.5 * uSmoothness) break;
   }
-  
-  return result;
+  return d;
 }
 
-// Calculate the normal vector at a surface point
+/* Central-difference normal (matches original) */
 vec3 calcNormal(vec3 p) {
   vec2 e = vec2(EPSILON, 0.0);
   return normalize(vec3(
@@ -3760,38 +3961,11 @@ vec3 calcNormal(vec3 p) {
   ));
 }
 
-// The raymarching algorithm
-float raymarch(vec3 ro, vec3 rd) {
-  float t = 0.0;
-  for (int i = 0; i < MAX_STEPS; i++) {
-    vec3 p = ro + rd * t;
-    float d = sdf(p);
-    if (d < EPSILON) return t;
-    if (t > MAX_DIST) break;
-    t += d * 0.8;
-  }
-  return -1.0;
-}
-
-// Soft shadows calculation
-float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
-  float result = 1.0;
-  float t = mint;
-  for (int i = 0; i < 32; i++) {
-    if (t >= maxt) break;
-    float h = sdf(ro + rd * t);
-    if (h < EPSILON) return 0.0;
-    result = min(result, k * h / t);
-    t += h;
-  }
-  return result;
-}
-
-// Ambient occlusion calculation
+/* Ambient Occlusion (like original) */
 float ambientOcclusion(vec3 p, vec3 n) {
   float occ = 0.0;
   float weight = 1.0;
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; ++i) {
     float dist = 0.01 + 0.02 * float(i * i);
     float h = sdf(p + n * dist);
     occ += (dist - h) * weight;
@@ -3800,63 +3974,120 @@ float ambientOcclusion(vec3 p, vec3 n) {
   return clamp(1.0 - occ, 0.0, 1.0);
 }
 
-// Main lighting calculation
-vec3 lighting(vec3 p, vec3 rd, float t) {
-  if (t < 0.0) return vec3(0.0);
-  
+/* Iterative soft shadow (similar to original softShadow).
+   Steps controlled by SHADOW_STEPS (compile-time). Tweak for perf/softness. */
+float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
+  float res = 1.0;
+  float t = mint;
+  for (int i = 0; i < SHADOW_STEPS; ++i) {
+    if (t >= maxt) break;
+    float h = sdf(ro + rd * t);
+    if (h < EPSILON) return 0.0; // occluded
+    res = min(res, k * h / t);
+    t += h;
+  }
+  return clamp(res, 0.0, 1.0);
+}
+
+/* Raymarching with runtime uMaxSteps clamp */
+float raymarch(vec3 ro, vec3 rd) {
+  float t = 0.0;
+  for (int i = 0; i < MAX_STEPS; ++i) {
+    if (i >= uMaxSteps) break;
+    vec3 p = ro + rd * t;
+    float d = sdf(p);
+    if (d < HIT_EPS) return t;
+    float step = max(d * STEP_SCALE, MIN_STEP);
+    t += step;
+    if (t > MAX_DIST) break;
+  }
+  return -1.0;
+}
+
+/* Lighting modeled after original 'lighting' function (Phong + Fresnel + soft shadows) */
+vec3 lighting_original(vec3 p, vec3 rd, float tHit) {
+  if (tHit < 0.0) return vec3(0.0);
+
   vec3 normal = calcNormal(p);
-  vec3 viewDir = -rd;
-  
+  vec3 viewDir = normalize(-rd);
+
+  // base color (allow artist to set near-black in JS)
   vec3 baseColor = uSphereColor;
+
+  // ambient
   vec3 ambient = baseColor * uAmbientIntensity;
-  
+
+  // directional light
   vec3 lightDir = normalize(uLightPosition);
   float diff = max(dot(normal, lightDir), 0.0);
   vec3 diffuse = baseColor * uLightColor * diff * uDiffuseIntensity;
-  
+
+  // Phong specular (reflect)
   vec3 reflectDir = reflect(-lightDir, normal);
-  float spec = pow(max(dot(viewDir, reflectDir), 0.0), uSpecularPower);
+  float specAngle = max(dot(viewDir, reflectDir), 0.0);
+  float spec = pow(specAngle, max(1.0, uSpecularPower));
   vec3 specular = uLightColor * spec * uSpecularIntensity;
-  
+
+  // Fresnel mod (matches original)
   float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), uFresnelPower);
   specular *= fresnel;
-  
+
+  // ambient occlusion
   float ao = ambientOcclusion(p, normal);
-  float shadow = softShadow(p, lightDir, 0.01, 10.0, 16.0);
-  
+
+  // soft shadow (iterative) - tuned k = 16 like original example
+  float shadow = softShadow(p + normal * HIT_EPS * 2.0, lightDir, 0.01, 10.0, 16.0);
+
+  // combine exact original style: ambient*ao + (diffuse*shadow + specular) * ao
   vec3 color = ambient * ao + (diffuse * shadow + specular) * ao;
+
+  // gentle contrast (preserve post-processing)
   color = pow(color, vec3(uContrast));
-  
+
   return color;
 }
 
+/* Camera / ray */
+vec3 makeRay(vec2 uv) {
+  vec2 p = (uv - 0.5) * 2.0;
+  p.x *= uResolution.x / uResolution.y;
+  vec3 rd = normalize(vec3(p, 1.0));
 
-// --- Main Shader Program Entry Point ---
-
-void main() {
-  vec2 uv = (gl_FragCoord.xy * 2.0 - uResolution.xy) / uResolution.y;
-  
-  vec3 ro = vec3(0.0, 0.0, -uCameraDistance);
-  vec3 rd = normalize(vec3(uv, 1.0));
-  
   float camRotY = sin(uTime * 0.1) * 0.1;
   float camRotX = cos(uTime * 0.08) * 0.05;
-  rd = rotateY(camRotY) * rotateX(camRotX) * rd;
-  
+
+  // rotateY
+  float cY = cos(camRotY), sY = sin(camRotY);
+  rd = vec3(cY * rd.x + sY * rd.z, rd.y, -sY * rd.x + cY * rd.z);
+
+  // rotateX
+  float cX = cos(camRotX), sX = sin(camRotX);
+  rd = vec3(rd.x, cX * rd.y - sX * rd.z, sX * rd.y + cX * rd.z);
+
+  return rd;
+}
+
+void main() {
+  vec3 ro = vec3(0.0, 0.0, -uCameraDistance);
+  vec3 rd = makeRay(vUv);
+
   float t = raymarch(ro, rd);
-  vec3 p = ro + rd * t;
-  vec3 color = lighting(p, rd, t);
-  
+
   if (t > 0.0) {
-    float fogAmount = 1.0 - exp(-t * uFogDensity);
-    color = mix(color, uBackgroundColor, fogAmount);
+    vec3 p = ro + rd * t;
+    vec3 color = lighting_original(p, rd, t);
+
+    // fog to background
+    float fogAmt = 1.0 - exp(-t * uFogDensity);
+    color = mix(color, uBackgroundColor, fogAmt);
+
     fragColor = vec4(color, 1.0);
   } else {
-    // This provides the transparent background for our effect.
     fragColor = vec4(0.0, 0.0, 0.0, 0.0);
   }
 }
---- END OF FILE src\lib\three\contactRaymarching.glsl ---
+
+--- END OF FILE src\lib\three\contactRaymarching_optimized.glsl ---
 
 --- START OF FILE src\lib\three\heroParticleLogic.ts ---
 // src/lib/three/heroParticleLogic.ts
@@ -3972,7 +4203,6 @@ export class Environment {
     if (this.renderer && !this.animationLoopCallback) {
         this.animationLoopCallback = () => { this.render(); };
         this.renderer.setAnimationLoop(this.animationLoopCallback);
-        console.log("HeroParticleLogic: Animation loop started.");
     }
   }
 
@@ -3980,7 +4210,6 @@ export class Environment {
     if (this.renderer && this.animationLoopCallback) {
         this.renderer.setAnimationLoop(null);
         this.animationLoopCallback = null;
-        console.log("HeroParticleLogic: Animation loop stopped.");
     }
   }
 
@@ -4009,6 +4238,13 @@ export class Environment {
 
   public render() {
     const deltaTime = this.clock.getDelta();
+    
+    // --- START OF FIX ---
+    // Force the scene to render against a solid black background internally.
+    // This stabilizes the input for the bloom pass, preventing flashing when the
+    // DOM element's background is transparent during transitions.
+    this.scene.background = new THREE.Color(0x000000);
+    // --- END OF FIX ---
 
     if (this.createParticles) {
       this.createParticles.render(); 
@@ -4070,7 +4306,6 @@ export class Environment {
   }
 
   public dispose() {
-    console.log("HeroParticleLogic: Disposing Environment");
     this.stopAnimationLoop();
     this.unbindWindowResize();
     if (this.createParticles) {
@@ -4109,7 +4344,6 @@ interface ParticleData {
   area: number;
   ease: number;
   distortionThreshold: number;
-  // maxCooldownTime: number; // REMOVED - Replaced by min/max duration
   minFadeOutRate: number;
   maxFadeOutRate: number;
   minSymbolSize: number;
@@ -4120,10 +4354,9 @@ interface ParticleData {
   symbolMinProb: number;
   symbolMaxProb: number;
   symbolHeatRequirement: number;
-  // --- NEW Cooldown Parameters ---
   particleCooldownDurationMin: number;
   particleCooldownDurationMax: number;
-  symbolCooldownSpeedMultiplier: number;  // --- END NEW Cooldown Parameters ---
+  symbolCooldownSpeedMultiplier: number;
 }
 
 // Screen size categories for responsive design
@@ -4171,12 +4404,10 @@ export class CreateParticles {
   private lastKnownHeight: number = 0;
   private needsParticleRegeneration: boolean = false;
 
-  // These constants control the symbol color variation
-  private readonly SYMBOL_HUE_SHIFT_RANGE = 0.03;           // Controls hue variation (green tint shifts)
-  private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.08;  // Controls brightness variation
-  private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.45;      // Minimum brightness to prevent too-dark symbols
+  private readonly SYMBOL_HUE_SHIFT_RANGE = 0.03;
+  private readonly SYMBOL_LUMINANCE_REDUCTION_MAX = 0.08;
+  private readonly SYMBOL_MIN_LUMINANCE_TARGET = 0.45;
 
-  // Screen size breakpoints
   private readonly SCREEN_SIZES = {
     mobile: { maxWidth: 640 },
     tablet: { minWidth: 641, maxWidth: 1024 },
@@ -4186,59 +4417,16 @@ export class CreateParticles {
     ultrawide: { minWidth: 2561 }
   };
 
-  // Responsive particle parameters for different screen sizes
   private readonly RESPONSIVE_PARAMS: Record<ScreenSizeType, Partial<ParticleData>> = {
-    mobile: {
-      amount: 1200,
-      particleSize: 1.0,
-      textSize: 12,
-      minSymbolSize: 7,
-      maxSymbolSize: 11,
-      area: 150
-    },
-    tablet: {
-      amount: 1800,
-      particleSize: 1.1,
-      textSize: 14,
-      minSymbolSize: 7,
-      maxSymbolSize: 11,
-      area: 200
-    },
-    laptop: {
-      amount: 2200,
-      particleSize: 1.2,
-      textSize: 15,
-      minSymbolSize: 6.5,
-      maxSymbolSize: 11,
-      area: 230
-    },
-    desktop: {
-      amount: 2400,
-      particleSize: 1.4,
-      textSize: 16,
-      minSymbolSize: 7,
-      maxSymbolSize: 11,
-      area: 250
-    },
-    large: {
-      amount: 2700,
-      particleSize: 1.55,
-      textSize: 18,
-      minSymbolSize: 8,
-      maxSymbolSize: 11,
-      area: 280
-    },
-    ultrawide: {
-      amount: 2900,
-      particleSize: 1.6,
-      textSize: 20,
-      minSymbolSize: 9,
-      maxSymbolSize: 16,
-      area: 300
-    }
+    mobile: { amount: 1200, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
+    tablet: { amount: 1800, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
+    laptop: { amount: 2200, particleSize: 1.2, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
+    desktop: { amount: 2400, particleSize: 1.4, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
+    large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 8, maxSymbolSize: 11, area: 280 },
+    ultrawide: { amount: 2900, particleSize: 1.6, textSize: 20, minSymbolSize: 9, maxSymbolSize: 16, area: 300 }
   };
 
-  private symbolTextureRows: number = 6; // Add this property declaration
+  private symbolTextureRows: number = 6;
 
   constructor(scene: THREE.Scene, font: Font, particleImg: THREE.Texture, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, hostContainer: HTMLElement) {
     this.scene = scene;
@@ -4271,7 +4459,6 @@ export class CreateParticles {
 
     this.bloomSymbolColor = new THREE.Color(0.0, 0.95, 0.05); 
 
-    // Base configuration (will be adjusted for screen size)
     this.data = { 
       text: "Hi, I'm\nMiká",
       amount: 2700,
@@ -4295,24 +4482,11 @@ export class CreateParticles {
       symbolCooldownSpeedMultiplier: 3.1,
     };
     
-    // Track the container dimensions to detect significant changes
     this.lastKnownWidth = this.hostContainer.clientWidth;
     this.lastKnownHeight = this.hostContainer.clientHeight;
     
-    // Determine initial screen size and apply responsive settings
     this.currentScreenSizeType = this.getScreenSizeType();
     this.applyResponsiveParameters(this.currentScreenSizeType);
-    
-    // Log the detected screen size and particle configuration
-    console.log(`🖥️ Hero Particle Effect - Screen Size Detection:`);
-    console.log(`   Screen dimensions: ${this.lastKnownWidth}x${this.lastKnownHeight}px`);
-    console.log(`   Detected screen type: ${this.currentScreenSizeType.toUpperCase()}`);
-    console.log(`   Particle configuration:`);
-    console.log(`     • Particle count: ${this.data.amount}`);
-    console.log(`     • Particle size: ${this.data.particleSize}`);
-    console.log(`     • Text size: ${this.data.textSize}px`);
-    console.log(`     • Symbol size range: ${this.data.minSymbolSize} - ${this.data.maxSymbolSize}`);
-    console.log(`     • Effect area: ${this.data.area}`);
     
     this.boundOnMouseDown = this.onMouseDown.bind(this);
     this.boundOnMouseMove = this.onMouseMove.bind(this);
@@ -4356,24 +4530,18 @@ export class CreateParticles {
     this.cooldownRates = new Array(count);
     this.symbolIndicesAttributeValues = new Array(count);
     this.fadeOutRates = new Array(count);
-    // Remove symbolSizesMultipliers array since we generate sizes dynamically
     
     for (let i = 0; i < count; i++) {
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
       
-      // --- MODIFIED Cooldown Rate Calculation ---
       const randomDuration = this.data.particleCooldownDurationMin + 
                              Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
-      this.cooldownRates[i] = 1 / Math.max(1, randomDuration); // Rate is 1/duration. Ensure duration > 0.
-      // --- END MODIFIED ---
-
+      this.cooldownRates[i] = 1 / Math.max(1, randomDuration);
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
-      // Remove pre-calculation of symbol sizes
     }
   }
 
   private createMatrixSymbolsTexture() {
-    // Calculate required rows based on symbol count
     const cols = 8;
     const symbolSize = 64;
     const rows = Math.ceil(this.matrixSymbols.length / cols);
@@ -4383,17 +4551,14 @@ export class CreateParticles {
     canvas.height = rows * symbolSize;
     const ctx = canvas.getContext('2d')!;
     
-    // Clear canvas with transparent background
     ctx.fillStyle = 'rgba(0,0,0,0)'; 
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Improved font rendering settings
     ctx.font = 'bold 48px "Courier New", monospace';
     ctx.textAlign = 'center'; 
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#00FF00';
     
-    // Enable better text rendering (remove invalid textRenderingOptimization)
     if (ctx.imageSmoothingEnabled !== undefined) {
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
@@ -4405,7 +4570,6 @@ export class CreateParticles {
       const x = col * symbolSize + symbolSize / 2; 
       const y = row * symbolSize + symbolSize / 2;
       
-      // Add slight padding to prevent edge clipping
       const symbol = this.matrixSymbols[i];
       ctx.fillText(symbol, x, y);
     }
@@ -4418,11 +4582,7 @@ export class CreateParticles {
     this.symbolsTexture.wrapS = THREE.ClampToEdgeWrapping;
     this.symbolsTexture.wrapT = THREE.ClampToEdgeWrapping;
     
-    // Store the row count for the shader
     this.symbolTextureRows = rows;
-    
-    // Log texture info for debugging
-    console.log(`Symbol texture created: ${cols}x${rows} grid (${this.matrixSymbols.length} symbols)`);
   }
 
   private setupPlaneArea() {
@@ -4508,7 +4668,7 @@ export class CreateParticles {
       uniforms: {
         pointTexture: { value: this.particleImg },
         symbolsTexture: { value: this.symbolsTexture },
-        symbolRows: { value: this.symbolTextureRows } // Add dynamic row count uniform
+        symbolRows: { value: this.symbolTextureRows }
       },
       vertexShader: VERTEX_SHADER,
       fragmentShader: FRAGMENT_SHADER,
@@ -4569,20 +4729,17 @@ export class CreateParticles {
   }
 
   private getVariedSymbolColor(): THREE.Color {
-    const variedColor = this.bloomSymbolColor.clone(); // Base color: (0.0, 0.95, 0.05)
+    const variedColor = this.bloomSymbolColor.clone();
     const hsl = { h: 0, s: 0, l: 0 };
     variedColor.getHSL(hsl); 
 
-    // HUE VARIATION: Shifts the green tint slightly
     const hueOffset = (Math.random() - 0.5) * this.SYMBOL_HUE_SHIFT_RANGE;
     hsl.h += hueOffset;
     hsl.h = (hsl.h + 1.0) % 1.0; 
 
-    // LUMINANCE VARIATION: Makes some symbols brighter/dimmer
     const luminanceReduction = Math.random() * this.SYMBOL_LUMINANCE_REDUCTION_MAX;
     hsl.l -= luminanceReduction;
     
-    // Ensure minimum brightness
     hsl.l = Math.max(this.SYMBOL_MIN_LUMINANCE_TARGET, hsl.l);
     hsl.l = Math.min(1.0, hsl.l);
 
@@ -4657,7 +4814,6 @@ export class CreateParticles {
                 this.particleStates[i] = 1; 
                 symbolStates.setX(i, 1.0);
                 
-                // FIXED: Generate random size and symbol index each time a particle becomes a symbol
                 const randomSymbolSize = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
                 const randomSymbolIndex = Math.floor(Math.random() * this.matrixSymbols.length);
                 
@@ -4679,12 +4835,9 @@ export class CreateParticles {
              sizes.setX(i, newSize);
              attributesNeedUpdate = true;
           }
-          // --- MODIFIED Symbol Cooldown ---
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier));
-          // --- END MODIFIED ---
           
-          // FIXED: Use a small tolerance instead of exact comparison to handle floating point precision
-          const fadeThreshold = this.data.particleSize + 0.01; // Small tolerance for floating point comparison
+          const fadeThreshold = this.data.particleSize + 0.01;
           if (newSize <= fadeThreshold) {
             this.particleStates[i] = 0; 
             symbolStates.setX(i, 0.0);
@@ -4699,7 +4852,7 @@ export class CreateParticles {
           }
         }
         
-        if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) { // For normal particles
+        if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) {
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
         }
 
@@ -4758,13 +4911,10 @@ export class CreateParticles {
       sizes.setX(i, this.data.particleSize); 
       symbolStates.setX(i, 0.0); 
       
-      // Generate fresh random symbol indices
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
       symbolIndicesBuffer.setX(i, this.symbolIndicesAttributeValues[i]);
 
-      // Generate fresh random fade out rates
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
-      // Don't pre-calculate symbol sizes anymore - they're generated when particles become symbols
     }
     colors.needsUpdate = true; sizes.needsUpdate = true; 
     symbolStates.needsUpdate = true; symbolIndicesBuffer.needsUpdate = true;
@@ -4801,7 +4951,6 @@ export class CreateParticles {
   private applyResponsiveParameters(screenType: ScreenSizeType): void {
     const params = this.RESPONSIVE_PARAMS[screenType];
     
-    // Apply the responsive parameters to the data object
     if (params.amount !== undefined) this.data.amount = params.amount;
     if (params.particleSize !== undefined) this.data.particleSize = params.particleSize;
     if (params.textSize !== undefined) this.data.textSize = params.textSize;
@@ -4814,7 +4963,6 @@ export class CreateParticles {
     const currentWidth = this.hostContainer.clientWidth;
     const currentHeight = this.hostContainer.clientHeight;
     
-    // Check if dimensions have changed significantly (more than 10% or 100px)
     const widthChange = Math.abs(currentWidth - this.lastKnownWidth);
     const heightChange = Math.abs(currentHeight - this.lastKnownHeight);
     const significantChange = widthChange > 100 || heightChange > 100 || 
@@ -4825,7 +4973,6 @@ export class CreateParticles {
       const newScreenType = this.getScreenSizeType();
       
       if (newScreenType !== this.currentScreenSizeType) {
-        console.log(`🖥️ Screen size change detected: ${this.currentScreenSizeType} → ${newScreenType}`);
         this.currentScreenSizeType = newScreenType;
         this.applyResponsiveParameters(newScreenType);
         this.lastKnownWidth = currentWidth;
@@ -4841,11 +4988,6 @@ export class CreateParticles {
   public regenerateParticles(): void {
     if (!this.needsParticleRegeneration) return;
     
-    console.log(`🔄 Regenerating particles for ${this.currentScreenSizeType} screen size:`);
-    console.log(`   New particle count: ${this.data.amount}`);
-    console.log(`   New particle size: ${this.data.particleSize}`);
-    
-    // Remove existing particles
     if (this.particles) {
       this.scene.remove(this.particles);
       this.particles.geometry.dispose();
@@ -4853,7 +4995,6 @@ export class CreateParticles {
       if (material) material.dispose();
     }
     
-    // Recreate particles with new parameters
     this.createText();
     
     this.needsParticleRegeneration = false;
@@ -4973,6 +5114,7 @@ export class CreateParticles {
   const isTransitioning = writable(false);
   const isInitialReveal = writable(true);
   const sectionStatesStore = sectionStates;
+  const isLeavingHero = writable(false);
 
   // Page & Animation State
   let visibilityHideTimeoutId: number | undefined;
@@ -5050,8 +5192,6 @@ export class CreateParticles {
       
       if (instance.initializeEffect) await instance.initializeEffect();
       
-      // --- START OF FIX: Add 'contact' to the WebGL Dry Run list ---
-      // This ensures our new effect is also pre-warmed during the initial site load.
       if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         instance.onEnterSection();
@@ -5059,7 +5199,6 @@ export class CreateParticles {
         await new Promise(resolve => setTimeout(resolve, 200));
         instance.onLeaveSection();
         gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-      // --- END OF FIX ---
       } else if (sectionInfo.id.startsWith('project-')) {
         gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
         await new Promise(resolve => requestAnimationFrame(resolve));
@@ -5107,21 +5246,28 @@ export class CreateParticles {
     }
   }
 
-  function handleVisibilityChange() {
+  async function handleVisibilityChange() {
     const currentIndex = get(currentSectionIndex);
     const currentInstance = sectionInstances.get(allSectionsData[currentIndex].id);
+    if (!currentInstance) return;
     if (document.hidden) {
       visibilityHideTimeoutId = window.setTimeout(() => {
         if (document.hidden && !isTabHiddenAndPaused) {
-          currentInstance?.onLeaveSection();
+          currentInstance.onLeaveSection();
           isTabHiddenAndPaused = true;
         }
       }, HIDE_BUFFER_DURATION);
     } else {
       clearTimeout(visibilityHideTimeoutId);
       if (isTabHiddenAndPaused) {
-        currentInstance?.onEnterSection();
-        requestAnimationFrame(() => currentInstance?.onTransitionComplete?.());
+        if (currentInstance.onUnload && currentInstance.initializeEffect) {
+          currentInstance.onUnload();
+          await currentInstance.initializeEffect();
+        }
+        currentInstance.onEnterSection();
+        requestAnimationFrame(() => {
+          currentInstance.onTransitionComplete?.();
+        });
         isTabHiddenAndPaused = false;
         preloadManager.updateNeighborStates(currentIndex);
       }
@@ -5198,6 +5344,10 @@ export class CreateParticles {
     isAnimating.set(true); 
     isTransitioning.set(true); 
 
+    if (oldIndex === 0 && newIndex > 0) {
+      isLeavingHero.set(true);
+    }
+
     const oldInstance = sectionInstances.get(allSectionsData[oldIndex].id);
     const newInstance = sectionInstances.get(allSectionsData[newIndex].id);
     
@@ -5213,6 +5363,7 @@ export class CreateParticles {
       onComplete: () => { 
         currentSectionIndex.set(newIndex); 
         isTransitioning.set(false);
+        isLeavingHero.set(false);
         preloadManager.updateNeighborStates(newIndex);
         requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
         if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
@@ -5251,7 +5402,12 @@ export class CreateParticles {
 <div>
   <LoadingScreen /> 
 
-  <div class="particle-effect-layer" class:initial-state={$isInitialReveal} style="pointer-events: {particleLayerPointerEvents};">
+  <div 
+    class="particle-effect-layer" 
+    class:initial-state={$isInitialReveal}
+    class:on-top={$isLeavingHero}
+    style="pointer-events: {particleLayerPointerEvents};"
+  >
     <HeroSection
       bind:this={heroSectionInstance}
       activeSectionIndex={$currentSectionIndex}
@@ -5301,9 +5457,33 @@ export class CreateParticles {
   </main>
 
   <style>
-    .particle-effect-layer { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 0; background-color: rgb(9 9 11); transition: opacity 1.5s cubic-bezier(0.4, 0.2, 1); }
+    .particle-effect-layer { 
+      position: fixed; 
+      top: 0; 
+      left: 0; 
+      width: 100vw; 
+      height: 100vh; 
+      z-index: 0; /* Default state: behind main content */
+      background-color: rgb(9 9 11); 
+      transition: opacity 1.5s cubic-bezier(0.4, 0.2, 1); 
+    }
+
+    /* --- START OF FIX --- */
+    /* This class is now applied only when transitioning away from the hero section. */
+    .particle-effect-layer.on-top {
+      z-index: 2; /* Promoted state: on top of main content */
+      background-color: transparent; /* Makes the layer see-through, leaving only the particles. */
+    }
+    /* --- END OF FIX --- */
+
     .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
-    .portfolio-container { position: relative; width: 100%; height: 100vh; overflow: hidden; z-index: 1; }
+    .portfolio-container { 
+      position: relative; 
+      width: 100%; 
+      height: 100vh; 
+      overflow: hidden; 
+      z-index: 1; /* Default state: on top of hero particles */
+    }
     
     .full-screen-section {
       height: 100%;

@@ -1,0 +1,375 @@
+<!-- src/lib/components/sections/ContactEffect.svelte -->
+<script context="module" lang="ts">
+  // Defines the public API for this component so the orchestrator can interact with it.
+  export type ContactEffectInstance = {
+    initializeEffect: () => Promise<void>;
+    onEnterSection: () => void;
+    onLeaveSection: () => void;
+    onTransitionComplete: () => void;
+    onUnload: () => void;
+  };
+</script>
+
+<script lang="ts">
+  import { onMount, onDestroy, tick } from 'svelte';
+  import * as THREE from 'three';
+  import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+  import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+  import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+  import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+  import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
+  import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
+  import { gsap } from 'gsap';
+  import fragmentShaderCode from '$lib/three/contactRaymarching.glsl?raw';
+
+  let container: HTMLDivElement;
+  let effectInstance: RaymarchingEffect | null = null;
+  let isInitialized = false;
+
+  // --- Animation Lifecycle API Implementation (Refactored for Seamless Re-entry) ---
+
+  export async function initializeEffect(): Promise<void> {
+    if (isInitialized) return;
+    await tick();
+    if (!container) return;
+
+    effectInstance = new RaymarchingEffect(container);
+    effectInstance.init();
+    isInitialized = true;
+  }
+
+  export function onEnterSection(): void {
+    if (!container) return;
+    gsap.set(container, { autoAlpha: 0 });
+  }
+  
+  export function onTransitionComplete(): void {
+    if (effectInstance) {
+      effectInstance.neutralizeState(0);
+      effectInstance.startAnimationLoop();
+      gsap.to(container, { autoAlpha: 1, duration: 1.5, ease: 'power2.inOut' });
+    }
+  }
+
+  export function onLeaveSection(): void {
+    if (!container) return;
+    gsap.killTweensOf(container);
+
+    if (effectInstance) {
+      effectInstance.neutralizeState(0.5);
+    }
+
+    gsap.to(container, {
+      autoAlpha: 0,
+      duration: 0.8,
+      ease: 'power2.out',
+      onComplete: () => {
+        if (effectInstance) {
+          effectInstance.stopAnimationLoop();
+        }
+        gsap.set(container, { autoAlpha: 0 }); 
+      }
+    });
+  }
+
+  export function onUnload(): void {
+    // Kill any pending GSAP animations on the container immediately.
+    // This prevents any old onComplete callbacks from firing and interfering with a new instance.
+    if (container) {
+      gsap.killTweensOf(container);
+    }
+
+    if (effectInstance) {
+      effectInstance.dispose();
+      effectInstance = null;
+    }
+    isInitialized = false;
+  }
+
+  // --- Svelte Lifecycle ---
+
+  onMount(() => {
+    // Initialization is deferred to the Animation API.
+  });
+
+  onDestroy(() => {
+    onUnload();
+  });
+
+  // --- Three.js Raymarching Effect Class ---
+
+  class RaymarchingEffect {
+    private container: HTMLElement;
+    private camera!: THREE.OrthographicCamera;
+    private scene!: THREE.Scene;
+    private renderer!: THREE.WebGLRenderer;
+    private material!: THREE.ShaderMaterial;
+    private clock: THREE.Clock;
+    private bloomComposer!: EffectComposer;
+    private finalComposer!: EffectComposer;
+    private bloomPass!: UnrealBloomPass;
+
+    private mousePosition = new THREE.Vector2(0.5, 0.5); // Start at neutral center
+    private targetMousePosition = new THREE.Vector2(0.5, 0.5);
+    
+    private animationFrameId: number | null = null;
+    private isLooping = false;
+    private boundOnWindowResize: () => void;
+    private boundOnMouseMove: (event: MouseEvent) => void;
+
+    // ... (EFFECT PARAMETERS remain the same) ...
+    private readonly CAMERA_DISTANCE = 3.0;
+    private readonly BLOOM_STRENGTH = 0.3;
+    private readonly BLOOM_THRESHOLD = 0.2;
+    private readonly BLOOM_RADIUS = 0.5;
+    private readonly AMBIENT_INTENSITY = 0.05;
+    private readonly DIFFUSE_INTENSITY = 0.4;
+    private readonly SPECULAR_INTENSITY = 2.0;
+    private readonly SPECULAR_POWER = 8.0;
+    private readonly FRESNEL_POWER = 1.0;
+    private readonly CONTRAST = 1.2;
+    private readonly FOG_DENSITY = 0.15;
+    private readonly SPHERE_COUNT = 4;
+    private readonly BLEND_SMOOTHNESS = 0.3;
+    private readonly ANIMATION_SPEED = 1.0;
+    private readonly MOVEMENT_PATTERN = "orbital";
+    private readonly MOVEMENT_SPEED = 1.0;
+    private readonly MOVEMENT_SCALE = 1.0;
+    private readonly INDIVIDUAL_ROTATION = true;
+    private readonly MOUSE_PROXIMITY_EFFECT = true;
+    private readonly MOUSE_SMOOTHNESS = 0.1;
+    private readonly MIN_MOVEMENT_SCALE_ON_HOVER = 0.3;
+    private readonly MAX_MOVEMENT_SCALE_ON_HOVER = 1.0;
+
+    constructor(container: HTMLElement) {
+      this.container = container;
+      this.clock = new THREE.Clock();
+      this.boundOnWindowResize = this.onWindowResize.bind(this);
+      this.boundOnMouseMove = this.onMouseMove.bind(this);
+    }
+
+    public init(): void {
+      this.scene = new THREE.Scene();
+      this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+      this.camera.position.z = 1;
+
+      this.setupRenderer();
+      this.setupMaterial();
+      
+      const geometry = new THREE.PlaneGeometry(2, 2);
+      const mesh = new THREE.Mesh(geometry, this.material);
+      this.scene.add(mesh);
+
+      this.setupPostProcessing();
+      this.onWindowResize();
+
+      this.finalComposer.render();
+      window.addEventListener('resize', this.boundOnWindowResize);
+      window.addEventListener('mousemove', this.boundOnMouseMove);
+    }
+    
+    public neutralizeState(duration: number = 0.5): void {
+      gsap.killTweensOf(this.material.uniforms.uMousePosition.value);
+
+      gsap.to(this.material.uniforms.uMousePosition.value, {
+        x: 0.5,
+        y: 0.5,
+        duration: duration,
+        ease: 'power2.out'
+      });
+      
+      this.clock = new THREE.Clock();
+    }
+
+    public startAnimationLoop(): void {
+      if (this.isLooping) return;
+      this.isLooping = true;
+      this.animate();
+    }
+    
+    public stopAnimationLoop(): void {
+      if (!this.isLooping) return;
+      this.isLooping = false;
+      if (this.animationFrameId) {
+        cancelAnimationFrame(this.animationFrameId);
+        this.animationFrameId = null;
+      }
+    }
+
+    private animate(): void {
+      if (!this.isLooping) return;
+      this.animationFrameId = requestAnimationFrame(() => this.animate());
+      this.render();
+    }
+
+    private render(): void {
+      this.mousePosition.x += (this.targetMousePosition.x - this.mousePosition.x) * this.MOUSE_SMOOTHNESS;
+      this.mousePosition.y += (this.targetMousePosition.y - this.mousePosition.y) * this.MOUSE_SMOOTHNESS;
+
+      this.material.uniforms.uMousePosition.value = this.mousePosition;
+      this.material.uniforms.uTime.value = this.clock.getElapsedTime() * this.ANIMATION_SPEED;
+
+      this.bloomComposer.render();
+      this.finalComposer.render();
+    }
+
+    public dispose(): void {
+      this.stopAnimationLoop();
+      window.removeEventListener('resize', this.boundOnWindowResize);
+      window.removeEventListener('mousemove', this.boundOnMouseMove);
+      gsap.killTweensOf(this.material.uniforms.uMousePosition.value);
+      
+      this.scene.traverse(object => {
+        const obj = object as THREE.Mesh;
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+          if (Array.isArray(obj.material)) {
+            obj.material.forEach(material => material.dispose());
+          } else {
+            (obj.material as THREE.Material).dispose();
+          }
+        }
+      });
+      
+      this.renderer.dispose();
+      if (this.renderer.domElement.parentNode) {
+        this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
+      }
+    }
+
+    private onMouseMove(event: MouseEvent) {
+      this.targetMousePosition.x = event.clientX / window.innerWidth;
+      this.targetMousePosition.y = 1.0 - event.clientY / window.innerHeight;
+    }
+
+    private onWindowResize(): void {
+      const width = this.container.clientWidth;
+      const height = this.container.clientHeight;
+      
+      this.renderer.setSize(width, height);
+      this.bloomComposer.setSize(width, height);
+      this.finalComposer.setSize(width, height);
+      
+      this.material.uniforms.uResolution.value.set(width, height);
+      
+      const fxaaPass = this.finalComposer.passes.find(pass => pass instanceof ShaderPass && pass.material.uniforms.resolution) as ShaderPass | undefined;
+      if (fxaaPass) {
+        fxaaPass.material.uniforms.resolution.value.set(1 / width, 1 / height);
+      }
+    }
+    
+    private setupRenderer(): void {
+      this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+      this.renderer.setPixelRatio(window.devicePixelRatio);
+      this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+      this.renderer.setClearColor(0x000000, 0);
+      this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+      this.container.appendChild(this.renderer.domElement);
+    }
+
+    private setupMaterial(): void {
+      this.material = new THREE.ShaderMaterial({
+        uniforms: {
+          uTime: { value: 0 },
+          uResolution: { value: new THREE.Vector2() },
+          uSphereCount: { value: this.SPHERE_COUNT },
+          uAmbientIntensity: { value: this.AMBIENT_INTENSITY },
+          uDiffuseIntensity: { value: this.DIFFUSE_INTENSITY },
+          uSpecularIntensity: { value: this.SPECULAR_INTENSITY },
+          uSpecularPower: { value: this.SPECULAR_POWER },
+          uFresnelPower: { value: this.FRESNEL_POWER },
+          uBackgroundColor: { value: new THREE.Color(0x050505) },
+          uSphereColor: { value: new THREE.Color(0x000000) },
+          uLightColor: { value: new THREE.Color(0xffffff) },
+          uLightPosition: { value: new THREE.Vector3(1, 1, 1) },
+          uSmoothness: { value: this.BLEND_SMOOTHNESS },
+          uContrast: { value: this.CONTRAST },
+          uFogDensity: { value: this.FOG_DENSITY },
+          uAnimationSpeed: { value: this.ANIMATION_SPEED },
+          uCameraDistance: { value: this.CAMERA_DISTANCE },
+          uMovementPattern: { value: ["orbital", "wave", "chaos", "pulse"].indexOf(this.MOVEMENT_PATTERN) },
+          uMovementSpeed: { value: this.MOVEMENT_SPEED },
+          uMovementScale: { value: this.MOVEMENT_SCALE },
+          uIndividualRotation: { value: this.INDIVIDUAL_ROTATION },
+          uMousePosition: { value: new THREE.Vector2(0.5, 0.5) },
+          uMouseProximityEffect: { value: this.MOUSE_PROXIMITY_EFFECT },
+          uMinMovementScale: { value: this.MIN_MOVEMENT_SCALE_ON_HOVER },
+          uMaxMovementScale: { value: this.MAX_MOVEMENT_SCALE_ON_HOVER }
+        },
+        vertexShader: `
+          out vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: fragmentShaderCode,
+        glslVersion: THREE.GLSL3,
+        transparent: true
+      });
+    }
+    
+    private setupPostProcessing(): void {
+      const renderTarget = new THREE.WebGLRenderTarget(this.container.clientWidth, this.container.clientHeight, { format: THREE.RGBAFormat });
+      const bloomRenderTarget = new THREE.WebGLRenderTarget(this.container.clientWidth, this.container.clientHeight, { format: THREE.RGBAFormat });
+
+      const renderScene = new RenderPass(this.scene, this.camera);
+
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(this.container.clientWidth, this.container.clientHeight), this.BLOOM_STRENGTH, this.BLOOM_RADIUS, this.BLOOM_THRESHOLD);
+      
+      const finalPass = new ShaderPass(
+        new THREE.ShaderMaterial({
+          uniforms: {
+            baseTexture: { value: null },
+            bloomTexture: { value: bloomRenderTarget.texture }
+          },
+          vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+          fragmentShader: `
+            uniform sampler2D baseTexture;
+            uniform sampler2D bloomTexture;
+            varying vec2 vUv;
+            void main() {
+              vec4 baseColor = texture2D(baseTexture, vUv);
+              vec4 bloomColor = texture2D(bloomTexture, vUv);
+              gl_FragColor = vec4(baseColor.rgb + bloomColor.rgb * baseColor.a, baseColor.a);
+            }
+          `,
+          transparent: true,
+          depthWrite: false
+        }),
+        "baseTexture"
+      );
+
+      const fxaaPass = new ShaderPass(FXAAShader);
+      fxaaPass.material.uniforms['resolution'].value.set(1 / this.container.clientWidth, 1 / this.container.clientHeight);
+      const gammaCorrectionPass = new ShaderPass(GammaCorrectionShader);
+
+      this.bloomComposer = new EffectComposer(this.renderer, bloomRenderTarget);
+      this.bloomComposer.renderToScreen = false;
+      this.bloomComposer.addPass(renderScene);
+      this.bloomComposer.addPass(this.bloomPass);
+      
+      this.finalComposer = new EffectComposer(this.renderer, renderTarget);
+      this.finalComposer.addPass(renderScene);
+      finalPass.uniforms.baseTexture.value = this.finalComposer.renderTarget2.texture;
+      this.finalComposer.addPass(finalPass);
+      this.finalComposer.addPass(fxaaPass);
+      this.finalComposer.addPass(gammaCorrectionPass);
+    }
+  }
+</script>
+
+<div class="contact-effect-container" bind:this={container}></div>
+
+<style>
+  .contact-effect-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    visibility: hidden;
+    opacity: 0;
+  }
+</style>
