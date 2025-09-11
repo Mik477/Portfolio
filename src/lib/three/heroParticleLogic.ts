@@ -75,6 +75,21 @@ export class Environment {
   private clock!: THREE.Clock; 
   private bloomEffect!: BloomEffect;
 
+  private internalScale: number = 1.0; // dynamic internal resolution scale
+  private readonly MAX_INTERNAL_DIM = 1440; // cap for larger dimension
+  private readonly SCALE_FLOOR = 0.6;
+  private readonly SCALE_CEIL = 1.0;
+  // performance tracking
+  private frameTimes: number[] = [];
+  private readonly FRAME_WINDOW = 50;
+  private readonly HIGH_THRESHOLD = 19.5;
+  private readonly LOW_THRESHOLD = 14.0;
+  private scaleCooldown = 0;
+  private readonly SCALE_COOLDOWN_FRAMES = 45;
+  private avgFrameMs = 0;
+  // metrics flag
+  private metricsEnabled = false;
+
   constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
     this.font = font;
     this.particleTexture = particleTexture;
@@ -146,18 +161,27 @@ export class Environment {
 
   public render() {
     const deltaTime = this.clock.getDelta();
-    
-    // --- START OF FIX ---
-    // Force the scene to render against a solid black background internally.
-    // This stabilizes the input for the bloom pass, preventing flashing when the
-    // DOM element's background is transparent during transitions.
-    this.scene.background = new THREE.Color(0x000000);
-    // --- END OF FIX ---
-
-    if (this.createParticles) {
-      this.createParticles.render(); 
+    const frameMs = deltaTime * 1000;
+    this.frameTimes.push(frameMs);
+    if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+    if (this.frameTimes.length === this.FRAME_WINDOW) {
+      this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
+      if (this.scaleCooldown > 0) this.scaleCooldown--;
+      let changed = false;
+      if (this.scaleCooldown === 0) {
+        if (this.avgFrameMs > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
+          this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
+          changed = true;
+        } else if (this.avgFrameMs < this.LOW_THRESHOLD && this.internalScale < this.SCALE_CEIL) {
+          this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
+          changed = true;
+        }
+        if (changed) { this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES; this.onWindowResize(); }
+      }
     }
-    
+    // Force stable background
+    this.scene.background = new THREE.Color(0x000000);
+    if (this.createParticles) this.createParticles.render(); 
     if (this.bloomEffect) {
       this.bloomEffect.render(deltaTime);
     } else if (this.renderer && this.scene && this.camera) { 
@@ -180,31 +204,58 @@ export class Environment {
       antialias: true,
       alpha: true 
     });
-    this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    
+    // compute capped internal size
+    const cssW = this.container.clientWidth;
+    const cssH = this.container.clientHeight;
+    const aspect = cssW / Math.max(1, cssH);
+    let targetW = cssW;
+    let targetH = cssH;
+    if (cssW >= cssH) {
+      if (cssW > this.MAX_INTERNAL_DIM) { targetW = this.MAX_INTERNAL_DIM; targetH = Math.round(targetW / aspect); }
+    } else {
+      if (cssH > this.MAX_INTERNAL_DIM) { targetH = this.MAX_INTERNAL_DIM; targetW = Math.round(targetH * aspect); }
+    }
+    targetW = Math.max(1, Math.round(targetW * this.internalScale));
+    targetH = Math.max(1, Math.round(targetH * this.internalScale));
+    this.renderer.setPixelRatio(1); // manual scaling
+    this.renderer.setSize(targetW, targetH, false);
+    this.renderer.setClearColor(0x000000, 0);
     if (THREE.ColorManagement.enabled) { 
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     } else { 
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
-    
     this.container.appendChild(this.renderer.domElement);
+    const canvas = this.renderer.domElement;
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.style.display = 'block';
+    canvas.style.objectFit = 'contain';
   }
+  // expose metrics
+  public getMetrics() { return { internalScale: this.internalScale, avgFrameMs: this.avgFrameMs }; }
+  public enableMetrics(v: boolean) { this.metricsEnabled = v; }
   public onWindowResize() {
     if (this.camera && this.renderer && this.container) {
-      const newWidth = this.container.clientWidth;
-      const newHeight = this.container.clientHeight;
-
-      this.camera.aspect = newWidth / newHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(newWidth, newHeight);
-      
-      if (this.bloomEffect) {
-        this.bloomEffect.setSize(newWidth, newHeight);
+      const cssW = this.container.clientWidth;
+      const cssH = this.container.clientHeight;
+      const aspect = cssW / Math.max(1, cssH);
+      let targetW = cssW;
+      let targetH = cssH;
+      if (cssW >= cssH) {
+        if (cssW > this.MAX_INTERNAL_DIM) { targetW = this.MAX_INTERNAL_DIM; targetH = Math.round(targetW / aspect); }
+      } else {
+        if (cssH > this.MAX_INTERNAL_DIM) { targetH = this.MAX_INTERNAL_DIM; targetW = Math.round(targetH * aspect); }
       }
-      
-      // Check for screen size changes and regenerate particles if needed
+      targetW = Math.max(1, Math.round(targetW * this.internalScale));
+      targetH = Math.max(1, Math.round(targetH * this.internalScale));
+      this.camera.aspect = cssW / cssH;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(targetW, targetH, false);
+      const canvas = this.renderer.domElement;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      if (this.bloomEffect) this.bloomEffect.setSize(targetW, targetH);
       if (this.createParticles) {
         if (this.createParticles.checkScreenSizeChange()) {
           this.createParticles.regenerateParticles();
@@ -328,8 +379,8 @@ export class CreateParticles {
   private readonly RESPONSIVE_PARAMS: Record<ScreenSizeType, Partial<ParticleData>> = {
     mobile: { amount: 1200, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
     tablet: { amount: 1800, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
-    laptop: { amount: 2200, particleSize: 1.2, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
-    desktop: { amount: 2400, particleSize: 1.4, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
+    laptop: { amount: 2200, particleSize: 1.5, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
+    desktop: { amount: 2400, particleSize: 1.8, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
     large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 8, maxSymbolSize: 11, area: 280 },
     ultrawide: { amount: 2900, particleSize: 1.6, textSize: 20, minSymbolSize: 9, maxSymbolSize: 16, area: 300 }
   };
