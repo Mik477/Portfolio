@@ -97,12 +97,26 @@
     private clock: THREE.Clock | null = null;
     private animationFrameId: number | null = null;
     
-    private width = 0;
-    private height = 0;
+    private width = 0;   // CSS width of overlay container
+    private height = 0;  // CSS height of overlay container
     private scene!: THREE.Scene;
     private camera!: THREE.OrthographicCamera;
     private renderer!: THREE.WebGLRenderer;
     private bloomEffect!: BloomEffect;
+
+    // Internal resolution scaling (DRS)
+    private internalScale: number = 1.0; // dynamic internal resolution scale
+    private readonly MAX_INTERNAL_DIM = 1440; // cap for larger dimension
+    private readonly SCALE_FLOOR = 0.6;
+    private readonly SCALE_CEIL = 1.0;
+    private frameTimes: number[] = [];
+    private readonly FRAME_WINDOW = 50;
+    private readonly HIGH_THRESHOLD = 19.5; // ms (≈51 FPS)
+    private readonly LOW_THRESHOLD = 14.0;  // ms (≈71 FPS)
+    private scaleCooldown = 0;
+    private readonly SCALE_COOLDOWN_FRAMES = 45;
+    private avgFrameMs = 0;
+    private metricsEnabled = false;
 
     // =========================================================================
     // == EFFECT PARAMETERS ==
@@ -170,10 +184,13 @@
 
     private setupSceneOnce(): void {
         this.setupScene();
-        this.bloomEffect = new BloomEffect(this.renderer, this.scene, this.camera, this.width, this.height);
+    this.bloomEffect = new BloomEffect(this.renderer, this.scene, this.camera, this.width, this.height);
         this.createSymbolTexture();
         this.createBlackoutMesh();
         this.createParticleSystem();
+
+    // Ensure point size is normalized to CSS pixels initially
+    this.updatePointScale(this.width, this.height);
 
         if (this.bloomEffect && this.bloomEffect.composer) {
             this.bloomEffect.composer.render(0.01);
@@ -186,7 +203,25 @@
         this.animationFrameId = requestAnimationFrame(() => this.animate());
         if (!this.clock || !this.imageRect) return;
 
-        const deltaTime = this.clock.getDelta();
+                const deltaTime = this.clock.getDelta();
+                const frameMs = deltaTime * 1000;
+                this.frameTimes.push(frameMs);
+                if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+                if (this.frameTimes.length === this.FRAME_WINDOW) {
+                    this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
+                    if (this.scaleCooldown > 0) this.scaleCooldown--;
+                    let changed = false;
+                    if (this.scaleCooldown === 0) {
+                        if (this.avgFrameMs > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
+                            this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
+                            changed = true;
+                        } else if (this.avgFrameMs < this.LOW_THRESHOLD && this.internalScale < this.SCALE_CEIL) {
+                            this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
+                            changed = true;
+                        }
+                        if (changed) { this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES; this.onWindowResize(); }
+                    }
+                }
 
         if (this.isFadingOut) {
             this.fadeOutTimer += deltaTime;
@@ -204,12 +239,13 @@
             this.updateBlackout();
         }
 
-        this.bloomEffect.render(deltaTime);
+    this.bloomEffect.render(deltaTime);
     }
 
     public onWindowResize(): void {
-        this.width = window.innerWidth;
-        this.height = window.innerHeight;
+    // Use overlay container CSS size to keep world-space alignment stable
+    this.width = this.overlayContainer.clientWidth;
+    this.height = this.overlayContainer.clientHeight;
 
         this.camera.left = -this.width / 2;
         this.camera.right = this.width / 2;
@@ -217,10 +253,18 @@
         this.camera.bottom = -this.height / 2;
         this.camera.updateProjectionMatrix();
 
-        this.renderer.setSize(this.width, this.height);
+        // Compute capped internal size and apply internalScale; upscale via CSS
+        const { targetW, targetH } = this.computeInternalSize(this.width, this.height);
+        this.renderer.setSize(targetW, targetH, false);
+        const canvas = this.renderer.domElement;
+        canvas.style.width = this.width + 'px';
+        canvas.style.height = this.height + 'px';
         if (this.bloomEffect) {
-            this.bloomEffect.setSize(this.width, this.height);
+            this.bloomEffect.setSize(targetW, targetH);
         }
+
+        // Update point-size scale so symbols remain visually consistent
+        this.updatePointScale(this.width, this.height);
 
         this.setupGrid();
     }
@@ -267,18 +311,23 @@
     }
 
     private setupScene(): void {
-        this.width = window.innerWidth;
-        this.height = window.innerHeight;
-        this.scene = new THREE.Scene();
+    // CSS size from overlay container
+    this.width = this.overlayContainer.clientWidth;
+    this.height = this.overlayContainer.clientHeight;
+    this.scene = new THREE.Scene();
         
         this.camera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 1, 1000);
         this.camera.position.z = 100;
         
-        this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-        this.renderer.setPixelRatio(window.devicePixelRatio);
-        this.renderer.setSize(this.width, this.height);
-        
-        this.overlayContainer.appendChild(this.renderer.domElement);
+    this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    // Manual scaling: setPixelRatio(1) and setSize to internal target, CSS to overlay size
+    this.renderer.setPixelRatio(1);
+    const { targetW, targetH } = this.computeInternalSize(this.width, this.height);
+    this.renderer.setSize(targetW, targetH, false);
+    const canvas = this.renderer.domElement;
+    canvas.style.width = this.width + 'px';
+    canvas.style.height = this.height + 'px';
+    this.overlayContainer.appendChild(canvas);
     }
 
     private fullReset(): void {
@@ -291,6 +340,35 @@
         this.resetBlackoutGrid();
         this.resetAllParticles();
     }
+
+    // Compute internal render target dimensions with 1440p cap and internalScale
+    private computeInternalSize(cssW: number, cssH: number): { targetW: number; targetH: number } {
+        const aspect = cssW / Math.max(1, cssH);
+        let targetW = cssW;
+        let targetH = cssH;
+        if (cssW >= cssH) {
+            if (cssW > this.MAX_INTERNAL_DIM) { targetW = this.MAX_INTERNAL_DIM; targetH = Math.round(targetW / aspect); }
+        } else {
+            if (cssH > this.MAX_INTERNAL_DIM) { targetH = this.MAX_INTERNAL_DIM; targetW = Math.round(targetH * aspect); }
+        }
+        targetW = Math.max(1, Math.round(targetW * this.internalScale));
+        targetH = Math.max(1, Math.round(targetH * this.internalScale));
+        return { targetW, targetH };
+    }
+
+    // Keep point sprites' visual size stable under internal resolution scaling
+    private updatePointScale(cssW: number, cssH: number): void {
+        if (!this.particleSystem) return;
+        const { targetW, targetH } = this.computeInternalSize(cssW, cssH);
+        const scaleX = cssW / Math.max(1, targetW);
+        const scaleY = cssH / Math.max(1, targetH);
+        const pointScale = Math.min(scaleX, scaleY);
+        (this.particleSystem.material as THREE.ShaderMaterial).uniforms.uPointScale.value = pointScale;
+    }
+
+    // Metrics
+    public getMetrics() { return { internalScale: this.internalScale, avgFrameMs: this.avgFrameMs }; }
+    public enableMetrics(v: boolean) { this.metricsEnabled = v; }
 
     private resetBlackoutGrid(): void {
         if (!this.blackoutMesh) return;
@@ -383,12 +461,14 @@
             uniforms: {
                 symbolsTexture: { value: this.symbolsTexture },
                 globalOpacity: { value: 1.0 },
+                uPointScale: { value: 1.0 },
             },
             vertexShader: `
                 attribute float size;
                 attribute vec3 customColor;
                 attribute float symbolIndex;
                 attribute float particleOpacity;
+                uniform float uPointScale;
                 varying vec3 vColor;
                 varying float vSymbolIndex;
                 varying float vOpacity;
@@ -397,7 +477,7 @@
                     vSymbolIndex = symbolIndex;
                     vOpacity = particleOpacity;
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = size;
+                    gl_PointSize = size * uPointScale;
                     gl_Position = projectionMatrix * mvPosition;
                 }
             `,
