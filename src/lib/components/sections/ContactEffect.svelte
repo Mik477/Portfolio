@@ -131,7 +131,7 @@
     private readonly FOG_DENSITY = 0.15;
 
     // Motion & spheres
-    private SPHERE_COUNT = 4; // default matches "moody" preset
+    private SPHERE_COUNT = 6; // 4 for max performance
     private readonly MAX_SPHERES = 12; // keep consistent with shader define
     private readonly BLEND_SMOOTHNESS = 0.35;
     private readonly ANIMATION_SPEED = 0.9;
@@ -174,6 +174,25 @@
 
     // Internal state
     private isDisposed = false;
+
+    private internalScale = 1.0; // dynamic internal resolution scale (1.0 = up to 1440p cap)
+    private readonly MAX_INTERNAL_DIM = 1440; // 1440p cap (applies to larger viewport dimension)
+
+    // frame time tracking for performance scaling
+    private frameTimes: number[] = [];
+    private readonly FRAME_WINDOW = 40; // number of frames for moving average
+    private readonly TARGET_FRAME_MS = 16.6; // 60fps budget
+    private readonly HIGH_THRESHOLD = 19.5; // trigger downscale if avg above
+    private readonly LOW_THRESHOLD = 14.0;  // trigger upscale if avg below
+    private readonly SCALE_FLOOR = 0.6;
+    private readonly SCALE_CEIL = 1.0;
+    private scaleCooldown = 0; // frames until next allowed scale change
+    private readonly SCALE_COOLDOWN_FRAMES = 45;
+
+    // sphere count tiering
+    private sphereTierCooldown = 0;
+    private readonly SPHERE_TIER_COOLDOWN_FRAMES = 240; // 4s at 60fps
+    private readonly SPHERE_TIERS = [6,4,3]; // descending complexity
 
     constructor(container: HTMLElement) {
       this.container = container;
@@ -229,15 +248,43 @@
 
     private setupRenderer(): void {
       this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      // compute capped size
+      const cssW = this.container.clientWidth;
+      const cssH = this.container.clientHeight;
+      const scale = this.internalScale;
+      const aspect = cssW / Math.max(1, cssH);
+      let targetW = cssW;
+      let targetH = cssH;
+      // cap the larger dimension at MAX_INTERNAL_DIM while preserving aspect
+      if (cssW >= cssH) {
+        if (cssW > this.MAX_INTERNAL_DIM) {
+          targetW = this.MAX_INTERNAL_DIM;
+          targetH = Math.round(targetW / aspect);
+        }
+      } else {
+        if (cssH > this.MAX_INTERNAL_DIM) {
+          targetH = this.MAX_INTERNAL_DIM;
+          targetW = Math.round(targetH * aspect);
+        }
+      }
+      targetW = Math.max(1, Math.round(targetW * scale));
+      targetH = Math.max(1, Math.round(targetH * scale));
       const effectivePixelRatio = Math.min(window.devicePixelRatio || 1, this.pixelRatioCap);
-      this.renderer.setPixelRatio(effectivePixelRatio);
-      this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+      this.renderer.setPixelRatio(1); // keep manual scaling control via target sizes
+      this.renderer.setSize(targetW, targetH, false);
       this.renderer.setClearColor(0x000000, 0);
       try {
         // @ts-ignore
         this.renderer.outputColorSpace = (THREE as any).SRGBColorSpace ?? (THREE as any).sRGBEncoding;
-      } catch (e) { /* ignore for older three versions */ }
+      } catch (e) { /* ignore */ }
       this.container.appendChild(this.renderer.domElement);
+      // ensure canvas stretches to container while content rendered at lower res
+      const canvas = this.renderer.domElement;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      canvas.style.objectFit = 'contain';
+      canvas.style.display = 'block';
+      canvas.style.margin = '0 auto';
     }
 
     private setupMaterial(fragmentShaderCode: string): void {
@@ -316,15 +363,23 @@
     }
 
     private setupPostProcessing(): void {
-      const width = Math.max(1, this.container.clientWidth);
-      const height = Math.max(1, this.container.clientHeight);
+      const cssW = this.container.clientWidth;
+      const cssH = this.container.clientHeight;
+      const aspect = cssW / Math.max(1, cssH);
+      // compute internal target size consistent with renderer (reuse resize logic subset)
+      let baseW = cssW >= cssH ? Math.min(cssW, this.MAX_INTERNAL_DIM) : Math.round(Math.min(cssH, this.MAX_INTERNAL_DIM) * aspect);
+      let baseH = cssW >= cssH ? Math.round(baseW / aspect) : Math.min(cssH, this.MAX_INTERNAL_DIM);
+      baseW = Math.max(1, Math.round(baseW * this.internalScale));
+      baseH = Math.max(1, Math.round(baseH * this.internalScale));
 
-      const renderTarget = new THREE.WebGLRenderTarget(width, height, { format: THREE.RGBAFormat });
-      const bloomRenderTarget = new THREE.WebGLRenderTarget(width, height, { format: THREE.RGBAFormat });
+      const halfW = Math.max(1, Math.round(baseW * 0.5));
+      const halfH = Math.max(1, Math.round(baseH * 0.5));
+
+      const renderTarget = new THREE.WebGLRenderTarget(baseW, baseH, { format: THREE.RGBAFormat });
+      const bloomRenderTarget = new THREE.WebGLRenderTarget(halfW, halfH, { format: THREE.RGBAFormat });
 
       const renderScene = new RenderPass(this.scene, this.camera);
-      // slightly stronger/clean bloom defaults that match "moody" preset
-      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.30, 0.5, 0.20);
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(halfW, halfH), 0.30, 0.5, 0.20);
 
       this.bloomComposer = new EffectComposer(this.renderer, bloomRenderTarget);
       this.bloomComposer.renderToScreen = false;
@@ -413,8 +468,28 @@
     private render(): void {
       // compute delta (frame-rate independent smoothing)
       const dt = Math.min(0.05, this.clock.getDelta()); // clamp dt to avoid spikes
+      const frameMs = dt * 1000.0;
+      // performance tracking (dynamic scaling)
+      this.frameTimes.push(frameMs);
+      if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+      if (this.scaleCooldown > 0) this.scaleCooldown--;
+      if (this.frameTimes.length === this.FRAME_WINDOW && this.scaleCooldown === 0) {
+        const avg = this.frameTimes.reduce((a,b)=>a+b,0) / this.frameTimes.length;
+        let changed = false;
+        if (avg > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
+          this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
+          changed = true;
+        } else if (avg < this.LOW_THRESHOLD && this.internalScale < this.SCALE_CEIL) {
+          this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
+          changed = true;
+        }
+        if (changed) {
+          this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES;
+          this.onWindowResize();
+        }
+        this.adjustSphereTier(avg); // <-- NEW TIERING LOGIC CALL
+      }
       const elapsed = this.clock.getElapsedTime() * this.ANIMATION_SPEED;
-
       // Smooth mouse target -> smoothed mouse for shader
       this.mousePos.x += (this.targetMouse.x - this.mousePos.x) * (1.0 - Math.exp(-this.MOUSE_SMOOTHNESS * 60.0 * dt));
       this.mousePos.y += (this.targetMouse.y - this.mousePos.y) * (1.0 - Math.exp(-this.MOUSE_SMOOTHNESS * 60.0 * dt));
@@ -545,7 +620,13 @@
     private computeAdaptiveMaxSteps(sphereCount: number): number {
       const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
       const reduction = Math.floor((sphereCount / this.MAX_SPHERES) * (this.baseMaxSteps - this.minMaxSteps));
-      return clamp(this.baseMaxSteps - reduction, this.minMaxSteps, this.baseMaxSteps);
+      let steps = this.baseMaxSteps - reduction;
+      // additional scaling reduction when internalScale < 1
+      if (this.internalScale < 0.95) {
+        const scaleFactor = 0.5 + 0.5 * this.internalScale; // at 0.6 => 0.8, at 1.0 =>1.0
+        steps = Math.round(steps * scaleFactor);
+      }
+      return clamp(steps, this.minMaxSteps, this.baseMaxSteps);
     }
 
     // Interaction
@@ -569,26 +650,38 @@
     // Resize handling and LOD adjustments
     private onWindowResize(): void {
       if (!this.renderer) return;
-      const width = Math.max(1, this.container.clientWidth);
-      const height = Math.max(1, this.container.clientHeight);
-
-      const effectivePixelRatio = (this.SPHERE_COUNT > 6) ? this.reducedPixelRatio : Math.min(window.devicePixelRatio || 1, this.pixelRatioCap);
-      this.renderer.setPixelRatio(effectivePixelRatio);
-      this.renderer.setSize(width, height);
-
-      if (this.bloomComposer) this.bloomComposer.setSize(width, height);
-      if (this.finalComposer) this.finalComposer.setSize(width, height);
-
+      const cssW = this.container.clientWidth;
+      const cssH = this.container.clientHeight;
+      const aspect = cssW / Math.max(1, cssH);
+      let targetW = cssW;
+      let targetH = cssH;
+      if (cssW >= cssH) {
+        if (cssW > this.MAX_INTERNAL_DIM) {
+          targetW = this.MAX_INTERNAL_DIM;
+          targetH = Math.round(targetW / aspect);
+        }
+      } else {
+        if (cssH > this.MAX_INTERNAL_DIM) {
+          targetH = this.MAX_INTERNAL_DIM;
+          targetW = Math.round(targetH * aspect);
+        }
+      }
+      targetW = Math.max(1, Math.round(targetW * this.internalScale));
+      targetH = Math.max(1, Math.round(targetH * this.internalScale));
+      this.renderer.setSize(targetW, targetH, false);
+      const canvas = this.renderer.domElement;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      // update composers if present
+      if (this.bloomComposer) this.bloomComposer.setSize(targetW, targetH);
+      if (this.finalComposer) this.finalComposer.setSize(targetW, targetH);
       const fxaaPass = (this.finalComposer?.passes || []).find((p: any) => p?.material?.uniforms?.resolution) as ShaderPass | undefined;
       if (fxaaPass) {
-        fxaaPass.material.uniforms['resolution'].value.set(1 / width, 1 / height);
+        fxaaPass.material.uniforms['resolution'].value.set(1 / targetW, 1 / targetH);
       }
-
-      if (this.material && this.material.uniforms && this.material.uniforms.uResolution) {
-        (this.material.uniforms.uResolution.value as THREE.Vector2).set(width, height);
+      if (this.material?.uniforms?.uResolution) {
+        (this.material.uniforms.uResolution.value as THREE.Vector2).set(targetW, targetH);
       }
-
-      // adapt steps if necessary (keeps shader uniform & define in sync)
       const newSteps = this.computeAdaptiveMaxSteps(this.SPHERE_COUNT);
       if (this.material) {
         if (this.material.uniforms.uMaxSteps) this.material.uniforms.uMaxSteps.value = newSteps;
@@ -604,6 +697,30 @@
       this.SPHERE_COUNT = Math.max(0, Math.min(count, this.MAX_SPHERES));
       if (this.material?.uniforms?.uSphereCount) this.material.uniforms.uSphereCount.value = this.SPHERE_COUNT;
       this.onWindowResize();
+    }
+
+    private adjustSphereTier(avgFrameMs: number) {
+      if (this.sphereTierCooldown > 0) { this.sphereTierCooldown--; return; }
+      if (this.internalScale > this.SCALE_FLOOR + 0.001) return; // only when already at scale floor
+      if (avgFrameMs > this.HIGH_THRESHOLD + 1.5) {
+        // reduce complexity
+        for (let i = 0; i < this.SPHERE_TIERS.length; i++) {
+          if (this.SPHERE_COUNT > this.SPHERE_TIERS[i]) {
+            this.setSphereCount(this.SPHERE_TIERS[i]);
+            this.sphereTierCooldown = this.SPHERE_TIER_COOLDOWN_FRAMES;
+            break;
+          }
+        }
+      } else if (avgFrameMs < this.LOW_THRESHOLD - 1.0) {
+        // restore complexity upward
+        for (let i = this.SPHERE_TIERS.length - 1; i >= 0; i--) {
+          if (this.SPHERE_COUNT < this.SPHERE_TIERS[i]) {
+            this.setSphereCount(this.SPHERE_TIERS[i]);
+            this.sphereTierCooldown = this.SPHERE_TIER_COOLDOWN_FRAMES;
+            break;
+          }
+        }
+      }
     }
 
     // Dispose and clean everything
