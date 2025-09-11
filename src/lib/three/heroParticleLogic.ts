@@ -90,6 +90,12 @@ export class Environment {
   // metrics flag
   private metricsEnabled = false;
 
+  private baseAmountScale = 1.0;
+  private readonly AMOUNT_TIERS = [1.0, 0.85, 0.7, 0.55];
+  private amountTierIdx = 0;
+  private amountTierCooldown = 0;
+  private readonly AMOUNT_TIER_COOLDOWN_FRAMES = 240;
+
   constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
     this.font = font;
     this.particleTexture = particleTexture;
@@ -177,6 +183,27 @@ export class Environment {
           changed = true;
         }
         if (changed) { this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES; this.onWindowResize(); }
+      }
+      // Particle amount tiering: only when at scale floor and still slow OR restore when fast
+      if (this.createParticles) {
+        if (this.amountTierCooldown > 0) this.amountTierCooldown--;
+        if (this.amountTierCooldown === 0) {
+          if (this.internalScale <= this.SCALE_FLOOR + 1e-3 && this.avgFrameMs > this.HIGH_THRESHOLD + 1.5) {
+            if (this.amountTierIdx < this.AMOUNT_TIERS.length - 1) {
+              this.amountTierIdx++;
+              const newAmount = Math.floor(this.createParticles.getAmount() * this.AMOUNT_TIERS[this.amountTierIdx]);
+              this.createParticles.rebuildWithAmount(newAmount);
+              this.amountTierCooldown = this.AMOUNT_TIER_COOLDOWN_FRAMES;
+            }
+          } else if (this.avgFrameMs < this.LOW_THRESHOLD - 1.0) {
+            if (this.amountTierIdx > 0) {
+              this.amountTierIdx--;
+              const newAmount = Math.floor(this.createParticles.getAmount() / this.AMOUNT_TIERS[this.amountTierIdx+1]);
+              this.createParticles.rebuildWithAmount(newAmount);
+              this.amountTierCooldown = this.AMOUNT_TIER_COOLDOWN_FRAMES;
+            }
+          }
+        }
       }
     }
     // Force stable background
@@ -709,174 +736,201 @@ export class CreateParticles {
   public render() {
     if (!this.particles || !this.planeArea || !this.camera) return; 
 
-    if (!this.hasMouseMoved && !this.isPressed) {
-        if (this.particles && this.geometryCopy) {
-            const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
-            const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
-            let changed = false;
-            for (let i = 0, l = pos.count; i < l; i++) {
-                const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
-                let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
-                const prevPx = px; const prevPy = py; const prevPz = pz;
+    // cache attributes & typed arrays
+    const geo = this.particles.geometry as THREE.BufferGeometry;
+    const pos = geo.attributes.position as THREE.BufferAttribute;
+    const colors = geo.attributes.customColor as THREE.BufferAttribute;
+    const sizes = geo.attributes.size as THREE.BufferAttribute;
+    const symbolStates = geo.attributes.symbolState as THREE.BufferAttribute;
+    const symbolIndicesBuffer = geo.attributes.symbolIndex as THREE.BufferAttribute;
 
-                px += (initX - px) * this.data.ease; 
-                py += (initY - py) * this.data.ease; 
-                pz += (initZ - pz) * this.data.ease;
-                pos.setXYZ(i, px, py, pz);
-                if (px !== prevPx || py !== prevPy || pz !== prevPz) changed = true;
-            }
-            if (changed) pos.needsUpdate = true;
+    const posArr = pos.array as Float32Array;
+    const colArr = colors.array as Float32Array;
+    const sizeArr = sizes.array as Float32Array;
+    const stateArr = symbolStates.array as Float32Array;
+    const indexArr = symbolIndicesBuffer.array as Float32Array;
+
+    const count = pos.count;
+
+    if (!this.hasMouseMoved && !this.isPressed) {
+      const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
+      const copyArr = copyPos.array as Float32Array;
+      let changed = false;
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
+        const px = posArr[i3], py = posArr[i3+1], pz = posArr[i3+2];
+        let npx = px + (initX - px) * this.data.ease;
+        let npy = py + (initY - py) * this.data.ease;
+        let npz = pz + (initZ - pz) * this.data.ease;
+        if (npx !== px || npy !== py || npz !== pz) {
+          posArr[i3] = npx; posArr[i3+1] = npy; posArr[i3+2] = npz; changed = true;
         }
-        return; 
+      }
+      if (changed) pos.needsUpdate = true;
+      return;
     }
 
-    this.raycaster.setFromCamera(this.mouse, this.camera);
-    const intersects = this.raycaster.intersectObject(this.planeArea);
+    // direct plane intersection instead of three Raycaster object allocation
+    const rect = this.hostContainer.getBoundingClientRect();
+    const ndcX = this.mouse.x; // already in NDC from updateMousePosition
+    const ndcY = this.mouse.y;
+    const origin = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const ray = new THREE.Ray();
+    origin.setFromMatrixPosition(this.camera.matrixWorld);
+    dir.set(ndcX, ndcY, 0.5).unproject(this.camera).sub(origin).normalize();
+    ray.set(origin, dir);
+    const plane = new THREE.Plane(new THREE.Vector3(0,0,1), -this.planeArea.position.z);
+    const hitPoint = new THREE.Vector3();
+    const hasHit = ray.intersectPlane(plane, hitPoint) !== null;
 
     let attributesNeedUpdate = false;
 
-    if (intersects.length > 0) {
-      const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
+    if (hasHit) {
+      const mx = hitPoint.x;
+      const my = hitPoint.y;
+
       const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
-      const colors = this.particles.geometry.attributes.customColor as THREE.BufferAttribute;
-      const sizes = this.particles.geometry.attributes.size as THREE.BufferAttribute;
-      const symbolStates = this.particles.geometry.attributes.symbolState as THREE.BufferAttribute;
-      const symbolIndicesBuffer = this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute;
+      const copyArr = copyPos.array as Float32Array;
 
-      const mx = intersects[0].point.x;
-      const my = intersects[0].point.y;
+      const pressed = this.isPressed;
+      const area = this.data.area;
+      const baseSize = this.data.particleSize;
 
-      for (let i = 0, l = pos.count; i < l; i++) {
-        const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
-        let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
+        let px = posArr[i3], py = posArr[i3+1], pz = posArr[i3+2];
 
         const dx = mx - px; const dy = my - py;
-        const mouseDistance = Math.sqrt(dx * dx + dy * dy);
-        const dSquared = Math.max(1e-5, dx * dx + dy * dy); 
-        const f = -this.data.area / dSquared;
+        const mouseDistance = Math.hypot(dx, dy);
+        const d2 = Math.max(1e-5, dx*dx + dy*dy);
+        const f = -area / d2;
 
-        if (this.isPressed) {
+        if (pressed) {
           const t = Math.atan2(dy, dx);
           px -= f * Math.cos(t); py -= f * Math.sin(t);
           this.heatLevels[i] = Math.min(this.heatLevels[i] + 0.1, 1.0);
           attributesNeedUpdate = true;
-        } else if (mouseDistance < this.data.area) {
+        } else if (mouseDistance < area) {
           const t = Math.atan2(dy, dx);
           px += f * Math.cos(t); py += f * Math.sin(t);
           attributesNeedUpdate = true;
-          const distortion = Math.sqrt(Math.pow(px - initX, 2) + Math.pow(py - initY, 2));
-          
+          const distortion = Math.hypot(px - initX, py - initY);
           if (distortion > this.data.distortionThreshold) {
             this.heatLevels[i] = Math.min(this.heatLevels[i] + Math.min(distortion / 50, 0.1), 1.0);
             if (this.particleStates[i] === 0 && this.heatLevels[i] > this.data.symbolHeatRequirement) {
               if (Math.random() < this.getSymbolProbability(distortion)) {
-                this.particleStates[i] = 1; 
-                symbolStates.setX(i, 1.0);
-                
+                this.particleStates[i] = 1;
+                stateArr[i] = 1.0;
                 const randomSymbolSize = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
                 const randomSymbolIndex = Math.floor(Math.random() * this.matrixSymbols.length);
-                
-                sizes.setX(i, this.data.particleSize * randomSymbolSize);
-                symbolIndicesBuffer.setX(i, randomSymbolIndex);
-                
-                const symbolColorToRender = this.getVariedSymbolColor();
-                colors.setXYZ(i, symbolColorToRender.r, symbolColorToRender.g, symbolColorToRender.b);
-                attributesNeedUpdate = true; 
+                sizeArr[i] = baseSize * randomSymbolSize;
+                indexArr[i] = randomSymbolIndex;
+                const c = this.getVariedSymbolColor();
+                const ci3 = i3;
+                colArr[ci3] = c.r; colArr[ci3+1] = c.g; colArr[ci3+2] = c.b;
+                attributesNeedUpdate = true;
               }
             }
           }
         }
 
-        if (this.particleStates[i] === 1) { 
-          const currentSize = sizes.getX(i);
-          const newSize = Math.max(this.data.particleSize, currentSize - this.fadeOutRates[i]);
-          if (currentSize !== newSize) {
-             sizes.setX(i, newSize);
-             attributesNeedUpdate = true;
-          }
+        if (this.particleStates[i] === 1) {
+          const currentSize = sizeArr[i];
+          const newSize = Math.max(baseSize, currentSize - this.fadeOutRates[i]);
+          if (currentSize !== newSize) { sizeArr[i] = newSize; attributesNeedUpdate = true; }
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier));
-          
-          const fadeThreshold = this.data.particleSize + 0.01;
+          const fadeThreshold = baseSize + 0.01;
           if (newSize <= fadeThreshold) {
-            this.particleStates[i] = 0; 
-            symbolStates.setX(i, 0.0);
-            sizes.setX(i, this.data.particleSize); 
+            this.particleStates[i] = 0;
+            stateArr[i] = 0.0;
+            sizeArr[i] = baseSize;
             attributesNeedUpdate = true;
           }
-        } else { 
+        } else {
           const matrixColor = this.getMatrixColor(this.heatLevels[i]);
-          if (colors.getX(i) !== matrixColor.r || colors.getY(i) !== matrixColor.g || colors.getZ(i) !== matrixColor.b) {
-            colors.setXYZ(i, matrixColor.r, matrixColor.g, matrixColor.b);
-            attributesNeedUpdate = true;
+          const ci3 = i3; if (colArr[ci3] !== matrixColor.r || colArr[ci3+1] !== matrixColor.g || colArr[ci3+2] !== matrixColor.b) {
+            colArr[ci3] = matrixColor.r; colArr[ci3+1] = matrixColor.g; colArr[ci3+2] = matrixColor.b; attributesNeedUpdate = true;
           }
         }
-        
+
         if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) {
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
         }
 
-        const prevPx = px; const prevPy = py; const prevPz = pz;
-        px += (initX - px) * this.data.ease; 
-        py += (initY - py) * this.data.ease; 
+        const prevPx = px, prevPy = py, prevPz = pz;
+        px += (initX - px) * this.data.ease;
+        py += (initY - py) * this.data.ease;
         pz += (initZ - pz) * this.data.ease;
-        
         if (px !== prevPx || py !== prevPy || pz !== prevPz) {
-            pos.setXYZ(i, px, py, pz);
-            attributesNeedUpdate = true;
+          posArr[i3] = px; posArr[i3+1] = py; posArr[i3+2] = pz; attributesNeedUpdate = true;
         }
       }
-    } else { 
-        const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
-        const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
-        for (let i = 0, l = pos.count; i < l; i++) {
-            const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
-            let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
-            const prevPx = px; const prevPy = py; const prevPz = pz;
-            px += (initX - px) * this.data.ease; 
-            py += (initY - py) * this.data.ease; 
-            pz += (initZ - pz) * this.data.ease;
-            if (px !== prevPx || py !== prevPy || pz !== prevPz) {
-                pos.setXYZ(i, px, py, pz);
-                attributesNeedUpdate = true;
-            }
+    } else {
+      const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
+      const copyArr = copyPos.array as Float32Array;
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
+        const px = posArr[i3], py = posArr[i3+1], pz = posArr[i3+2];
+        const npx = px + (initX - px) * this.data.ease;
+        const npy = py + (initY - py) * this.data.ease;
+        const npz = pz + (initZ - pz) * this.data.ease;
+        if (npx !== px || npy !== py || npz !== pz) {
+          posArr[i3] = npx; posArr[i3+1] = npy; posArr[i3+2] = npz; attributesNeedUpdate = true;
         }
+      }
     }
-    
+
     if (attributesNeedUpdate) {
-        (this.particles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-        (this.particles.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true;
-        (this.particles.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
-        (this.particles.geometry.attributes.symbolState as THREE.BufferAttribute).needsUpdate = true;
-        (this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+      pos.needsUpdate = true;
+      colors.needsUpdate = true;
+      sizes.needsUpdate = true;
+      symbolStates.needsUpdate = true;
+      symbolIndicesBuffer.needsUpdate = true;
     }
   }
   
   public resetParticleState() {
     if (!this.particles || !this.particles.geometry) return;
-    
-    const colors = this.particles.geometry.attributes.customColor as THREE.BufferAttribute;
-    const sizes = this.particles.geometry.attributes.size as THREE.BufferAttribute;
-    const symbolStates = this.particles.geometry.attributes.symbolState as THREE.BufferAttribute;
-    const symbolIndicesBuffer = this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute;
+    const geo = this.particles.geometry as THREE.BufferGeometry;
+    const colors = geo.attributes.customColor as THREE.BufferAttribute;
+    const sizes = geo.attributes.size as THREE.BufferAttribute;
+    const symbolStates = geo.attributes.symbolState as THREE.BufferAttribute;
+    const symbolIndicesBuffer = geo.attributes.symbolIndex as THREE.BufferAttribute;
+    const pos = geo.attributes.position as THREE.BufferAttribute;
 
-    if (!colors || !sizes || !symbolStates || !symbolIndicesBuffer) return;
+    const count = pos.count;
+    const baseColor = this.matrixColors.white;
 
-    const initialColor = this.matrixColors.white;
+    for (let i = 0; i < count; i++) {
+      // reset state & heat
+      this.particleStates[i] = 0;
+      this.heatLevels[i] = 0;
 
-    for (let i = 0; i < colors.count; i++) {
-      colors.setXYZ(i, initialColor.r, initialColor.g, initialColor.b); 
-      this.particleStates[i] = 0; 
-      this.heatLevels[i] = 0; 
-      sizes.setX(i, this.data.particleSize); 
-      symbolStates.setX(i, 0.0); 
-      
-      this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
-      symbolIndicesBuffer.setX(i, this.symbolIndicesAttributeValues[i]);
+      // reset geometry attributes
+      symbolStates.setX(i, 0);
+      sizes.setX(i, this.data.particleSize);
+      const c = baseColor;
+      colors.setXYZ(i, c.r, c.g, c.b);
 
+      // randomize symbol index and per-particle rates
+      const idx = Math.floor(Math.random() * this.matrixSymbols.length);
+      this.symbolIndicesAttributeValues[i] = idx;
+      symbolIndicesBuffer.setX(i, idx);
+
+      const randomDuration = this.data.particleCooldownDurationMin +
+        Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
+      this.cooldownRates[i] = 1 / Math.max(1, randomDuration);
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
     }
-    colors.needsUpdate = true; sizes.needsUpdate = true; 
-    symbolStates.needsUpdate = true; symbolIndicesBuffer.needsUpdate = true;
+
+    colors.needsUpdate = true;
+    sizes.needsUpdate = true;
+    symbolStates.needsUpdate = true;
+    symbolIndicesBuffer.needsUpdate = true;
   }
 
   private visibleHeightAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number {
@@ -950,8 +1004,12 @@ export class CreateParticles {
     if (this.particles) {
       this.scene.remove(this.particles);
       this.particles.geometry.dispose();
-      const material = this.particles.material as THREE.Material;
-      if (material) material.dispose();
+      const material = this.particles.material as THREE.Material | THREE.Material[];
+      if (Array.isArray(material)) {
+        material.forEach(m => m.dispose());
+      } else {
+        material.dispose();
+      }
     }
     
     this.createText();
@@ -983,5 +1041,18 @@ export class CreateParticles {
         (material as THREE.Material).dispose();
       }
     }
+  }
+
+  public getAmount(): number { return this.data.amount; }
+  public setAmount(amount: number): void { this.data.amount = Math.max(100, Math.floor(amount)); }
+  public rebuildWithAmount(amount: number): void {
+    this.setAmount(amount);
+    if (this.particles) {
+      this.scene.remove(this.particles);
+      this.particles.geometry.dispose();
+      const material = this.particles.material as THREE.Material | THREE.Material[];
+      if (Array.isArray(material)) { material.forEach(m => m.dispose()); } else { material.dispose(); }
+    }
+    this.createText();
   }
 }
