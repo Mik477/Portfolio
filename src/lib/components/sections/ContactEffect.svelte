@@ -656,7 +656,8 @@
     pointer-events: none;
   }
   /* ensure canvas fills parent */
-  .contact-effect-container canvas {
+  /* Use :global(canvas) because the canvas element is created dynamically in JS and doesn't get the Svelte scoping attribute. */
+  .contact-effect-container :global(canvas) {
     width: 100%;
     height: 100%;
     display: block;
