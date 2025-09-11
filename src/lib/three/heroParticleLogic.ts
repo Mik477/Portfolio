@@ -83,7 +83,7 @@ export class Environment {
   private frameTimes: number[] = [];
   private readonly FRAME_WINDOW = 50;
   private readonly HIGH_THRESHOLD = 19.5;
-  private readonly LOW_THRESHOLD = 14.0;
+  private readonly LOW_THRESHOLD = 7.0;
   private scaleCooldown = 0;
   private readonly SCALE_COOLDOWN_FRAMES = 45;
   private avgFrameMs = 0;
@@ -208,7 +208,7 @@ export class Environment {
     }
     // Force stable background
     this.scene.background = new THREE.Color(0x000000);
-    if (this.createParticles) this.createParticles.render(); 
+  if (this.createParticles) this.createParticles.render(deltaTime); 
     if (this.bloomEffect) {
       this.bloomEffect.render(deltaTime);
     } else if (this.renderer && this.scene && this.camera) { 
@@ -360,10 +360,34 @@ export class CreateParticles {
   private mouse: THREE.Vector2;
   private isPressed: boolean = false;
   private hasMouseMoved: boolean = false; 
+  // Prevent immediate color influence until user interacts
+  private interactionActivated: boolean = false;
+  private activationMoveThreshold: number = 12; // pixels of cumulative motion to activate
+  private cumulativeMoveDistance: number = 0;
+  private lastPointerClientX: number | null = null;
+  private lastPointerClientY: number | null = null;
 
   private matrixSymbols: string[];
   private matrixColors: { [key: string]: THREE.Color };
   private bloomSymbolColor: THREE.Color; 
+  // Color transition state for non-symbol dots
+  private colorProgress: number[] = []; // [0..1], 0=white, 1=final green
+  private influenceEMA: number[] = [];  // smoothed influence per particle
+  private whiteCooldownFrames: number[] = []; // frames to wait before allowing pure white
+  private riseRateMul: number[] = []; // per-particle jitter
+  private fallRateMul: number[] = [];
+  private readonly colorParams = {
+  // Distortion-driven color thresholds and rates (tuned for earlier, gradual greening)
+  colorMinDistort: 2,   // start greening at small but noticeable displacement
+  colorMaxDistort: 13.0,  // reach full green below symbol threshold range
+  riseLerpPerSec: 4.5,    // approach speed when increasing
+  fallLerpPerSec: 0.115,    // approach speed when decreasing
+  minTimeToWhite: 5.0,   // seconds before returning to pure white
+  curveShape: 1.6,       // perceptual curve for mid-tones
+  finalDotGreenDarken: 0.1, // reduce brightness vs symbol green
+  jitterRise: 0.1,       // ±10%
+  jitterFall: 0.1        // ±10%
+  };
   
   private particleStates: number[] = [];
   private heatLevels: number[] = [];
@@ -407,7 +431,7 @@ export class CreateParticles {
     mobile: { amount: 1200, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
     tablet: { amount: 1800, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
     laptop: { amount: 2200, particleSize: 1.5, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
-    desktop: { amount: 2400, particleSize: 1.8, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
+    desktop: { amount: 2400, particleSize: 1.68, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
     large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 8, maxSymbolSize: 11, area: 280 },
     ultrawide: { amount: 2900, particleSize: 1.6, textSize: 20, minSymbolSize: 9, maxSymbolSize: 16, area: 300 }
   };
@@ -516,6 +540,12 @@ export class CreateParticles {
     this.cooldownRates = new Array(count);
     this.symbolIndicesAttributeValues = new Array(count);
     this.fadeOutRates = new Array(count);
+    // initialize color transition state
+    this.colorProgress = new Array(count).fill(0);
+    this.influenceEMA = new Array(count).fill(0);
+    this.whiteCooldownFrames = new Array(count).fill(0);
+    this.riseRateMul = new Array(count);
+    this.fallRateMul = new Array(count);
     
     for (let i = 0; i < count; i++) {
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
@@ -524,6 +554,11 @@ export class CreateParticles {
                              Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
       this.cooldownRates[i] = 1 / Math.max(1, randomDuration);
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
+      // per-particle jitter multipliers
+      const jr = (Math.random() * 2 - 1) * this.colorParams.jitterRise;
+      const jf = (Math.random() * 2 - 1) * this.colorParams.jitterFall;
+      this.riseRateMul[i] = 1 + jr;
+      this.fallRateMul[i] = 1 + jf;
     }
   }
 
@@ -696,16 +731,60 @@ export class CreateParticles {
     this.mouse.set(1e5, 1e5); 
     this.hasMouseMoved = false; 
     this.isPressed = false; 
+    this.interactionActivated = false;
+    this.cumulativeMoveDistance = 0;
+    this.lastPointerClientX = null;
+    this.lastPointerClientY = null;
   }
 
-  private onMouseDown(event: MouseEvent) { this.updateMousePosition(event.clientX, event.clientY); this.isPressed = true; this.data.ease = .01; }
-  private onMouseUp() { this.isPressed = false; this.data.ease = .05; }
-  private onMouseMove(event: MouseEvent) { 
-    if (!this.hasMouseMoved) this.hasMouseMoved = true; 
-    this.updateMousePosition(event.clientX, event.clientY); 
+  private onMouseDown(event: MouseEvent) {
+    this.updateMousePosition(event.clientX, event.clientY);
+    this.isPressed = true;
+    this.data.ease = .01;
+    this.interactionActivated = true;
+    this.lastPointerClientX = event.clientX;
+    this.lastPointerClientY = event.clientY;
   }
-  private onTouchStart(event: TouchEvent) { if (event.touches.length > 0) { this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true; } event.preventDefault(); }
-  private onTouchMove(event: TouchEvent) { if (event.touches.length > 0) { this.hasMouseMoved = true; this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); } event.preventDefault(); }
+  private onMouseUp() { this.isPressed = false; this.data.ease = .05; }
+  private onMouseMove(event: MouseEvent) {
+    const cx = event.clientX, cy = event.clientY;
+    if (!this.hasMouseMoved) this.hasMouseMoved = true;
+    if (this.lastPointerClientX !== null && this.lastPointerClientY !== null) {
+      const dx = cx - this.lastPointerClientX; const dy = cy - this.lastPointerClientY;
+      this.cumulativeMoveDistance += Math.hypot(dx, dy);
+      if (!this.interactionActivated && this.cumulativeMoveDistance >= this.activationMoveThreshold) {
+        this.interactionActivated = true;
+      }
+    }
+    this.lastPointerClientX = cx; this.lastPointerClientY = cy;
+    this.updateMousePosition(cx, cy);
+  }
+  private onTouchStart(event: TouchEvent) {
+    if (event.touches.length > 0) {
+      const cx = event.touches[0].clientX, cy = event.touches[0].clientY;
+      this.updateMousePosition(cx, cy);
+      this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true;
+      this.interactionActivated = true;
+      this.lastPointerClientX = cx; this.lastPointerClientY = cy;
+    }
+    event.preventDefault();
+  }
+  private onTouchMove(event: TouchEvent) {
+    if (event.touches.length > 0) {
+      const cx = event.touches[0].clientX, cy = event.touches[0].clientY;
+      this.hasMouseMoved = true;
+      if (this.lastPointerClientX !== null && this.lastPointerClientY !== null) {
+        const dx = cx - this.lastPointerClientX; const dy = cy - this.lastPointerClientY;
+        this.cumulativeMoveDistance += Math.hypot(dx, dy);
+        if (!this.interactionActivated && this.cumulativeMoveDistance >= this.activationMoveThreshold) {
+          this.interactionActivated = true;
+        }
+      }
+      this.lastPointerClientX = cx; this.lastPointerClientY = cy;
+      this.updateMousePosition(cx, cy);
+    }
+    event.preventDefault();
+  }
   private onTouchEnd(event: TouchEvent) { this.isPressed = false; this.data.ease = .05; event.preventDefault(); }
   
   private updateMousePosition(clientX: number, clientY: number) {
@@ -733,8 +812,12 @@ export class CreateParticles {
     return variedColor;
   }
 
-  public render() {
+  public render(deltaTime?: number) {
     if (!this.particles || !this.planeArea || !this.camera) return; 
+
+    const dt = Math.max(0.00001, deltaTime ?? 1/60);
+    const clamp01 = (x: number) => x < 0 ? 0 : (x > 1 ? 1 : x);
+    
 
     // cache attributes & typed arrays
     const geo = this.particles.geometry as THREE.BufferGeometry;
@@ -752,10 +835,19 @@ export class CreateParticles {
 
     const count = pos.count;
 
-    if (!this.hasMouseMoved && !this.isPressed) {
+    // target dot green derived from symbol color, slightly darkened
+    const targetGreen = this.bloomSymbolColor.clone();
+    const tgHSL = { h: 0, s: 0, l: 0 };
+    targetGreen.getHSL(tgHSL);
+    tgHSL.l = Math.max(0, tgHSL.l - this.colorParams.finalDotGreenDarken);
+    targetGreen.setHSL(tgHSL.h, tgHSL.s, tgHSL.l);
+    const tgR = targetGreen.r, tgG = targetGreen.g, tgB = targetGreen.b;
+
+  if ((!this.hasMouseMoved && !this.isPressed) || !this.interactionActivated) {
       const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
       const copyArr = copyPos.array as Float32Array;
       let changed = false;
+      let colorChanged = false;
       for (let i = 0; i < count; i++) {
         const i3 = i * 3;
         const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
@@ -766,8 +858,29 @@ export class CreateParticles {
         if (npx !== px || npy !== py || npz !== pz) {
           posArr[i3] = npx; posArr[i3+1] = npy; posArr[i3+2] = npz; changed = true;
         }
+        // Color decay when idle or before activation
+        if (this.particleStates[i] === 0) {
+          let prog = this.colorProgress[i];
+          if (this.whiteCooldownFrames[i] > 0) {
+            this.whiteCooldownFrames[i]--;
+            prog = Math.max(0.05, prog - this.colorParams.fallLerpPerSec * this.fallRateMul[i] * dt);
+          } else {
+            prog = Math.max(0, prog - this.colorParams.fallLerpPerSec * this.fallRateMul[i] * dt);
+          }
+          prog = clamp01(prog);
+          this.colorProgress[i] = prog;
+          const t = Math.pow(prog, this.colorParams.curveShape);
+          const r = 1 + (tgR - 1) * t;
+          const g = 1 + (tgG - 1) * t;
+          const b = 1 + (tgB - 1) * t;
+          const ci3 = i3;
+          if (colArr[ci3] !== r || colArr[ci3+1] !== g || colArr[ci3+2] !== b) {
+            colArr[ci3] = r; colArr[ci3+1] = g; colArr[ci3+2] = b; colorChanged = true;
+          }
+        }
       }
       if (changed) pos.needsUpdate = true;
+      if (colorChanged) colors.needsUpdate = true;
       return;
     }
 
@@ -785,7 +898,8 @@ export class CreateParticles {
     const hitPoint = new THREE.Vector3();
     const hasHit = ray.intersectPlane(plane, hitPoint) !== null;
 
-    let attributesNeedUpdate = false;
+  let attributesNeedUpdate = false;
+  let colorsNeedUpdate = false;
 
     if (hasHit) {
       const mx = hitPoint.x;
@@ -807,6 +921,7 @@ export class CreateParticles {
         const mouseDistance = Math.hypot(dx, dy);
         const d2 = Math.max(1e-5, dx*dx + dy*dy);
         const f = -area / d2;
+        // color influence will be based on actual distortion from rest position
 
         if (pressed) {
           const t = Math.atan2(dy, dx);
@@ -831,7 +946,7 @@ export class CreateParticles {
                 const c = this.getVariedSymbolColor();
                 const ci3 = i3;
                 colArr[ci3] = c.r; colArr[ci3+1] = c.g; colArr[ci3+2] = c.b;
-                attributesNeedUpdate = true;
+                colorsNeedUpdate = true; attributesNeedUpdate = true;
               }
             }
           }
@@ -850,9 +965,31 @@ export class CreateParticles {
             attributesNeedUpdate = true;
           }
         } else {
-          const matrixColor = this.getMatrixColor(this.heatLevels[i]);
-          const ci3 = i3; if (colArr[ci3] !== matrixColor.r || colArr[ci3+1] !== matrixColor.g || colArr[ci3+2] !== matrixColor.b) {
-            colArr[ci3] = matrixColor.r; colArr[ci3+1] = matrixColor.g; colArr[ci3+2] = matrixColor.b; attributesNeedUpdate = true;
+          // Distortion-driven color: map distance from rest to target greenness [0..1]
+          const d = Math.hypot(px - initX, py - initY);
+          let target = clamp01((d - this.colorParams.colorMinDistort) / Math.max(1e-6, (this.colorParams.colorMaxDistort - this.colorParams.colorMinDistort)));
+          if (pressed) target = clamp01(target * 1.1);
+          let prog = this.colorProgress[i];
+          const increasing = target > prog;
+          const rate = (increasing ? this.colorParams.riseLerpPerSec * this.riseRateMul[i]
+                                   : this.colorParams.fallLerpPerSec * this.fallRateMul[i]);
+          const step = Math.min(Math.abs(target - prog), rate * dt);
+          prog += Math.sign(target - prog) * step;
+          if (increasing) {
+            this.whiteCooldownFrames[i] = Math.max(this.whiteCooldownFrames[i], Math.floor(this.colorParams.minTimeToWhite / dt));
+          } else if (target <= 0 && this.whiteCooldownFrames[i] > 0) {
+            prog = Math.max(0.05, prog);
+            this.whiteCooldownFrames[i]--;
+          }
+          prog = clamp01(prog);
+          this.colorProgress[i] = prog;
+          const t = Math.pow(prog, this.colorParams.curveShape);
+          const r = 1 + (tgR - 1) * t;
+          const g = 1 + (tgG - 1) * t;
+          const b = 1 + (tgB - 1) * t;
+          const ci3 = i3;
+          if (colArr[ci3] !== r || colArr[ci3+1] !== g || colArr[ci3+2] !== b) {
+            colArr[ci3] = r; colArr[ci3+1] = g; colArr[ci3+2] = b; colorsNeedUpdate = true;
           }
         }
 
@@ -881,6 +1018,33 @@ export class CreateParticles {
         if (npx !== px || npy !== py || npz !== pz) {
           posArr[i3] = npx; posArr[i3+1] = npy; posArr[i3+2] = npz; attributesNeedUpdate = true;
         }
+        // No hit: derive color from current distortion and decay
+        if (this.particleStates[i] === 0) {
+          const d = Math.hypot(px - initX, py - initY);
+          let target = clamp01((d - this.colorParams.colorMinDistort) / Math.max(1e-6, (this.colorParams.colorMaxDistort - this.colorParams.colorMinDistort)));
+          let prog = this.colorProgress[i];
+          const increasing = target > prog;
+          const rate = (increasing ? this.colorParams.riseLerpPerSec * this.riseRateMul[i]
+                                   : this.colorParams.fallLerpPerSec * this.fallRateMul[i]);
+          const step = Math.min(Math.abs(target - prog), rate * dt);
+          prog += Math.sign(target - prog) * step;
+          if (increasing) {
+            this.whiteCooldownFrames[i] = Math.max(this.whiteCooldownFrames[i], Math.floor(this.colorParams.minTimeToWhite / dt));
+          } else if (target <= 0 && this.whiteCooldownFrames[i] > 0) {
+            prog = Math.max(0.05, prog);
+            this.whiteCooldownFrames[i]--;
+          }
+          prog = clamp01(prog);
+          this.colorProgress[i] = prog;
+          const t = Math.pow(prog, this.colorParams.curveShape);
+          const r = 1 + (tgR - 1) * t;
+          const g = 1 + (tgG - 1) * t;
+          const b = 1 + (tgB - 1) * t;
+          const ci3 = i3;
+          if (colArr[ci3] !== r || colArr[ci3+1] !== g || colArr[ci3+2] !== b) {
+            colArr[ci3] = r; colArr[ci3+1] = g; colArr[ci3+2] = b; colorsNeedUpdate = true;
+          }
+        }
       }
     }
 
@@ -890,6 +1054,9 @@ export class CreateParticles {
       sizes.needsUpdate = true;
       symbolStates.needsUpdate = true;
       symbolIndicesBuffer.needsUpdate = true;
+    }
+    if (!attributesNeedUpdate && colorsNeedUpdate) {
+      colors.needsUpdate = true;
     }
   }
   
