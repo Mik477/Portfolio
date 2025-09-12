@@ -256,9 +256,9 @@
 
     mountLogic();
     
-    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
-        if (complete && !hasStartedInitialReveal) startInitialReveal();
-    });
+  unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
+    if (complete && !hasStartedInitialReveal) startInitialReveal();
+  });
 
     return () => {
       window.removeEventListener('wheel', handleWheel);
@@ -407,6 +407,8 @@
     {/each}
   </main>
 
+  
+
   <style>
     .particle-effect-layer { 
       position: fixed; 
@@ -456,4 +458,6 @@
     
     * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
   </style>
+
+  
 </div>

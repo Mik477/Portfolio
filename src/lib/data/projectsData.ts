@@ -108,8 +108,8 @@ export const projects: Project[] = [
   {
     id: 'project-two',
     slug: 'interactive-data-visualization',
-    headline: 'Interactive Dashboard for Sales Analytics',
-    summary: 'Developing a dynamic dashboard to visualize sales trends and provide actionable insights for stakeholders.',
+    headline: 'Project 2',
+    summary: 'Filler content for a second project (coming soon)',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-two/background.jpg' },
       { type: 'image', value: '/images/projects/project-two/background2.jpg' },
@@ -117,47 +117,47 @@ export const projects: Project[] = [
     tags: ['Data Visualization', 'Tableau', 'JavaScript', 'SQL'],
     cards: [
       {
-        id: 'p2-data-sourcing',
-        title: 'Data Sourcing & ETL',
+        id: 'Project_2_Card_1',
+        title: 'Card 1',
         cardImage: '/images/projects/project-two/card-data-small.webp',
-        description: 'Gathering and preparing data.',
-        aspectLink: '#data-sourcing'
+        description: 'Content',
+        aspectLink: '#1'
       },
       {
-        id: 'p2-dashboard-design',
-        title: 'Dashboard Design (UX/UI)',
+        id: 'Project_2_Card_2',
+        title: 'Card 2',
         cardImage: '/images/projects/project-two/card-design-small.webp',
-        description: 'User-centric design.',
-        aspectLink: '#dashboard-design'
+        description: 'Content',
+        aspectLink: '#2'
       },
       {
-        id: 'p2-key-insights',
-        title: 'Key Insights & Features',
+        id: 'Project_2_Card_3',
+        title: 'Card 3',
         cardImage: '/images/projects/project-two/card-insights-small.webp',
-        description: 'Impactful visualizations.',
-        aspectLink: '#key-insights'
+        description: 'Content',
+        aspectLink: '#3'
       }
     ],
     subPageSections: [
         {
-            id: 'data-sourcing',
-            title: 'Data Pipeline and ETL Processes',
-            content: 'Overview of how data was collected from multiple sources, cleaned, and transformed into a unified schema for analysis.',
+            id: 'Project_2_Subpage_Section_1',
+            title: '1',
+            content: 'Content',
             background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' }
         },
         {
-            id: 'dashboard-design',
-            title: 'Designing for User Experience',
-            content: 'The thought process behind the dashboard layout, color schemes, and interactivity to ensure insights are intuitive and accessible to non-technical users.',
+            id: 'Project_2_Subpage_Section_2',
+            title: '2',
+            content: 'Content',
             background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' }
         },
         {
-            id: 'key-insights',
-            title: 'Unlocking Actionable Insights',
-            content: 'Examples of how the dashboard helps users discover key trends, identify top-performing regions, and forecast future sales with interactive filters.',
+            id: 'Project_2_Subpage_Section_3',
+            title: '3',
+            content: 'Content',
             background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' }
         }
     ],
-    readMoreLinkText: "Discover Interactive Sales Dashboard"
+    readMoreLinkText: "Explore More"
   }
 ];

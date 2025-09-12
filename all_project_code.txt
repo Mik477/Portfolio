@@ -193,12 +193,26 @@ export {};
     private clock: THREE.Clock | null = null;
     private animationFrameId: number | null = null;
     
-    private width = 0;
-    private height = 0;
+    private width = 0;   // CSS width of overlay container
+    private height = 0;  // CSS height of overlay container
     private scene!: THREE.Scene;
     private camera!: THREE.OrthographicCamera;
     private renderer!: THREE.WebGLRenderer;
     private bloomEffect!: BloomEffect;
+
+    // Internal resolution scaling (DRS)
+    private internalScale: number = 1.0; // dynamic internal resolution scale
+    private readonly MAX_INTERNAL_DIM = 1440; // cap for larger dimension
+    private readonly SCALE_FLOOR = 0.6;
+    private readonly SCALE_CEIL = 1.0;
+    private frameTimes: number[] = [];
+    private readonly FRAME_WINDOW = 50;
+    private readonly HIGH_THRESHOLD = 19.5; // ms (≈51 FPS)
+    private readonly LOW_THRESHOLD = 14.0;  // ms (≈71 FPS)
+    private scaleCooldown = 0;
+    private readonly SCALE_COOLDOWN_FRAMES = 45;
+    private avgFrameMs = 0;
+    private metricsEnabled = false;
 
     // =========================================================================
     // == EFFECT PARAMETERS ==
@@ -266,10 +280,13 @@ export {};
 
     private setupSceneOnce(): void {
         this.setupScene();
-        this.bloomEffect = new BloomEffect(this.renderer, this.scene, this.camera, this.width, this.height);
+    this.bloomEffect = new BloomEffect(this.renderer, this.scene, this.camera, this.width, this.height);
         this.createSymbolTexture();
         this.createBlackoutMesh();
         this.createParticleSystem();
+
+    // Ensure point size is normalized to CSS pixels initially
+    this.updatePointScale(this.width, this.height);
 
         if (this.bloomEffect && this.bloomEffect.composer) {
             this.bloomEffect.composer.render(0.01);
@@ -282,7 +299,25 @@ export {};
         this.animationFrameId = requestAnimationFrame(() => this.animate());
         if (!this.clock || !this.imageRect) return;
 
-        const deltaTime = this.clock.getDelta();
+                const deltaTime = this.clock.getDelta();
+                const frameMs = deltaTime * 1000;
+                this.frameTimes.push(frameMs);
+                if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+                if (this.frameTimes.length === this.FRAME_WINDOW) {
+                    this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
+                    if (this.scaleCooldown > 0) this.scaleCooldown--;
+                    let changed = false;
+                    if (this.scaleCooldown === 0) {
+                        if (this.avgFrameMs > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
+                            this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
+                            changed = true;
+                        } else if (this.avgFrameMs < this.LOW_THRESHOLD && this.internalScale < this.SCALE_CEIL) {
+                            this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
+                            changed = true;
+                        }
+                        if (changed) { this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES; this.onWindowResize(); }
+                    }
+                }
 
         if (this.isFadingOut) {
             this.fadeOutTimer += deltaTime;
@@ -300,12 +335,13 @@ export {};
             this.updateBlackout();
         }
 
-        this.bloomEffect.render(deltaTime);
+    this.bloomEffect.render(deltaTime);
     }
 
     public onWindowResize(): void {
-        this.width = window.innerWidth;
-        this.height = window.innerHeight;
+    // Use overlay container CSS size to keep world-space alignment stable
+    this.width = this.overlayContainer.clientWidth;
+    this.height = this.overlayContainer.clientHeight;
 
         this.camera.left = -this.width / 2;
         this.camera.right = this.width / 2;
@@ -313,10 +349,18 @@ export {};
         this.camera.bottom = -this.height / 2;
         this.camera.updateProjectionMatrix();
 
-        this.renderer.setSize(this.width, this.height);
+        // Compute capped internal size and apply internalScale; upscale via CSS
+        const { targetW, targetH } = this.computeInternalSize(this.width, this.height);
+        this.renderer.setSize(targetW, targetH, false);
+        const canvas = this.renderer.domElement;
+        canvas.style.width = this.width + 'px';
+        canvas.style.height = this.height + 'px';
         if (this.bloomEffect) {
-            this.bloomEffect.setSize(this.width, this.height);
+            this.bloomEffect.setSize(targetW, targetH);
         }
+
+        // Update point-size scale so symbols remain visually consistent
+        this.updatePointScale(this.width, this.height);
 
         this.setupGrid();
     }
@@ -363,18 +407,23 @@ export {};
     }
 
     private setupScene(): void {
-        this.width = window.innerWidth;
-        this.height = window.innerHeight;
-        this.scene = new THREE.Scene();
+    // CSS size from overlay container
+    this.width = this.overlayContainer.clientWidth;
+    this.height = this.overlayContainer.clientHeight;
+    this.scene = new THREE.Scene();
         
         this.camera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 1, 1000);
         this.camera.position.z = 100;
         
-        this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-        this.renderer.setPixelRatio(window.devicePixelRatio);
-        this.renderer.setSize(this.width, this.height);
-        
-        this.overlayContainer.appendChild(this.renderer.domElement);
+    this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    // Manual scaling: setPixelRatio(1) and setSize to internal target, CSS to overlay size
+    this.renderer.setPixelRatio(1);
+    const { targetW, targetH } = this.computeInternalSize(this.width, this.height);
+    this.renderer.setSize(targetW, targetH, false);
+    const canvas = this.renderer.domElement;
+    canvas.style.width = this.width + 'px';
+    canvas.style.height = this.height + 'px';
+    this.overlayContainer.appendChild(canvas);
     }
 
     private fullReset(): void {
@@ -387,6 +436,35 @@ export {};
         this.resetBlackoutGrid();
         this.resetAllParticles();
     }
+
+    // Compute internal render target dimensions with 1440p cap and internalScale
+    private computeInternalSize(cssW: number, cssH: number): { targetW: number; targetH: number } {
+        const aspect = cssW / Math.max(1, cssH);
+        let targetW = cssW;
+        let targetH = cssH;
+        if (cssW >= cssH) {
+            if (cssW > this.MAX_INTERNAL_DIM) { targetW = this.MAX_INTERNAL_DIM; targetH = Math.round(targetW / aspect); }
+        } else {
+            if (cssH > this.MAX_INTERNAL_DIM) { targetH = this.MAX_INTERNAL_DIM; targetW = Math.round(targetH * aspect); }
+        }
+        targetW = Math.max(1, Math.round(targetW * this.internalScale));
+        targetH = Math.max(1, Math.round(targetH * this.internalScale));
+        return { targetW, targetH };
+    }
+
+    // Keep point sprites' visual size stable under internal resolution scaling
+    private updatePointScale(cssW: number, cssH: number): void {
+        if (!this.particleSystem) return;
+        const { targetW, targetH } = this.computeInternalSize(cssW, cssH);
+        const scaleX = cssW / Math.max(1, targetW);
+        const scaleY = cssH / Math.max(1, targetH);
+        const pointScale = Math.min(scaleX, scaleY);
+        (this.particleSystem.material as THREE.ShaderMaterial).uniforms.uPointScale.value = pointScale;
+    }
+
+    // Metrics
+    public getMetrics() { return { internalScale: this.internalScale, avgFrameMs: this.avgFrameMs }; }
+    public enableMetrics(v: boolean) { this.metricsEnabled = v; }
 
     private resetBlackoutGrid(): void {
         if (!this.blackoutMesh) return;
@@ -479,12 +557,14 @@ export {};
             uniforms: {
                 symbolsTexture: { value: this.symbolsTexture },
                 globalOpacity: { value: 1.0 },
+                uPointScale: { value: 1.0 },
             },
             vertexShader: `
                 attribute float size;
                 attribute vec3 customColor;
                 attribute float symbolIndex;
                 attribute float particleOpacity;
+                uniform float uPointScale;
                 varying vec3 vColor;
                 varying float vSymbolIndex;
                 varying float vOpacity;
@@ -493,7 +573,7 @@ export {};
                     vSymbolIndex = symbolIndex;
                     vOpacity = particleOpacity;
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = size;
+                    gl_PointSize = size * uPointScale;
                     gl_Position = projectionMatrix * mvPosition;
                 }
             `,
@@ -1434,15 +1514,65 @@ export {};
   let cardWrapElement: HTMLDivElement;
   let elementWidth: number = 0;
   let elementHeight: number = 0;
-  let mouseX: number = 0;
-  let mouseY: number = 0;
+  let rectLeft: number = 0;
+  let rectTop: number = 0;
+  let mouseX: number = 0; // relative to center
+  let mouseY: number = 0; // relative to center
   let mouseLeaveDelay: number | null = null;
+  let hasPointer = false;
+  let rafId: number | null = null;
+  let needsFrame = false;
+  let lastPointerX = 0;
+  let lastPointerY = 0;
+  // Adaptive fidelity (lightweight moving average)
+  let frameTimes: number[] = [];
+  const FRAME_WINDOW = 50;
+  const HIGH_MS = 19.5;
+  const LOW_MS = 14.0;
+  let quality = 1.0; // 1.0 high, 0.7 low
+  let scaleCooldown = 0;
+  const SCALE_COOLDOWN_FRAMES = 45;
 
   onMount(() => {
-    if (cardWrapElement) {
-      elementWidth = cardWrapElement.offsetWidth;
-      elementHeight = cardWrapElement.offsetHeight;
-    }
+    if (!cardWrapElement) return;
+    // Initial rect
+    const rect = cardWrapElement.getBoundingClientRect();
+    elementWidth = rect.width;
+    elementHeight = rect.height;
+    rectLeft = rect.left;
+    rectTop = rect.top;
+
+    // Observe size changes
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        if (entry.target === cardWrapElement) {
+          const cr = entry.contentRect;
+          elementWidth = cr.width;
+          elementHeight = cr.height;
+          // Left/top may change with layout; recalc bounding rect
+          const r = cardWrapElement.getBoundingClientRect();
+          rectLeft = r.left; rectTop = r.top;
+        }
+      }
+    });
+    ro.observe(cardWrapElement);
+
+    // IntersectionObserver to gate work when offscreen
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.target === cardWrapElement) {
+          if (!e.isIntersecting) {
+            detachPointer();
+            cancelRaf();
+            mouseX = 0; mouseY = 0;
+          }
+        }
+      });
+    }, { root: null, threshold: 0 });
+    io.observe(cardWrapElement);
+
+    // Cleanup
+    onDestroy(() => { ro.disconnect(); io.disconnect(); cancelRaf(); });
   });
 
   onDestroy(() => {
@@ -1451,23 +1581,71 @@ export {};
 
   $: mousePX = mouseX / elementWidth;
   $: mousePY = mouseY / elementHeight;
-  $: rX = !isNaN(mousePX) ? mousePX * 30 : 0;
-  $: rY = !isNaN(mousePY) ? mousePY * -30 : 0;
-  $: tX = !isNaN(mousePX) ? mousePX * -40 : 0;
-  $: tY = !isNaN(mousePY) ? mousePY * -40 : 0;
-  $: cardStyle = `transform: rotateY(${rX}deg) rotateX(${rY}deg);`;
-  $: cardBgTransform = `transform: translateX(${tX}px) translateY(${tY}px);`;
-  $: cardBgImage = `background-image: url(${cardData.cardImage || cardData.image});`;
+  // Parallax amplitude scaled by quality for adaptive fidelity
+  $: rX = !isNaN(mousePX) ? mousePX * (30 * quality) : 0;
+  $: rY = !isNaN(mousePY) ? mousePY * (-30 * quality) : 0;
+  $: tX = !isNaN(mousePX) ? mousePX * (-40 * quality) : 0;
+  $: tY = !isNaN(mousePY) ? mousePY * (-40 * quality) : 0;
+  $: cardStyle = `transform: rotateY(${rX}deg) rotateX(${rY}deg) translateZ(0);`;
+  $: cardBgTransform = `transform: translate3d(${tX}px, ${tY}px, 0);`;
+  $: cardBgImage = cardData.cardImage ? `background-image: url(${cardData.cardImage});` : '';
 
-  function handleMouseMove(e: MouseEvent) {
+  function scheduleFrame() {
+    if (rafId !== null) return; // already scheduled
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      // Update frame-time window
+      const now = performance.now();
+      const prev = (scheduleFrame as any)._prev || now;
+      (scheduleFrame as any)._prev = now;
+      const dtMs = Math.max(0.016, now - prev);
+      frameTimes.push(dtMs);
+      if (frameTimes.length > FRAME_WINDOW) frameTimes.shift();
+      if (frameTimes.length === FRAME_WINDOW) {
+        const avg = frameTimes.reduce((a,b)=>a+b,0)/frameTimes.length;
+        if (scaleCooldown > 0) scaleCooldown--;
+        let changed = false;
+        if (scaleCooldown === 0) {
+          if (avg > HIGH_MS && quality > 0.7) { quality = +(Math.max(0.7, quality - 0.1)).toFixed(2); changed = true; }
+          else if (avg < LOW_MS && quality < 1.0) { quality = +(Math.min(1.0, quality + 0.1)).toFixed(2); changed = true; }
+          if (changed) scaleCooldown = SCALE_COOLDOWN_FRAMES;
+        }
+      }
+      if (!needsFrame) return;
+      needsFrame = false;
+      // Compute relative to cached rect and element size
+      const cx = lastPointerX - rectLeft - elementWidth / 2;
+      const cy = lastPointerY - rectTop - elementHeight / 2;
+      mouseX = cx; mouseY = cy;
+    });
+  }
+
+  function cancelRaf() { if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; } }
+
+  function handlePointerMove(e: PointerEvent) {
     if (!cardWrapElement) return;
-    const rect = cardWrapElement.getBoundingClientRect();
-    mouseX = e.clientX - rect.left - elementWidth / 2;
-    mouseY = e.clientY - rect.top - elementHeight / 2;
+    lastPointerX = e.clientX; lastPointerY = e.clientY;
+    needsFrame = true;
+    scheduleFrame();
+  }
+
+  function attachPointer() {
+    if (!cardWrapElement || hasPointer) return;
+    hasPointer = true;
+    cardWrapElement.addEventListener('pointermove', handlePointerMove);
+    // Update cached rect on enter for accuracy
+    const r = cardWrapElement.getBoundingClientRect();
+    rectLeft = r.left; rectTop = r.top; elementWidth = r.width; elementHeight = r.height;
+  }
+  function detachPointer() {
+    if (!cardWrapElement || !hasPointer) return;
+    hasPointer = false;
+    cardWrapElement.removeEventListener('pointermove', handlePointerMove);
   }
 
   function handleMouseEnter() {
     if (mouseLeaveDelay) clearTimeout(mouseLeaveDelay);
+    attachPointer();
   }
 
   function handleMouseLeave() {
@@ -1475,6 +1653,7 @@ export {};
       mouseX = 0;
       mouseY = 0;
     }, 1000);
+    detachPointer();
   }
 </script>
 
@@ -1482,7 +1661,6 @@ export {};
   class="card-wrap"
   style:width
   style:height
-  on:mousemove={handleMouseMove}
   on:mouseenter={handleMouseEnter}
   on:mouseleave={handleMouseLeave}
   bind:this={cardWrapElement}
@@ -1527,6 +1705,7 @@ export {};
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+  will-change: transform;
   }
 
   .card-wrap:hover .card-title {
@@ -1557,6 +1736,8 @@ export {};
     overflow: hidden;
     border-radius: 10px;
     transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
+  will-change: transform;
+  contain: paint;
   }
 
   .card-bg {
@@ -1571,6 +1752,7 @@ export {};
     background-size: cover;
     transition: 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), opacity 5s 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
     pointer-events: none;
+  will-change: transform, opacity;
   }
 
   .card-info {
@@ -2162,13 +2344,13 @@ export {};
     private readonly FOG_DENSITY = 0.15;
 
     // Motion & spheres
-    private SPHERE_COUNT = 6; // default matches "moody" preset
+    private SPHERE_COUNT = 6; // 4 for max performance
     private readonly MAX_SPHERES = 12; // keep consistent with shader define
-    private readonly BLEND_SMOOTHNESS = 0.42;
-    private readonly ANIMATION_SPEED = 1.0;
+    private readonly BLEND_SMOOTHNESS = 0.35;
+    private readonly ANIMATION_SPEED = 0.9;
     private readonly CAMERA_DISTANCE = 3.0;
     private readonly MOVEMENT_PATTERN = 0;
-    private readonly MOVEMENT_SPEED = 1.0;
+    private readonly MOVEMENT_SPEED = 0.9;
     private readonly MOVEMENT_SCALE = 1.0;
     private readonly INDIVIDUAL_ROTATION = true;
     private readonly MOUSE_PROXIMITY_EFFECT = true;
@@ -2205,6 +2387,25 @@ export {};
 
     // Internal state
     private isDisposed = false;
+
+    private internalScale = 1.0; // dynamic internal resolution scale (1.0 = up to 1440p cap)
+    private readonly MAX_INTERNAL_DIM = 1440; // 1440p cap (applies to larger viewport dimension)
+
+    // frame time tracking for performance scaling
+    private frameTimes: number[] = [];
+    private readonly FRAME_WINDOW = 40; // number of frames for moving average
+    private readonly TARGET_FRAME_MS = 16.6; // 60fps budget
+    private readonly HIGH_THRESHOLD = 19.5; // trigger downscale if avg above
+    private readonly LOW_THRESHOLD = 14.0;  // trigger upscale if avg below
+    private readonly SCALE_FLOOR = 0.6;
+    private readonly SCALE_CEIL = 1.0;
+    private scaleCooldown = 0; // frames until next allowed scale change
+    private readonly SCALE_COOLDOWN_FRAMES = 45;
+
+    // sphere count tiering
+    private sphereTierCooldown = 0;
+    private readonly SPHERE_TIER_COOLDOWN_FRAMES = 240; // 4s at 60fps
+    private readonly SPHERE_TIERS = [6,4,3]; // descending complexity
 
     constructor(container: HTMLElement) {
       this.container = container;
@@ -2252,28 +2453,51 @@ export {};
       window.addEventListener('resize', this.boundOnResize);
     }
 
-    // Try optimized shader first, fallback to previous shader.
+    // Load the optimized shader (legacy fallback removed).
     private async loadShaderWithFallback(): Promise<string> {
-      try {
-        const mod = await import('$lib/three/contactRaymarching_optimized.glsl?raw');
-        return (mod && (mod.default ?? mod)) as string;
-      } catch (err) {
-        const fallback = await import('$lib/three/contactRaymarching.glsl?raw');
-        return (fallback && (fallback.default ?? fallback)) as string;
-      }
+      const mod = await import('$lib/three/contactRaymarching_optimized.glsl?raw');
+      return (mod && (mod.default ?? mod)) as string;
     }
 
     private setupRenderer(): void {
       this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      // compute capped size
+      const cssW = this.container.clientWidth;
+      const cssH = this.container.clientHeight;
+      const scale = this.internalScale;
+      const aspect = cssW / Math.max(1, cssH);
+      let targetW = cssW;
+      let targetH = cssH;
+      // cap the larger dimension at MAX_INTERNAL_DIM while preserving aspect
+      if (cssW >= cssH) {
+        if (cssW > this.MAX_INTERNAL_DIM) {
+          targetW = this.MAX_INTERNAL_DIM;
+          targetH = Math.round(targetW / aspect);
+        }
+      } else {
+        if (cssH > this.MAX_INTERNAL_DIM) {
+          targetH = this.MAX_INTERNAL_DIM;
+          targetW = Math.round(targetH * aspect);
+        }
+      }
+      targetW = Math.max(1, Math.round(targetW * scale));
+      targetH = Math.max(1, Math.round(targetH * scale));
       const effectivePixelRatio = Math.min(window.devicePixelRatio || 1, this.pixelRatioCap);
-      this.renderer.setPixelRatio(effectivePixelRatio);
-      this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+      this.renderer.setPixelRatio(1); // keep manual scaling control via target sizes
+      this.renderer.setSize(targetW, targetH, false);
       this.renderer.setClearColor(0x000000, 0);
       try {
         // @ts-ignore
         this.renderer.outputColorSpace = (THREE as any).SRGBColorSpace ?? (THREE as any).sRGBEncoding;
-      } catch (e) { /* ignore for older three versions */ }
+      } catch (e) { /* ignore */ }
       this.container.appendChild(this.renderer.domElement);
+      // ensure canvas stretches to container while content rendered at lower res
+      const canvas = this.renderer.domElement;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      canvas.style.objectFit = 'contain';
+      canvas.style.display = 'block';
+      canvas.style.margin = '0 auto';
     }
 
     private setupMaterial(fragmentShaderCode: string): void {
@@ -2352,15 +2576,23 @@ export {};
     }
 
     private setupPostProcessing(): void {
-      const width = Math.max(1, this.container.clientWidth);
-      const height = Math.max(1, this.container.clientHeight);
+      const cssW = this.container.clientWidth;
+      const cssH = this.container.clientHeight;
+      const aspect = cssW / Math.max(1, cssH);
+      // compute internal target size consistent with renderer (reuse resize logic subset)
+      let baseW = cssW >= cssH ? Math.min(cssW, this.MAX_INTERNAL_DIM) : Math.round(Math.min(cssH, this.MAX_INTERNAL_DIM) * aspect);
+      let baseH = cssW >= cssH ? Math.round(baseW / aspect) : Math.min(cssH, this.MAX_INTERNAL_DIM);
+      baseW = Math.max(1, Math.round(baseW * this.internalScale));
+      baseH = Math.max(1, Math.round(baseH * this.internalScale));
 
-      const renderTarget = new THREE.WebGLRenderTarget(width, height, { format: THREE.RGBAFormat });
-      const bloomRenderTarget = new THREE.WebGLRenderTarget(width, height, { format: THREE.RGBAFormat });
+      const halfW = Math.max(1, Math.round(baseW * 0.5));
+      const halfH = Math.max(1, Math.round(baseH * 0.5));
+
+      const renderTarget = new THREE.WebGLRenderTarget(baseW, baseH, { format: THREE.RGBAFormat });
+      const bloomRenderTarget = new THREE.WebGLRenderTarget(halfW, halfH, { format: THREE.RGBAFormat });
 
       const renderScene = new RenderPass(this.scene, this.camera);
-      // slightly stronger/clean bloom defaults that match "moody" preset
-      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(width, height), 0.30, 0.5, 0.20);
+      this.bloomPass = new UnrealBloomPass(new THREE.Vector2(halfW, halfH), 0.30, 0.5, 0.20);
 
       this.bloomComposer = new EffectComposer(this.renderer, bloomRenderTarget);
       this.bloomComposer.renderToScreen = false;
@@ -2449,8 +2681,28 @@ export {};
     private render(): void {
       // compute delta (frame-rate independent smoothing)
       const dt = Math.min(0.05, this.clock.getDelta()); // clamp dt to avoid spikes
+      const frameMs = dt * 1000.0;
+      // performance tracking (dynamic scaling)
+      this.frameTimes.push(frameMs);
+      if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+      if (this.scaleCooldown > 0) this.scaleCooldown--;
+      if (this.frameTimes.length === this.FRAME_WINDOW && this.scaleCooldown === 0) {
+        const avg = this.frameTimes.reduce((a,b)=>a+b,0) / this.frameTimes.length;
+        let changed = false;
+        if (avg > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
+          this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
+          changed = true;
+        } else if (avg < this.LOW_THRESHOLD && this.internalScale < this.SCALE_CEIL) {
+          this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
+          changed = true;
+        }
+        if (changed) {
+          this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES;
+          this.onWindowResize();
+        }
+        this.adjustSphereTier(avg); // <-- NEW TIERING LOGIC CALL
+      }
       const elapsed = this.clock.getElapsedTime() * this.ANIMATION_SPEED;
-
       // Smooth mouse target -> smoothed mouse for shader
       this.mousePos.x += (this.targetMouse.x - this.mousePos.x) * (1.0 - Math.exp(-this.MOUSE_SMOOTHNESS * 60.0 * dt));
       this.mousePos.y += (this.targetMouse.y - this.mousePos.y) * (1.0 - Math.exp(-this.MOUSE_SMOOTHNESS * 60.0 * dt));
@@ -2581,7 +2833,13 @@ export {};
     private computeAdaptiveMaxSteps(sphereCount: number): number {
       const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
       const reduction = Math.floor((sphereCount / this.MAX_SPHERES) * (this.baseMaxSteps - this.minMaxSteps));
-      return clamp(this.baseMaxSteps - reduction, this.minMaxSteps, this.baseMaxSteps);
+      let steps = this.baseMaxSteps - reduction;
+      // additional scaling reduction when internalScale < 1
+      if (this.internalScale < 0.95) {
+        const scaleFactor = 0.5 + 0.5 * this.internalScale; // at 0.6 => 0.8, at 1.0 =>1.0
+        steps = Math.round(steps * scaleFactor);
+      }
+      return clamp(steps, this.minMaxSteps, this.baseMaxSteps);
     }
 
     // Interaction
@@ -2605,26 +2863,38 @@ export {};
     // Resize handling and LOD adjustments
     private onWindowResize(): void {
       if (!this.renderer) return;
-      const width = Math.max(1, this.container.clientWidth);
-      const height = Math.max(1, this.container.clientHeight);
-
-      const effectivePixelRatio = (this.SPHERE_COUNT > 6) ? this.reducedPixelRatio : Math.min(window.devicePixelRatio || 1, this.pixelRatioCap);
-      this.renderer.setPixelRatio(effectivePixelRatio);
-      this.renderer.setSize(width, height);
-
-      if (this.bloomComposer) this.bloomComposer.setSize(width, height);
-      if (this.finalComposer) this.finalComposer.setSize(width, height);
-
+      const cssW = this.container.clientWidth;
+      const cssH = this.container.clientHeight;
+      const aspect = cssW / Math.max(1, cssH);
+      let targetW = cssW;
+      let targetH = cssH;
+      if (cssW >= cssH) {
+        if (cssW > this.MAX_INTERNAL_DIM) {
+          targetW = this.MAX_INTERNAL_DIM;
+          targetH = Math.round(targetW / aspect);
+        }
+      } else {
+        if (cssH > this.MAX_INTERNAL_DIM) {
+          targetH = this.MAX_INTERNAL_DIM;
+          targetW = Math.round(targetH * aspect);
+        }
+      }
+      targetW = Math.max(1, Math.round(targetW * this.internalScale));
+      targetH = Math.max(1, Math.round(targetH * this.internalScale));
+      this.renderer.setSize(targetW, targetH, false);
+      const canvas = this.renderer.domElement;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      // update composers if present
+      if (this.bloomComposer) this.bloomComposer.setSize(targetW, targetH);
+      if (this.finalComposer) this.finalComposer.setSize(targetW, targetH);
       const fxaaPass = (this.finalComposer?.passes || []).find((p: any) => p?.material?.uniforms?.resolution) as ShaderPass | undefined;
       if (fxaaPass) {
-        fxaaPass.material.uniforms['resolution'].value.set(1 / width, 1 / height);
+        fxaaPass.material.uniforms['resolution'].value.set(1 / targetW, 1 / targetH);
       }
-
-      if (this.material && this.material.uniforms && this.material.uniforms.uResolution) {
-        (this.material.uniforms.uResolution.value as THREE.Vector2).set(width, height);
+      if (this.material?.uniforms?.uResolution) {
+        (this.material.uniforms.uResolution.value as THREE.Vector2).set(targetW, targetH);
       }
-
-      // adapt steps if necessary (keeps shader uniform & define in sync)
       const newSteps = this.computeAdaptiveMaxSteps(this.SPHERE_COUNT);
       if (this.material) {
         if (this.material.uniforms.uMaxSteps) this.material.uniforms.uMaxSteps.value = newSteps;
@@ -2640,6 +2910,30 @@ export {};
       this.SPHERE_COUNT = Math.max(0, Math.min(count, this.MAX_SPHERES));
       if (this.material?.uniforms?.uSphereCount) this.material.uniforms.uSphereCount.value = this.SPHERE_COUNT;
       this.onWindowResize();
+    }
+
+    private adjustSphereTier(avgFrameMs: number) {
+      if (this.sphereTierCooldown > 0) { this.sphereTierCooldown--; return; }
+      if (this.internalScale > this.SCALE_FLOOR + 0.001) return; // only when already at scale floor
+      if (avgFrameMs > this.HIGH_THRESHOLD + 1.5) {
+        // reduce complexity
+        for (let i = 0; i < this.SPHERE_TIERS.length; i++) {
+          if (this.SPHERE_COUNT > this.SPHERE_TIERS[i]) {
+            this.setSphereCount(this.SPHERE_TIERS[i]);
+            this.sphereTierCooldown = this.SPHERE_TIER_COOLDOWN_FRAMES;
+            break;
+          }
+        }
+      } else if (avgFrameMs < this.LOW_THRESHOLD - 1.0) {
+        // restore complexity upward
+        for (let i = this.SPHERE_TIERS.length - 1; i >= 0; i--) {
+          if (this.SPHERE_COUNT < this.SPHERE_TIERS[i]) {
+            this.setSphereCount(this.SPHERE_TIERS[i]);
+            this.sphereTierCooldown = this.SPHERE_TIER_COOLDOWN_FRAMES;
+            break;
+          }
+        }
+      }
     }
 
     // Dispose and clean everything
@@ -2692,7 +2986,8 @@ export {};
     pointer-events: none;
   }
   /* ensure canvas fills parent */
-  .contact-effect-container canvas {
+  /* Use :global(canvas) because the canvas element is created dynamically in JS and doesn't get the Svelte scoping attribute. */
+  .contact-effect-container :global(canvas) {
     width: 100%;
     height: 100%;
     display: block;
@@ -3397,8 +3692,8 @@ export const projects: Project[] = [
   {
     id: 'project-two',
     slug: 'interactive-data-visualization',
-    headline: 'Interactive Dashboard for Sales Analytics',
-    summary: 'Developing a dynamic dashboard to visualize sales trends and provide actionable insights for stakeholders.',
+    headline: 'Project 2',
+    summary: 'Filler content for a second project (coming soon)',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-two/background.jpg' },
       { type: 'image', value: '/images/projects/project-two/background2.jpg' },
@@ -3406,48 +3701,48 @@ export const projects: Project[] = [
     tags: ['Data Visualization', 'Tableau', 'JavaScript', 'SQL'],
     cards: [
       {
-        id: 'p2-data-sourcing',
-        title: 'Data Sourcing & ETL',
+        id: 'Project_2_Card_1',
+        title: 'Card 1',
         cardImage: '/images/projects/project-two/card-data-small.webp',
-        description: 'Gathering and preparing data.',
-        aspectLink: '#data-sourcing'
+        description: 'Content',
+        aspectLink: '#1'
       },
       {
-        id: 'p2-dashboard-design',
-        title: 'Dashboard Design (UX/UI)',
+        id: 'Project_2_Card_2',
+        title: 'Card 2',
         cardImage: '/images/projects/project-two/card-design-small.webp',
-        description: 'User-centric design.',
-        aspectLink: '#dashboard-design'
+        description: 'Content',
+        aspectLink: '#2'
       },
       {
-        id: 'p2-key-insights',
-        title: 'Key Insights & Features',
+        id: 'Project_2_Card_3',
+        title: 'Card 3',
         cardImage: '/images/projects/project-two/card-insights-small.webp',
-        description: 'Impactful visualizations.',
-        aspectLink: '#key-insights'
+        description: 'Content',
+        aspectLink: '#3'
       }
     ],
     subPageSections: [
         {
-            id: 'data-sourcing',
-            title: 'Data Pipeline and ETL Processes',
-            content: 'Overview of how data was collected from multiple sources, cleaned, and transformed into a unified schema for analysis.',
+            id: 'Project_2_Subpage_Section_1',
+            title: '1',
+            content: 'Content',
             background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' }
         },
         {
-            id: 'dashboard-design',
-            title: 'Designing for User Experience',
-            content: 'The thought process behind the dashboard layout, color schemes, and interactivity to ensure insights are intuitive and accessible to non-technical users.',
+            id: 'Project_2_Subpage_Section_2',
+            title: '2',
+            content: 'Content',
             background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' }
         },
         {
-            id: 'key-insights',
-            title: 'Unlocking Actionable Insights',
-            content: 'Examples of how the dashboard helps users discover key trends, identify top-performing regions, and forecast future sales with interactive filters.',
+            id: 'Project_2_Subpage_Section_3',
+            title: '3',
+            content: 'Content',
             background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' }
         }
     ],
-    readMoreLinkText: "Discover Interactive Sales Dashboard"
+    readMoreLinkText: "Explore More"
   }
 ];
 --- END OF FILE src\lib\data\projectsData.ts ---
@@ -3867,13 +4162,11 @@ export class BloomEffect {
 precision highp float;
 precision highp int;
 
-/* contactRaymarching_optimized.glsl
-   Reworked to match the original visual style:
-   - Phong-style specular (reflect) * Fresnel
-   - Iterative softShadow (tunable steps)
-   - Central-difference normal (like original)
-   - No internal tone-mapping / gamma (postprocess handles that)
-   - Keeps packed uSpheres[x,y,z,r] input and uMaxSteps
+/* contactRaymarching_fixed.glsl
+   Improvements:
+   - Correct smooth-min (Inigo Quilez version, no distortion term)
+   - Normals blended alongside distance for smooth shading at junctions
+   - Slightly larger NORMAL_EPS for stable gradients
 */
 
 #ifndef MAX_SPHERES
@@ -3883,7 +4176,7 @@ precision highp int;
   #define MAX_STEPS 96
 #endif
 #define MAX_SPHERES4 (MAX_SPHERES * 4)
-#define SHADOW_STEPS 16      // tunable: increase for softer shadows (costly)
+#define SHADOW_STEPS 16
 
 out vec4 fragColor;
 in vec2 vUv;
@@ -3910,15 +4203,22 @@ uniform float uFogDensity;
 uniform float uCameraDistance;
 uniform int   uMaxSteps;
 
-uniform float uSmoothness; // smoothing for smin (from Svelte)
+uniform float uSmoothness;
 
 /* Constants */
 const float PI = 3.141592653589793;
 const float EPSILON = 0.0001;
+const float NORMAL_EPS = 0.002;   // larger epsilon for stable normals
 const float HIT_EPS = 0.0025;
 const float STEP_SCALE = 0.92;
 const float MIN_STEP = 0.0005;
 const float MAX_DIST = 100.0;
+
+/* Data struct for returning both distance and normal */
+struct SDFResult {
+  float dist;
+  vec3 normal;
+};
 
 /* Helpers */
 vec4 sphereAt(int i) {
@@ -3926,76 +4226,83 @@ vec4 sphereAt(int i) {
   return vec4(uSpheres[b], uSpheres[b + 1], uSpheres[b + 2], uSpheres[b + 3]);
 }
 
-float sdSphere(vec3 p, vec4 s) {
-  return length(p - s.xyz) - s.w;
+SDFResult sdSphere(vec3 p, vec4 s) {
+  vec3 q = p - s.xyz;
+  float d = length(q) - s.w;
+  return SDFResult(d, normalize(q));
 }
 
-float smin_smooth(float a, float b, float k) {
-  // smooth min; uses uniform uSmoothness (passed into k from JS)
-  float kk = max(k, 0.0001);
-  float h = clamp(0.5 + 0.5 * (b - a) / kk, 0.0, 1.0);
-  return mix(b, a, h) - kk * h * (1.0 - h) * 0.25;
+/* Canonical smooth min (Inigo Quilez) with normal blending */
+SDFResult sminBlend(SDFResult a, SDFResult b, float k) {
+  float h = clamp(0.5 + 0.5 * (b.dist - a.dist) / k, 0.0, 1.0);
+  float d = mix(b.dist, a.dist, h) - k * h * (1.0 - h);
+  vec3 n = normalize(mix(b.normal, a.normal, h));
+  return SDFResult(d, n);
 }
 
 /* Scene SDF */
-float sdf(vec3 p) {
-  float d = MAX_DIST;
+SDFResult sdf(vec3 p) {
+  SDFResult res;
+  res.dist = MAX_DIST;
+  res.normal = vec3(0.0, 1.0, 0.0);
+
   for (int i = 0; i < MAX_SPHERES; ++i) {
     if (i >= uSphereCount) break;
     vec4 s = sphereAt(i);
     if (s.w <= 0.0) continue;
-    float ds = sdSphere(p, s);
-    d = smin_smooth(d, ds, uSmoothness);
-    if (d < -0.5 * uSmoothness) break;
+
+    SDFResult sphere = sdSphere(p, s);
+    res = sminBlend(res, sphere, uSmoothness);
+
+    if (res.dist < -0.5 * uSmoothness) break;
   }
-  return d;
+  return res;
 }
 
-/* Central-difference normal (matches original) */
+/* Normal calculation: fall back to finite difference if needed */
 vec3 calcNormal(vec3 p) {
-  vec2 e = vec2(EPSILON, 0.0);
+  vec2 e = vec2(NORMAL_EPS, 0.0);
   return normalize(vec3(
-    sdf(p + e.xyy) - sdf(p - e.xyy),
-    sdf(p + e.yxy) - sdf(p - e.yxy),
-    sdf(p + e.yyx) - sdf(p - e.yyx)
+    sdf(p + e.xyy).dist - sdf(p - e.xyy).dist,
+    sdf(p + e.yxy).dist - sdf(p - e.yxy).dist,
+    sdf(p + e.yyx).dist - sdf(p - e.yyx).dist
   ));
 }
 
-/* Ambient Occlusion (like original) */
+/* Ambient Occlusion */
 float ambientOcclusion(vec3 p, vec3 n) {
   float occ = 0.0;
   float weight = 1.0;
   for (int i = 0; i < 5; ++i) {
     float dist = 0.01 + 0.02 * float(i * i);
-    float h = sdf(p + n * dist);
+    float h = sdf(p + n * dist).dist;
     occ += (dist - h) * weight;
     weight *= 0.85;
   }
   return clamp(1.0 - occ, 0.0, 1.0);
 }
 
-/* Iterative soft shadow (similar to original softShadow).
-   Steps controlled by SHADOW_STEPS (compile-time). Tweak for perf/softness. */
+/* Soft shadow */
 float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
   float res = 1.0;
   float t = mint;
   for (int i = 0; i < SHADOW_STEPS; ++i) {
     if (t >= maxt) break;
-    float h = sdf(ro + rd * t);
-    if (h < EPSILON) return 0.0; // occluded
+    float h = sdf(ro + rd * t).dist;
+    if (h < EPSILON) return 0.0;
     res = min(res, k * h / t);
     t += h;
   }
   return clamp(res, 0.0, 1.0);
 }
 
-/* Raymarching with runtime uMaxSteps clamp */
+/* Raymarch */
 float raymarch(vec3 ro, vec3 rd) {
   float t = 0.0;
   for (int i = 0; i < MAX_STEPS; ++i) {
     if (i >= uMaxSteps) break;
     vec3 p = ro + rd * t;
-    float d = sdf(p);
+    float d = sdf(p).dist;
     if (d < HIT_EPS) return t;
     float step = max(d * STEP_SCALE, MIN_STEP);
     t += step;
@@ -4004,46 +4311,34 @@ float raymarch(vec3 ro, vec3 rd) {
   return -1.0;
 }
 
-/* Lighting modeled after original 'lighting' function (Phong + Fresnel + soft shadows) */
-vec3 lighting_original(vec3 p, vec3 rd, float tHit) {
+/* Lighting (Phong + Fresnel + soft shadows) */
+vec3 lighting(vec3 p, vec3 rd, float tHit) {
   if (tHit < 0.0) return vec3(0.0);
 
-  vec3 normal = calcNormal(p);
+  SDFResult res = sdf(p);
+  vec3 normal = res.normal;  // use blended normal
   vec3 viewDir = normalize(-rd);
 
-  // base color (allow artist to set near-black in JS)
   vec3 baseColor = uSphereColor;
-
-  // ambient
   vec3 ambient = baseColor * uAmbientIntensity;
 
-  // directional light
   vec3 lightDir = normalize(uLightPosition);
   float diff = max(dot(normal, lightDir), 0.0);
   vec3 diffuse = baseColor * uLightColor * diff * uDiffuseIntensity;
 
-  // Phong specular (reflect)
   vec3 reflectDir = reflect(-lightDir, normal);
   float specAngle = max(dot(viewDir, reflectDir), 0.0);
   float spec = pow(specAngle, max(1.0, uSpecularPower));
   vec3 specular = uLightColor * spec * uSpecularIntensity;
 
-  // Fresnel mod (matches original)
   float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), uFresnelPower);
   specular *= fresnel;
 
-  // ambient occlusion
   float ao = ambientOcclusion(p, normal);
+  float shadow = softShadow(p + normal * HIT_EPS * 3.0, lightDir, 0.01, 10.0, 16.0);
 
-  // soft shadow (iterative) - tuned k = 16 like original example
-  float shadow = softShadow(p + normal * HIT_EPS * 2.0, lightDir, 0.01, 10.0, 16.0);
-
-  // combine exact original style: ambient*ao + (diffuse*shadow + specular) * ao
   vec3 color = ambient * ao + (diffuse * shadow + specular) * ao;
-
-  // gentle contrast (preserve post-processing)
   color = pow(color, vec3(uContrast));
-
   return color;
 }
 
@@ -4056,11 +4351,9 @@ vec3 makeRay(vec2 uv) {
   float camRotY = sin(uTime * 0.1) * 0.1;
   float camRotX = cos(uTime * 0.08) * 0.05;
 
-  // rotateY
   float cY = cos(camRotY), sY = sin(camRotY);
   rd = vec3(cY * rd.x + sY * rd.z, rd.y, -sY * rd.x + cY * rd.z);
 
-  // rotateX
   float cX = cos(camRotX), sX = sin(camRotX);
   rd = vec3(rd.x, cX * rd.y - sX * rd.z, sX * rd.y + cX * rd.z);
 
@@ -4075,9 +4368,8 @@ void main() {
 
   if (t > 0.0) {
     vec3 p = ro + rd * t;
-    vec3 color = lighting_original(p, rd, t);
+    vec3 color = lighting(p, rd, t);
 
-    // fog to background
     float fogAmt = 1.0 - exp(-t * uFogDensity);
     color = mix(color, uBackgroundColor, fogAmt);
 
@@ -4167,6 +4459,27 @@ export class Environment {
   private clock!: THREE.Clock; 
   private bloomEffect!: BloomEffect;
 
+  private internalScale: number = 1.0; // dynamic internal resolution scale
+  private readonly MAX_INTERNAL_DIM = 1440; // cap for larger dimension
+  private readonly SCALE_FLOOR = 0.6;
+  private readonly SCALE_CEIL = 1.0;
+  // performance tracking
+  private frameTimes: number[] = [];
+  private readonly FRAME_WINDOW = 50;
+  private readonly HIGH_THRESHOLD = 19.5;
+  private readonly LOW_THRESHOLD = 7.0;
+  private scaleCooldown = 0;
+  private readonly SCALE_COOLDOWN_FRAMES = 45;
+  private avgFrameMs = 0;
+  // metrics flag
+  private metricsEnabled = false;
+
+  private baseAmountScale = 1.0;
+  private readonly AMOUNT_TIERS = [1.0, 0.85, 0.7, 0.55];
+  private amountTierIdx = 0;
+  private amountTierCooldown = 0;
+  private readonly AMOUNT_TIER_COOLDOWN_FRAMES = 240;
+
   constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
     this.font = font;
     this.particleTexture = particleTexture;
@@ -4238,18 +4551,48 @@ export class Environment {
 
   public render() {
     const deltaTime = this.clock.getDelta();
-    
-    // --- START OF FIX ---
-    // Force the scene to render against a solid black background internally.
-    // This stabilizes the input for the bloom pass, preventing flashing when the
-    // DOM element's background is transparent during transitions.
-    this.scene.background = new THREE.Color(0x000000);
-    // --- END OF FIX ---
-
-    if (this.createParticles) {
-      this.createParticles.render(); 
+    const frameMs = deltaTime * 1000;
+    this.frameTimes.push(frameMs);
+    if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+    if (this.frameTimes.length === this.FRAME_WINDOW) {
+      this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
+      if (this.scaleCooldown > 0) this.scaleCooldown--;
+      let changed = false;
+      if (this.scaleCooldown === 0) {
+        if (this.avgFrameMs > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
+          this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
+          changed = true;
+        } else if (this.avgFrameMs < this.LOW_THRESHOLD && this.internalScale < this.SCALE_CEIL) {
+          this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
+          changed = true;
+        }
+        if (changed) { this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES; this.onWindowResize(); }
+      }
+      // Particle amount tiering: only when at scale floor and still slow OR restore when fast
+      if (this.createParticles) {
+        if (this.amountTierCooldown > 0) this.amountTierCooldown--;
+        if (this.amountTierCooldown === 0) {
+          if (this.internalScale <= this.SCALE_FLOOR + 1e-3 && this.avgFrameMs > this.HIGH_THRESHOLD + 1.5) {
+            if (this.amountTierIdx < this.AMOUNT_TIERS.length - 1) {
+              this.amountTierIdx++;
+              const newAmount = Math.floor(this.createParticles.getAmount() * this.AMOUNT_TIERS[this.amountTierIdx]);
+              this.createParticles.rebuildWithAmount(newAmount);
+              this.amountTierCooldown = this.AMOUNT_TIER_COOLDOWN_FRAMES;
+            }
+          } else if (this.avgFrameMs < this.LOW_THRESHOLD - 1.0) {
+            if (this.amountTierIdx > 0) {
+              this.amountTierIdx--;
+              const newAmount = Math.floor(this.createParticles.getAmount() / this.AMOUNT_TIERS[this.amountTierIdx+1]);
+              this.createParticles.rebuildWithAmount(newAmount);
+              this.amountTierCooldown = this.AMOUNT_TIER_COOLDOWN_FRAMES;
+            }
+          }
+        }
+      }
     }
-    
+    // Force stable background
+    this.scene.background = new THREE.Color(0x000000);
+  if (this.createParticles) this.createParticles.render(deltaTime); 
     if (this.bloomEffect) {
       this.bloomEffect.render(deltaTime);
     } else if (this.renderer && this.scene && this.camera) { 
@@ -4272,31 +4615,58 @@ export class Environment {
       antialias: true,
       alpha: true 
     });
-    this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    
+    // compute capped internal size
+    const cssW = this.container.clientWidth;
+    const cssH = this.container.clientHeight;
+    const aspect = cssW / Math.max(1, cssH);
+    let targetW = cssW;
+    let targetH = cssH;
+    if (cssW >= cssH) {
+      if (cssW > this.MAX_INTERNAL_DIM) { targetW = this.MAX_INTERNAL_DIM; targetH = Math.round(targetW / aspect); }
+    } else {
+      if (cssH > this.MAX_INTERNAL_DIM) { targetH = this.MAX_INTERNAL_DIM; targetW = Math.round(targetH * aspect); }
+    }
+    targetW = Math.max(1, Math.round(targetW * this.internalScale));
+    targetH = Math.max(1, Math.round(targetH * this.internalScale));
+    this.renderer.setPixelRatio(1); // manual scaling
+    this.renderer.setSize(targetW, targetH, false);
+    this.renderer.setClearColor(0x000000, 0);
     if (THREE.ColorManagement.enabled) { 
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     } else { 
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     }
-    
     this.container.appendChild(this.renderer.domElement);
+    const canvas = this.renderer.domElement;
+    canvas.style.width = cssW + 'px';
+    canvas.style.height = cssH + 'px';
+    canvas.style.display = 'block';
+    canvas.style.objectFit = 'contain';
   }
+  // expose metrics
+  public getMetrics() { return { internalScale: this.internalScale, avgFrameMs: this.avgFrameMs }; }
+  public enableMetrics(v: boolean) { this.metricsEnabled = v; }
   public onWindowResize() {
     if (this.camera && this.renderer && this.container) {
-      const newWidth = this.container.clientWidth;
-      const newHeight = this.container.clientHeight;
-
-      this.camera.aspect = newWidth / newHeight;
-      this.camera.updateProjectionMatrix();
-      this.renderer.setSize(newWidth, newHeight);
-      
-      if (this.bloomEffect) {
-        this.bloomEffect.setSize(newWidth, newHeight);
+      const cssW = this.container.clientWidth;
+      const cssH = this.container.clientHeight;
+      const aspect = cssW / Math.max(1, cssH);
+      let targetW = cssW;
+      let targetH = cssH;
+      if (cssW >= cssH) {
+        if (cssW > this.MAX_INTERNAL_DIM) { targetW = this.MAX_INTERNAL_DIM; targetH = Math.round(targetW / aspect); }
+      } else {
+        if (cssH > this.MAX_INTERNAL_DIM) { targetH = this.MAX_INTERNAL_DIM; targetW = Math.round(targetH * aspect); }
       }
-      
-      // Check for screen size changes and regenerate particles if needed
+      targetW = Math.max(1, Math.round(targetW * this.internalScale));
+      targetH = Math.max(1, Math.round(targetH * this.internalScale));
+      this.camera.aspect = cssW / cssH;
+      this.camera.updateProjectionMatrix();
+      this.renderer.setSize(targetW, targetH, false);
+      const canvas = this.renderer.domElement;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
+      if (this.bloomEffect) this.bloomEffect.setSize(targetW, targetH);
       if (this.createParticles) {
         if (this.createParticles.checkScreenSizeChange()) {
           this.createParticles.regenerateParticles();
@@ -4374,10 +4744,34 @@ export class CreateParticles {
   private mouse: THREE.Vector2;
   private isPressed: boolean = false;
   private hasMouseMoved: boolean = false; 
+  // Prevent immediate color influence until user interacts
+  private interactionActivated: boolean = false;
+  private activationMoveThreshold: number = 12; // pixels of cumulative motion to activate
+  private cumulativeMoveDistance: number = 0;
+  private lastPointerClientX: number | null = null;
+  private lastPointerClientY: number | null = null;
 
   private matrixSymbols: string[];
   private matrixColors: { [key: string]: THREE.Color };
   private bloomSymbolColor: THREE.Color; 
+  // Color transition state for non-symbol dots
+  private colorProgress: number[] = []; // [0..1], 0=white, 1=final green
+  private influenceEMA: number[] = [];  // smoothed influence per particle
+  private whiteCooldownFrames: number[] = []; // frames to wait before allowing pure white
+  private riseRateMul: number[] = []; // per-particle jitter
+  private fallRateMul: number[] = [];
+  private readonly colorParams = {
+  // Distortion-driven color thresholds and rates (tuned for earlier, gradual greening)
+  colorMinDistort: 2,   // start greening at small but noticeable displacement
+  colorMaxDistort: 13.0,  // reach full green below symbol threshold range
+  riseLerpPerSec: 4.5,    // approach speed when increasing
+  fallLerpPerSec: 0.115,    // approach speed when decreasing
+  minTimeToWhite: 5.0,   // seconds before returning to pure white
+  curveShape: 1.6,       // perceptual curve for mid-tones
+  finalDotGreenDarken: 0.1, // reduce brightness vs symbol green
+  jitterRise: 0.1,       // ±10%
+  jitterFall: 0.1        // ±10%
+  };
   
   private particleStates: number[] = [];
   private heatLevels: number[] = [];
@@ -4420,8 +4814,8 @@ export class CreateParticles {
   private readonly RESPONSIVE_PARAMS: Record<ScreenSizeType, Partial<ParticleData>> = {
     mobile: { amount: 1200, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
     tablet: { amount: 1800, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
-    laptop: { amount: 2200, particleSize: 1.2, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
-    desktop: { amount: 2400, particleSize: 1.4, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
+    laptop: { amount: 2200, particleSize: 1.5, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
+    desktop: { amount: 2400, particleSize: 1.68, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
     large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 8, maxSymbolSize: 11, area: 280 },
     ultrawide: { amount: 2900, particleSize: 1.6, textSize: 20, minSymbolSize: 9, maxSymbolSize: 16, area: 300 }
   };
@@ -4530,6 +4924,12 @@ export class CreateParticles {
     this.cooldownRates = new Array(count);
     this.symbolIndicesAttributeValues = new Array(count);
     this.fadeOutRates = new Array(count);
+    // initialize color transition state
+    this.colorProgress = new Array(count).fill(0);
+    this.influenceEMA = new Array(count).fill(0);
+    this.whiteCooldownFrames = new Array(count).fill(0);
+    this.riseRateMul = new Array(count);
+    this.fallRateMul = new Array(count);
     
     for (let i = 0; i < count; i++) {
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
@@ -4538,6 +4938,11 @@ export class CreateParticles {
                              Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
       this.cooldownRates[i] = 1 / Math.max(1, randomDuration);
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
+      // per-particle jitter multipliers
+      const jr = (Math.random() * 2 - 1) * this.colorParams.jitterRise;
+      const jf = (Math.random() * 2 - 1) * this.colorParams.jitterFall;
+      this.riseRateMul[i] = 1 + jr;
+      this.fallRateMul[i] = 1 + jf;
     }
   }
 
@@ -4710,16 +5115,60 @@ export class CreateParticles {
     this.mouse.set(1e5, 1e5); 
     this.hasMouseMoved = false; 
     this.isPressed = false; 
+    this.interactionActivated = false;
+    this.cumulativeMoveDistance = 0;
+    this.lastPointerClientX = null;
+    this.lastPointerClientY = null;
   }
 
-  private onMouseDown(event: MouseEvent) { this.updateMousePosition(event.clientX, event.clientY); this.isPressed = true; this.data.ease = .01; }
-  private onMouseUp() { this.isPressed = false; this.data.ease = .05; }
-  private onMouseMove(event: MouseEvent) { 
-    if (!this.hasMouseMoved) this.hasMouseMoved = true; 
-    this.updateMousePosition(event.clientX, event.clientY); 
+  private onMouseDown(event: MouseEvent) {
+    this.updateMousePosition(event.clientX, event.clientY);
+    this.isPressed = true;
+    this.data.ease = .01;
+    this.interactionActivated = true;
+    this.lastPointerClientX = event.clientX;
+    this.lastPointerClientY = event.clientY;
   }
-  private onTouchStart(event: TouchEvent) { if (event.touches.length > 0) { this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true; } event.preventDefault(); }
-  private onTouchMove(event: TouchEvent) { if (event.touches.length > 0) { this.hasMouseMoved = true; this.updateMousePosition(event.touches[0].clientX, event.touches[0].clientY); } event.preventDefault(); }
+  private onMouseUp() { this.isPressed = false; this.data.ease = .05; }
+  private onMouseMove(event: MouseEvent) {
+    const cx = event.clientX, cy = event.clientY;
+    if (!this.hasMouseMoved) this.hasMouseMoved = true;
+    if (this.lastPointerClientX !== null && this.lastPointerClientY !== null) {
+      const dx = cx - this.lastPointerClientX; const dy = cy - this.lastPointerClientY;
+      this.cumulativeMoveDistance += Math.hypot(dx, dy);
+      if (!this.interactionActivated && this.cumulativeMoveDistance >= this.activationMoveThreshold) {
+        this.interactionActivated = true;
+      }
+    }
+    this.lastPointerClientX = cx; this.lastPointerClientY = cy;
+    this.updateMousePosition(cx, cy);
+  }
+  private onTouchStart(event: TouchEvent) {
+    if (event.touches.length > 0) {
+      const cx = event.touches[0].clientX, cy = event.touches[0].clientY;
+      this.updateMousePosition(cx, cy);
+      this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true;
+      this.interactionActivated = true;
+      this.lastPointerClientX = cx; this.lastPointerClientY = cy;
+    }
+    event.preventDefault();
+  }
+  private onTouchMove(event: TouchEvent) {
+    if (event.touches.length > 0) {
+      const cx = event.touches[0].clientX, cy = event.touches[0].clientY;
+      this.hasMouseMoved = true;
+      if (this.lastPointerClientX !== null && this.lastPointerClientY !== null) {
+        const dx = cx - this.lastPointerClientX; const dy = cy - this.lastPointerClientY;
+        this.cumulativeMoveDistance += Math.hypot(dx, dy);
+        if (!this.interactionActivated && this.cumulativeMoveDistance >= this.activationMoveThreshold) {
+          this.interactionActivated = true;
+        }
+      }
+      this.lastPointerClientX = cx; this.lastPointerClientY = cy;
+      this.updateMousePosition(cx, cy);
+    }
+    event.preventDefault();
+  }
   private onTouchEnd(event: TouchEvent) { this.isPressed = false; this.data.ease = .05; event.preventDefault(); }
   
   private updateMousePosition(clientX: number, clientY: number) {
@@ -4747,177 +5196,292 @@ export class CreateParticles {
     return variedColor;
   }
 
-  public render() {
+  public render(deltaTime?: number) {
     if (!this.particles || !this.planeArea || !this.camera) return; 
 
-    if (!this.hasMouseMoved && !this.isPressed) {
-        if (this.particles && this.geometryCopy) {
-            const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
-            const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
-            let changed = false;
-            for (let i = 0, l = pos.count; i < l; i++) {
-                const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
-                let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
-                const prevPx = px; const prevPy = py; const prevPz = pz;
+    const dt = Math.max(0.00001, deltaTime ?? 1/60);
+    const clamp01 = (x: number) => x < 0 ? 0 : (x > 1 ? 1 : x);
+    
 
-                px += (initX - px) * this.data.ease; 
-                py += (initY - py) * this.data.ease; 
-                pz += (initZ - pz) * this.data.ease;
-                pos.setXYZ(i, px, py, pz);
-                if (px !== prevPx || py !== prevPy || pz !== prevPz) changed = true;
-            }
-            if (changed) pos.needsUpdate = true;
+    // cache attributes & typed arrays
+    const geo = this.particles.geometry as THREE.BufferGeometry;
+    const pos = geo.attributes.position as THREE.BufferAttribute;
+    const colors = geo.attributes.customColor as THREE.BufferAttribute;
+    const sizes = geo.attributes.size as THREE.BufferAttribute;
+    const symbolStates = geo.attributes.symbolState as THREE.BufferAttribute;
+    const symbolIndicesBuffer = geo.attributes.symbolIndex as THREE.BufferAttribute;
+
+    const posArr = pos.array as Float32Array;
+    const colArr = colors.array as Float32Array;
+    const sizeArr = sizes.array as Float32Array;
+    const stateArr = symbolStates.array as Float32Array;
+    const indexArr = symbolIndicesBuffer.array as Float32Array;
+
+    const count = pos.count;
+
+    // target dot green derived from symbol color, slightly darkened
+    const targetGreen = this.bloomSymbolColor.clone();
+    const tgHSL = { h: 0, s: 0, l: 0 };
+    targetGreen.getHSL(tgHSL);
+    tgHSL.l = Math.max(0, tgHSL.l - this.colorParams.finalDotGreenDarken);
+    targetGreen.setHSL(tgHSL.h, tgHSL.s, tgHSL.l);
+    const tgR = targetGreen.r, tgG = targetGreen.g, tgB = targetGreen.b;
+
+  if ((!this.hasMouseMoved && !this.isPressed) || !this.interactionActivated) {
+      const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
+      const copyArr = copyPos.array as Float32Array;
+      let changed = false;
+      let colorChanged = false;
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
+        const px = posArr[i3], py = posArr[i3+1], pz = posArr[i3+2];
+        let npx = px + (initX - px) * this.data.ease;
+        let npy = py + (initY - py) * this.data.ease;
+        let npz = pz + (initZ - pz) * this.data.ease;
+        if (npx !== px || npy !== py || npz !== pz) {
+          posArr[i3] = npx; posArr[i3+1] = npy; posArr[i3+2] = npz; changed = true;
         }
-        return; 
+        // Color decay when idle or before activation
+        if (this.particleStates[i] === 0) {
+          let prog = this.colorProgress[i];
+          if (this.whiteCooldownFrames[i] > 0) {
+            this.whiteCooldownFrames[i]--;
+            prog = Math.max(0.05, prog - this.colorParams.fallLerpPerSec * this.fallRateMul[i] * dt);
+          } else {
+            prog = Math.max(0, prog - this.colorParams.fallLerpPerSec * this.fallRateMul[i] * dt);
+          }
+          prog = clamp01(prog);
+          this.colorProgress[i] = prog;
+          const t = Math.pow(prog, this.colorParams.curveShape);
+          const r = 1 + (tgR - 1) * t;
+          const g = 1 + (tgG - 1) * t;
+          const b = 1 + (tgB - 1) * t;
+          const ci3 = i3;
+          if (colArr[ci3] !== r || colArr[ci3+1] !== g || colArr[ci3+2] !== b) {
+            colArr[ci3] = r; colArr[ci3+1] = g; colArr[ci3+2] = b; colorChanged = true;
+          }
+        }
+      }
+      if (changed) pos.needsUpdate = true;
+      if (colorChanged) colors.needsUpdate = true;
+      return;
     }
 
-    this.raycaster.setFromCamera(this.mouse, this.camera);
-    const intersects = this.raycaster.intersectObject(this.planeArea);
+    // direct plane intersection instead of three Raycaster object allocation
+    const rect = this.hostContainer.getBoundingClientRect();
+    const ndcX = this.mouse.x; // already in NDC from updateMousePosition
+    const ndcY = this.mouse.y;
+    const origin = new THREE.Vector3();
+    const dir = new THREE.Vector3();
+    const ray = new THREE.Ray();
+    origin.setFromMatrixPosition(this.camera.matrixWorld);
+    dir.set(ndcX, ndcY, 0.5).unproject(this.camera).sub(origin).normalize();
+    ray.set(origin, dir);
+    const plane = new THREE.Plane(new THREE.Vector3(0,0,1), -this.planeArea.position.z);
+    const hitPoint = new THREE.Vector3();
+    const hasHit = ray.intersectPlane(plane, hitPoint) !== null;
 
-    let attributesNeedUpdate = false;
+  let attributesNeedUpdate = false;
+  let colorsNeedUpdate = false;
 
-    if (intersects.length > 0) {
-      const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
+    if (hasHit) {
+      const mx = hitPoint.x;
+      const my = hitPoint.y;
+
       const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
-      const colors = this.particles.geometry.attributes.customColor as THREE.BufferAttribute;
-      const sizes = this.particles.geometry.attributes.size as THREE.BufferAttribute;
-      const symbolStates = this.particles.geometry.attributes.symbolState as THREE.BufferAttribute;
-      const symbolIndicesBuffer = this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute;
+      const copyArr = copyPos.array as Float32Array;
 
-      const mx = intersects[0].point.x;
-      const my = intersects[0].point.y;
+      const pressed = this.isPressed;
+      const area = this.data.area;
+      const baseSize = this.data.particleSize;
 
-      for (let i = 0, l = pos.count; i < l; i++) {
-        const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
-        let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
+        let px = posArr[i3], py = posArr[i3+1], pz = posArr[i3+2];
 
         const dx = mx - px; const dy = my - py;
-        const mouseDistance = Math.sqrt(dx * dx + dy * dy);
-        const dSquared = Math.max(1e-5, dx * dx + dy * dy); 
-        const f = -this.data.area / dSquared;
+        const mouseDistance = Math.hypot(dx, dy);
+        const d2 = Math.max(1e-5, dx*dx + dy*dy);
+        const f = -area / d2;
+        // color influence will be based on actual distortion from rest position
 
-        if (this.isPressed) {
+        if (pressed) {
           const t = Math.atan2(dy, dx);
           px -= f * Math.cos(t); py -= f * Math.sin(t);
           this.heatLevels[i] = Math.min(this.heatLevels[i] + 0.1, 1.0);
           attributesNeedUpdate = true;
-        } else if (mouseDistance < this.data.area) {
+        } else if (mouseDistance < area) {
           const t = Math.atan2(dy, dx);
           px += f * Math.cos(t); py += f * Math.sin(t);
           attributesNeedUpdate = true;
-          const distortion = Math.sqrt(Math.pow(px - initX, 2) + Math.pow(py - initY, 2));
-          
+          const distortion = Math.hypot(px - initX, py - initY);
           if (distortion > this.data.distortionThreshold) {
             this.heatLevels[i] = Math.min(this.heatLevels[i] + Math.min(distortion / 50, 0.1), 1.0);
             if (this.particleStates[i] === 0 && this.heatLevels[i] > this.data.symbolHeatRequirement) {
               if (Math.random() < this.getSymbolProbability(distortion)) {
-                this.particleStates[i] = 1; 
-                symbolStates.setX(i, 1.0);
-                
+                this.particleStates[i] = 1;
+                stateArr[i] = 1.0;
                 const randomSymbolSize = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
                 const randomSymbolIndex = Math.floor(Math.random() * this.matrixSymbols.length);
-                
-                sizes.setX(i, this.data.particleSize * randomSymbolSize);
-                symbolIndicesBuffer.setX(i, randomSymbolIndex);
-                
-                const symbolColorToRender = this.getVariedSymbolColor();
-                colors.setXYZ(i, symbolColorToRender.r, symbolColorToRender.g, symbolColorToRender.b);
-                attributesNeedUpdate = true; 
+                sizeArr[i] = baseSize * randomSymbolSize;
+                indexArr[i] = randomSymbolIndex;
+                const c = this.getVariedSymbolColor();
+                const ci3 = i3;
+                colArr[ci3] = c.r; colArr[ci3+1] = c.g; colArr[ci3+2] = c.b;
+                colorsNeedUpdate = true; attributesNeedUpdate = true;
               }
             }
           }
         }
 
-        if (this.particleStates[i] === 1) { 
-          const currentSize = sizes.getX(i);
-          const newSize = Math.max(this.data.particleSize, currentSize - this.fadeOutRates[i]);
-          if (currentSize !== newSize) {
-             sizes.setX(i, newSize);
-             attributesNeedUpdate = true;
-          }
+        if (this.particleStates[i] === 1) {
+          const currentSize = sizeArr[i];
+          const newSize = Math.max(baseSize, currentSize - this.fadeOutRates[i]);
+          if (currentSize !== newSize) { sizeArr[i] = newSize; attributesNeedUpdate = true; }
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier));
-          
-          const fadeThreshold = this.data.particleSize + 0.01;
+          const fadeThreshold = baseSize + 0.01;
           if (newSize <= fadeThreshold) {
-            this.particleStates[i] = 0; 
-            symbolStates.setX(i, 0.0);
-            sizes.setX(i, this.data.particleSize); 
+            this.particleStates[i] = 0;
+            stateArr[i] = 0.0;
+            sizeArr[i] = baseSize;
             attributesNeedUpdate = true;
           }
-        } else { 
-          const matrixColor = this.getMatrixColor(this.heatLevels[i]);
-          if (colors.getX(i) !== matrixColor.r || colors.getY(i) !== matrixColor.g || colors.getZ(i) !== matrixColor.b) {
-            colors.setXYZ(i, matrixColor.r, matrixColor.g, matrixColor.b);
-            attributesNeedUpdate = true;
+        } else {
+          // Distortion-driven color: map distance from rest to target greenness [0..1]
+          const d = Math.hypot(px - initX, py - initY);
+          let target = clamp01((d - this.colorParams.colorMinDistort) / Math.max(1e-6, (this.colorParams.colorMaxDistort - this.colorParams.colorMinDistort)));
+          if (pressed) target = clamp01(target * 1.1);
+          let prog = this.colorProgress[i];
+          const increasing = target > prog;
+          const rate = (increasing ? this.colorParams.riseLerpPerSec * this.riseRateMul[i]
+                                   : this.colorParams.fallLerpPerSec * this.fallRateMul[i]);
+          const step = Math.min(Math.abs(target - prog), rate * dt);
+          prog += Math.sign(target - prog) * step;
+          if (increasing) {
+            this.whiteCooldownFrames[i] = Math.max(this.whiteCooldownFrames[i], Math.floor(this.colorParams.minTimeToWhite / dt));
+          } else if (target <= 0 && this.whiteCooldownFrames[i] > 0) {
+            prog = Math.max(0.05, prog);
+            this.whiteCooldownFrames[i]--;
+          }
+          prog = clamp01(prog);
+          this.colorProgress[i] = prog;
+          const t = Math.pow(prog, this.colorParams.curveShape);
+          const r = 1 + (tgR - 1) * t;
+          const g = 1 + (tgG - 1) * t;
+          const b = 1 + (tgB - 1) * t;
+          const ci3 = i3;
+          if (colArr[ci3] !== r || colArr[ci3+1] !== g || colArr[ci3+2] !== b) {
+            colArr[ci3] = r; colArr[ci3+1] = g; colArr[ci3+2] = b; colorsNeedUpdate = true;
           }
         }
-        
+
         if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) {
           this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
         }
 
-        const prevPx = px; const prevPy = py; const prevPz = pz;
-        px += (initX - px) * this.data.ease; 
-        py += (initY - py) * this.data.ease; 
+        const prevPx = px, prevPy = py, prevPz = pz;
+        px += (initX - px) * this.data.ease;
+        py += (initY - py) * this.data.ease;
         pz += (initZ - pz) * this.data.ease;
-        
         if (px !== prevPx || py !== prevPy || pz !== prevPz) {
-            pos.setXYZ(i, px, py, pz);
-            attributesNeedUpdate = true;
+          posArr[i3] = px; posArr[i3+1] = py; posArr[i3+2] = pz; attributesNeedUpdate = true;
         }
       }
-    } else { 
-        const pos = this.particles.geometry.attributes.position as THREE.BufferAttribute;
-        const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
-        for (let i = 0, l = pos.count; i < l; i++) {
-            const initX = copyPos.getX(i); const initY = copyPos.getY(i); const initZ = copyPos.getZ(i);
-            let px = pos.getX(i); let py = pos.getY(i); let pz = pos.getZ(i);
-            const prevPx = px; const prevPy = py; const prevPz = pz;
-            px += (initX - px) * this.data.ease; 
-            py += (initY - py) * this.data.ease; 
-            pz += (initZ - pz) * this.data.ease;
-            if (px !== prevPx || py !== prevPy || pz !== prevPz) {
-                pos.setXYZ(i, px, py, pz);
-                attributesNeedUpdate = true;
-            }
+    } else {
+      const copyPos = this.geometryCopy.attributes.position as THREE.BufferAttribute;
+      const copyArr = copyPos.array as Float32Array;
+      for (let i = 0; i < count; i++) {
+        const i3 = i * 3;
+        const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
+        const px = posArr[i3], py = posArr[i3+1], pz = posArr[i3+2];
+        const npx = px + (initX - px) * this.data.ease;
+        const npy = py + (initY - py) * this.data.ease;
+        const npz = pz + (initZ - pz) * this.data.ease;
+        if (npx !== px || npy !== py || npz !== pz) {
+          posArr[i3] = npx; posArr[i3+1] = npy; posArr[i3+2] = npz; attributesNeedUpdate = true;
         }
+        // No hit: derive color from current distortion and decay
+        if (this.particleStates[i] === 0) {
+          const d = Math.hypot(px - initX, py - initY);
+          let target = clamp01((d - this.colorParams.colorMinDistort) / Math.max(1e-6, (this.colorParams.colorMaxDistort - this.colorParams.colorMinDistort)));
+          let prog = this.colorProgress[i];
+          const increasing = target > prog;
+          const rate = (increasing ? this.colorParams.riseLerpPerSec * this.riseRateMul[i]
+                                   : this.colorParams.fallLerpPerSec * this.fallRateMul[i]);
+          const step = Math.min(Math.abs(target - prog), rate * dt);
+          prog += Math.sign(target - prog) * step;
+          if (increasing) {
+            this.whiteCooldownFrames[i] = Math.max(this.whiteCooldownFrames[i], Math.floor(this.colorParams.minTimeToWhite / dt));
+          } else if (target <= 0 && this.whiteCooldownFrames[i] > 0) {
+            prog = Math.max(0.05, prog);
+            this.whiteCooldownFrames[i]--;
+          }
+          prog = clamp01(prog);
+          this.colorProgress[i] = prog;
+          const t = Math.pow(prog, this.colorParams.curveShape);
+          const r = 1 + (tgR - 1) * t;
+          const g = 1 + (tgG - 1) * t;
+          const b = 1 + (tgB - 1) * t;
+          const ci3 = i3;
+          if (colArr[ci3] !== r || colArr[ci3+1] !== g || colArr[ci3+2] !== b) {
+            colArr[ci3] = r; colArr[ci3+1] = g; colArr[ci3+2] = b; colorsNeedUpdate = true;
+          }
+        }
+      }
     }
-    
+
     if (attributesNeedUpdate) {
-        (this.particles.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-        (this.particles.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true;
-        (this.particles.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
-        (this.particles.geometry.attributes.symbolState as THREE.BufferAttribute).needsUpdate = true;
-        (this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+      pos.needsUpdate = true;
+      colors.needsUpdate = true;
+      sizes.needsUpdate = true;
+      symbolStates.needsUpdate = true;
+      symbolIndicesBuffer.needsUpdate = true;
+    }
+    if (!attributesNeedUpdate && colorsNeedUpdate) {
+      colors.needsUpdate = true;
     }
   }
   
   public resetParticleState() {
     if (!this.particles || !this.particles.geometry) return;
-    
-    const colors = this.particles.geometry.attributes.customColor as THREE.BufferAttribute;
-    const sizes = this.particles.geometry.attributes.size as THREE.BufferAttribute;
-    const symbolStates = this.particles.geometry.attributes.symbolState as THREE.BufferAttribute;
-    const symbolIndicesBuffer = this.particles.geometry.attributes.symbolIndex as THREE.BufferAttribute;
+    const geo = this.particles.geometry as THREE.BufferGeometry;
+    const colors = geo.attributes.customColor as THREE.BufferAttribute;
+    const sizes = geo.attributes.size as THREE.BufferAttribute;
+    const symbolStates = geo.attributes.symbolState as THREE.BufferAttribute;
+    const symbolIndicesBuffer = geo.attributes.symbolIndex as THREE.BufferAttribute;
+    const pos = geo.attributes.position as THREE.BufferAttribute;
 
-    if (!colors || !sizes || !symbolStates || !symbolIndicesBuffer) return;
+    const count = pos.count;
+    const baseColor = this.matrixColors.white;
 
-    const initialColor = this.matrixColors.white;
+    for (let i = 0; i < count; i++) {
+      // reset state & heat
+      this.particleStates[i] = 0;
+      this.heatLevels[i] = 0;
 
-    for (let i = 0; i < colors.count; i++) {
-      colors.setXYZ(i, initialColor.r, initialColor.g, initialColor.b); 
-      this.particleStates[i] = 0; 
-      this.heatLevels[i] = 0; 
-      sizes.setX(i, this.data.particleSize); 
-      symbolStates.setX(i, 0.0); 
-      
-      this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
-      symbolIndicesBuffer.setX(i, this.symbolIndicesAttributeValues[i]);
+      // reset geometry attributes
+      symbolStates.setX(i, 0);
+      sizes.setX(i, this.data.particleSize);
+      const c = baseColor;
+      colors.setXYZ(i, c.r, c.g, c.b);
 
+      // randomize symbol index and per-particle rates
+      const idx = Math.floor(Math.random() * this.matrixSymbols.length);
+      this.symbolIndicesAttributeValues[i] = idx;
+      symbolIndicesBuffer.setX(i, idx);
+
+      const randomDuration = this.data.particleCooldownDurationMin +
+        Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
+      this.cooldownRates[i] = 1 / Math.max(1, randomDuration);
       this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
     }
-    colors.needsUpdate = true; sizes.needsUpdate = true; 
-    symbolStates.needsUpdate = true; symbolIndicesBuffer.needsUpdate = true;
+
+    colors.needsUpdate = true;
+    sizes.needsUpdate = true;
+    symbolStates.needsUpdate = true;
+    symbolIndicesBuffer.needsUpdate = true;
   }
 
   private visibleHeightAtZDepth(depth: number, camera: THREE.PerspectiveCamera): number {
@@ -4991,8 +5555,12 @@ export class CreateParticles {
     if (this.particles) {
       this.scene.remove(this.particles);
       this.particles.geometry.dispose();
-      const material = this.particles.material as THREE.Material;
-      if (material) material.dispose();
+      const material = this.particles.material as THREE.Material | THREE.Material[];
+      if (Array.isArray(material)) {
+        material.forEach(m => m.dispose());
+      } else {
+        material.dispose();
+      }
     }
     
     this.createText();
@@ -5024,6 +5592,19 @@ export class CreateParticles {
         (material as THREE.Material).dispose();
       }
     }
+  }
+
+  public getAmount(): number { return this.data.amount; }
+  public setAmount(amount: number): void { this.data.amount = Math.max(100, Math.floor(amount)); }
+  public rebuildWithAmount(amount: number): void {
+    this.setAmount(amount);
+    if (this.particles) {
+      this.scene.remove(this.particles);
+      this.particles.geometry.dispose();
+      const material = this.particles.material as THREE.Material | THREE.Material[];
+      if (Array.isArray(material)) { material.forEach(m => m.dispose()); } else { material.dispose(); }
+    }
+    this.createText();
   }
 }
 --- END OF FILE src\lib\three\heroParticleLogic.ts ---

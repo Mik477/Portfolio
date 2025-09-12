@@ -11,6 +11,11 @@ export interface SocialLink {
   icon?: string; // Optional: path to an icon or an icon library class name
 }
 
+export interface LegalLink {
+  name: string; // e.g., 'Impressum', 'Datenschutz', 'Barrierefreiheit'
+  url: string;  // e.g., '/impressum'
+}
+
 export const siteConfig = {
   title: "Your Name - Data Scientist Portfolio",
   author: "Your Name",
@@ -47,6 +52,13 @@ export const siteConfig = {
         { name: "View My Resume", url: "/resume.pdf" } // Place resume in `static` folder
     ]
   },
+
+  // Centralized legal links for global footer
+  legalLinks: [
+    { name: 'Impressum', url: '/impressum' },
+    { name: 'Datenschutz', url: '/datenschutz' },
+    { name: 'Barrierefreiheit', url: '/barrierefreiheit' },
+  ] as LegalLink[],
 
   defaultHeadlineAnimation: {
     type: 'fadeInUp',
