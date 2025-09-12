@@ -10,15 +10,65 @@
   let cardWrapElement: HTMLDivElement;
   let elementWidth: number = 0;
   let elementHeight: number = 0;
-  let mouseX: number = 0;
-  let mouseY: number = 0;
+  let rectLeft: number = 0;
+  let rectTop: number = 0;
+  let mouseX: number = 0; // relative to center
+  let mouseY: number = 0; // relative to center
   let mouseLeaveDelay: number | null = null;
+  let hasPointer = false;
+  let rafId: number | null = null;
+  let needsFrame = false;
+  let lastPointerX = 0;
+  let lastPointerY = 0;
+  // Adaptive fidelity (lightweight moving average)
+  let frameTimes: number[] = [];
+  const FRAME_WINDOW = 50;
+  const HIGH_MS = 19.5;
+  const LOW_MS = 14.0;
+  let quality = 1.0; // 1.0 high, 0.7 low
+  let scaleCooldown = 0;
+  const SCALE_COOLDOWN_FRAMES = 45;
 
   onMount(() => {
-    if (cardWrapElement) {
-      elementWidth = cardWrapElement.offsetWidth;
-      elementHeight = cardWrapElement.offsetHeight;
-    }
+    if (!cardWrapElement) return;
+    // Initial rect
+    const rect = cardWrapElement.getBoundingClientRect();
+    elementWidth = rect.width;
+    elementHeight = rect.height;
+    rectLeft = rect.left;
+    rectTop = rect.top;
+
+    // Observe size changes
+    const ro = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        if (entry.target === cardWrapElement) {
+          const cr = entry.contentRect;
+          elementWidth = cr.width;
+          elementHeight = cr.height;
+          // Left/top may change with layout; recalc bounding rect
+          const r = cardWrapElement.getBoundingClientRect();
+          rectLeft = r.left; rectTop = r.top;
+        }
+      }
+    });
+    ro.observe(cardWrapElement);
+
+    // IntersectionObserver to gate work when offscreen
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.target === cardWrapElement) {
+          if (!e.isIntersecting) {
+            detachPointer();
+            cancelRaf();
+            mouseX = 0; mouseY = 0;
+          }
+        }
+      });
+    }, { root: null, threshold: 0 });
+    io.observe(cardWrapElement);
+
+    // Cleanup
+    onDestroy(() => { ro.disconnect(); io.disconnect(); cancelRaf(); });
   });
 
   onDestroy(() => {
@@ -27,23 +77,71 @@
 
   $: mousePX = mouseX / elementWidth;
   $: mousePY = mouseY / elementHeight;
-  $: rX = !isNaN(mousePX) ? mousePX * 30 : 0;
-  $: rY = !isNaN(mousePY) ? mousePY * -30 : 0;
-  $: tX = !isNaN(mousePX) ? mousePX * -40 : 0;
-  $: tY = !isNaN(mousePY) ? mousePY * -40 : 0;
-  $: cardStyle = `transform: rotateY(${rX}deg) rotateX(${rY}deg);`;
-  $: cardBgTransform = `transform: translateX(${tX}px) translateY(${tY}px);`;
-  $: cardBgImage = `background-image: url(${cardData.cardImage || cardData.image});`;
+  // Parallax amplitude scaled by quality for adaptive fidelity
+  $: rX = !isNaN(mousePX) ? mousePX * (30 * quality) : 0;
+  $: rY = !isNaN(mousePY) ? mousePY * (-30 * quality) : 0;
+  $: tX = !isNaN(mousePX) ? mousePX * (-40 * quality) : 0;
+  $: tY = !isNaN(mousePY) ? mousePY * (-40 * quality) : 0;
+  $: cardStyle = `transform: rotateY(${rX}deg) rotateX(${rY}deg) translateZ(0);`;
+  $: cardBgTransform = `transform: translate3d(${tX}px, ${tY}px, 0);`;
+  $: cardBgImage = cardData.cardImage ? `background-image: url(${cardData.cardImage});` : '';
 
-  function handleMouseMove(e: MouseEvent) {
+  function scheduleFrame() {
+    if (rafId !== null) return; // already scheduled
+    rafId = requestAnimationFrame(() => {
+      rafId = null;
+      // Update frame-time window
+      const now = performance.now();
+      const prev = (scheduleFrame as any)._prev || now;
+      (scheduleFrame as any)._prev = now;
+      const dtMs = Math.max(0.016, now - prev);
+      frameTimes.push(dtMs);
+      if (frameTimes.length > FRAME_WINDOW) frameTimes.shift();
+      if (frameTimes.length === FRAME_WINDOW) {
+        const avg = frameTimes.reduce((a,b)=>a+b,0)/frameTimes.length;
+        if (scaleCooldown > 0) scaleCooldown--;
+        let changed = false;
+        if (scaleCooldown === 0) {
+          if (avg > HIGH_MS && quality > 0.7) { quality = +(Math.max(0.7, quality - 0.1)).toFixed(2); changed = true; }
+          else if (avg < LOW_MS && quality < 1.0) { quality = +(Math.min(1.0, quality + 0.1)).toFixed(2); changed = true; }
+          if (changed) scaleCooldown = SCALE_COOLDOWN_FRAMES;
+        }
+      }
+      if (!needsFrame) return;
+      needsFrame = false;
+      // Compute relative to cached rect and element size
+      const cx = lastPointerX - rectLeft - elementWidth / 2;
+      const cy = lastPointerY - rectTop - elementHeight / 2;
+      mouseX = cx; mouseY = cy;
+    });
+  }
+
+  function cancelRaf() { if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; } }
+
+  function handlePointerMove(e: PointerEvent) {
     if (!cardWrapElement) return;
-    const rect = cardWrapElement.getBoundingClientRect();
-    mouseX = e.clientX - rect.left - elementWidth / 2;
-    mouseY = e.clientY - rect.top - elementHeight / 2;
+    lastPointerX = e.clientX; lastPointerY = e.clientY;
+    needsFrame = true;
+    scheduleFrame();
+  }
+
+  function attachPointer() {
+    if (!cardWrapElement || hasPointer) return;
+    hasPointer = true;
+    cardWrapElement.addEventListener('pointermove', handlePointerMove);
+    // Update cached rect on enter for accuracy
+    const r = cardWrapElement.getBoundingClientRect();
+    rectLeft = r.left; rectTop = r.top; elementWidth = r.width; elementHeight = r.height;
+  }
+  function detachPointer() {
+    if (!cardWrapElement || !hasPointer) return;
+    hasPointer = false;
+    cardWrapElement.removeEventListener('pointermove', handlePointerMove);
   }
 
   function handleMouseEnter() {
     if (mouseLeaveDelay) clearTimeout(mouseLeaveDelay);
+    attachPointer();
   }
 
   function handleMouseLeave() {
@@ -51,6 +149,7 @@
       mouseX = 0;
       mouseY = 0;
     }, 1000);
+    detachPointer();
   }
 </script>
 
@@ -58,7 +157,6 @@
   class="card-wrap"
   style:width
   style:height
-  on:mousemove={handleMouseMove}
   on:mouseenter={handleMouseEnter}
   on:mouseleave={handleMouseLeave}
   bind:this={cardWrapElement}
@@ -103,6 +201,7 @@
     transform-style: preserve-3d;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+  will-change: transform;
   }
 
   .card-wrap:hover .card-title {
@@ -133,6 +232,8 @@
     overflow: hidden;
     border-radius: 10px;
     transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
+  will-change: transform;
+  contain: paint;
   }
 
   .card-bg {
@@ -147,6 +248,7 @@
     background-size: cover;
     transition: 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), opacity 5s 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
     pointer-events: none;
+  will-change: transform, opacity;
   }
 
   .card-info {
