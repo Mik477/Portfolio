@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/stores';
 	import { transitionStore } from '$lib/stores/transitionStore';
 
 		interface LegalLink {
@@ -8,8 +9,19 @@
 
 	export let legalLinks: LegalLink[] = [];
 
+	function withLang(url: string) {
+		// If already prefixed with a locale, keep as is.
+		if (/^\/(en|de)(\/|$)/.test(url)) return url;
+		// Only prefix root-relative paths
+		if (url.startsWith('/')) {
+			const lang = $page.params?.lang ?? 'de';
+			return `/${lang}${url}`;
+		}
+		return url;
+	}
+
 	const handleNavigate = (url: string) => {
-		transitionStore.fadeToBlackAndNavigate(url);
+		transitionStore.fadeToBlackAndNavigate(withLang(url));
 	};
   
 	// Accessibility: small helper for keyboard activation on Enter/Space when needed
@@ -21,8 +33,9 @@
 	};
 </script>
 
-<footer class="legal-footer" aria-label="Legal information links">
-	<nav class="legal-nav" aria-label="Legal Links">
+<footer class="legal-footer" aria-label={(($page.data as any)?.messages?.common?.a11y?.legalFooter ?? 'Legal information links')}>
+	<div class="addons"><slot /></div>
+	<nav class="legal-nav" aria-label={(($page.data as any)?.messages?.common?.a11y?.legalNav ?? 'Legal Links')}>
 			{#each legalLinks as link (link.url)}
 				<button
 					type="button"
@@ -64,6 +77,7 @@
 		--legal-link-initial-tracking: 0.01em;
 		--legal-link-hover-tracking: 0.03em;
 		}
+			.addons { pointer-events: auto; display: inline-flex; align-items: center; }
 
 		.legal-nav { display: flex; gap: 0.5rem; align-items: center; }
 

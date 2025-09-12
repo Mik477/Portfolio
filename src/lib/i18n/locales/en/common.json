@@ -1,0 +1,44 @@
+{
+  "legal": {
+    "impressum": "Imprint",
+    "datenschutz": "Privacy",
+    "barrierefreiheit": "Accessibility"
+  },
+  "language": {
+    "groupLabel": "Language",
+    "en": "EN",
+    "de": "DE",
+    "switchToEn": "Switch to English",
+    "switchToDe": "Switch to German"
+  },
+  "about": {
+    "title": "About Me",
+  "introduction": "This is where you'll learn about who I am and what I do.",
+  "contactMe": "Contact Me"
+  },
+  "contact": {
+    "title": "Get in Touch",
+    "outroMessage": "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
+    "emailLabel": "Email me",
+    "resumeLabel": "View my resume"
+  },
+  "loading": {
+    "loading": "LOADING...",
+    "error": "ERROR LOADING"
+  },
+  "hero": {
+    "greeting": "Hello, I'm",
+    "name": "Your Name",
+    "introduction": "A data scientist passionate about insights and intelligent solutions."
+  },
+  "projects": {
+  "readMore": "Read more",
+  "viewDetailsPrefix": "View details for",
+  "cardAriaPrefix": "Interactive project card for"
+  },
+  "a11y": {
+    "backHome": "Back to home",
+    "legalFooter": "Legal information links",
+    "legalNav": "Legal Links"
+  }
+}

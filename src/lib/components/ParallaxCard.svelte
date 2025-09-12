@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import type { ProjectCard } from '$lib/data/projectsData';
+  import { page } from '$app/stores';
 
   export let cardData: ProjectCard;
   export let width: string = '240px';
@@ -161,7 +162,7 @@
   on:mouseleave={handleMouseLeave}
   bind:this={cardWrapElement}
   role="group"
-  aria-label="Interactive project card for {cardData.title}"
+  aria-label={(($page.data as any)?.messages?.common?.projects?.cardAriaPrefix ?? 'Interactive project card for') + ' ' + cardData.title}
 >
   <div class="card" style={cardStyle}>
     <div class="card-bg" style="{cardBgTransform} {cardBgImage}" id="card-bg-{cardData.id}"></div>

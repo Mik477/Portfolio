@@ -1,0 +1,44 @@
+{
+  "legal": {
+    "impressum": "Impressum",
+    "datenschutz": "Datenschutz",
+    "barrierefreiheit": "Barrierefreiheit"
+  },
+  "language": {
+    "groupLabel": "Sprache",
+    "en": "EN",
+    "de": "DE",
+    "switchToEn": "Zu Englisch wechseln",
+    "switchToDe": "Zu Deutsch wechseln"
+  },
+  "about": {
+    "title": "Über mich",
+    "introduction": "Hier erfahren Sie, wer ich bin und was ich mache.",
+    "contactMe": "Kontakt aufnehmen"
+  },
+  "contact": {
+    "title": "Kontakt",
+    "outroMessage": "Ich freue mich über neue Projekte, Kooperationen oder Möglichkeiten. Melden Sie sich gern!",
+    "emailLabel": "E-Mail senden",
+    "resumeLabel": "Lebenslauf ansehen"
+  },
+  "loading": {
+    "loading": "LADEN...",
+    "error": "FEHLER BEIM LADEN"
+  },
+  "hero": {
+    "greeting": "Hallo, ich bin",
+    "name": "Ihr Name",
+    "introduction": "Ein Data Scientist mit Leidenschaft für Erkenntnisse und intelligente Lösungen."
+  },
+  "projects": {
+    "readMore": "Mehr erfahren",
+    "viewDetailsPrefix": "Details anzeigen für",
+    "cardAriaPrefix": "Interaktive Projektkarte für"
+  },
+  "a11y": {
+    "backHome": "Zurück zur Startseite",
+    "legalFooter": "Links zu rechtlichen Informationen",
+    "legalNav": "Rechtliche Links"
+  }
+}

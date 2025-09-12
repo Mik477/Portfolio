@@ -23,6 +23,7 @@
 
   type ContactSectionData = typeof siteConfig.contactSection;
   export let data: ContactSectionData;
+  export let emailLabel: string | undefined;
 
   // 2. Create a binding for the child component instance.
   let contactEffectInstance: ContactEffectInstance | null = null;
@@ -106,7 +107,7 @@
 
     <div class="links-column">
       <a href="mailto:{data.email}" class="contact-link anim-ui-element">
-        <span>Email Me</span>
+        <span>{emailLabel ?? 'Email Me'}</span>
         <svg width="13px" height="10px" viewBox="0 0 13 10">
           <path d="M1,5 L11,5"></path>
           <polyline points="8 1 12 5 8 9"></polyline>

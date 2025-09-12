@@ -11,6 +11,7 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import type { SocialLink } from '$lib/data/siteConfig';
+  import { page } from '$app/stores';
 
   const dispatch = createEventDispatcher();
 
@@ -120,7 +121,7 @@
     {/if}
     <div class="key-position gpu-prewarm-target">
       <button type="button" id="about-contact-me-btn" class="key call-to-action peer" on:click={handleContactClick}>
-        <span class="call-to-action-content">Contact Me</span>
+        <span class="call-to-action-content">{(($page.data as any)?.messages?.common?.about?.contactMe) ?? 'Contact Me'}</span>
       </button>
     </div>
   </div>

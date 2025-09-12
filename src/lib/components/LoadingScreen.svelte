@@ -2,6 +2,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { overallLoadingState, initialSiteLoadComplete, minimumLoadingDuration } from '$lib/stores/preloadingStore';
+  import { page } from '$app/stores';
   import { get } from 'svelte/store';
 
   let showScreen = !get(initialSiteLoadComplete);
@@ -145,7 +146,8 @@
     if (status === 'error' && textElement) {
       clearTimeout(minimumDurationTimer);
       if (tickerInstance) tickerInstance.destroy();
-      tickerInstance = new Ticker(textElement, "ERROR LOADING");
+  const msg = (($page.data as any)?.messages?.common?.loading?.error) ?? 'ERROR LOADING';
+  tickerInstance = new Ticker(textElement, msg);
       tickerInstance.start();
     }
   });
@@ -153,7 +155,8 @@
   onMount(() => {
     loadingStartTime = Date.now();
     if (!get(initialSiteLoadComplete) && textElement) {
-      tickerInstance = new Ticker(textElement, "LOADING...");
+      const msg = (($page.data as any)?.messages?.common?.loading?.loading) ?? 'LOADING...';
+      tickerInstance = new Ticker(textElement, msg);
       tickerInstance.start();
     }
   });

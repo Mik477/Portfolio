@@ -2,6 +2,7 @@
 <script lang="ts">
   import type { Project, ProjectCard, ProjectSubPageSection } from '$lib/data/projectsData';
   import { transitionStore } from '$lib/stores/transitionStore';
+  import { page } from '$app/stores';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
 
   export let headline: string;
@@ -9,6 +10,7 @@
   export let cards: ProjectCard[];
   export let slug: string;
   export let readMoreLinkText: string | undefined = undefined;
+  export let readMoreFallbackLabel: string | undefined = undefined;
   export let backgrounds: Project['backgrounds'];
   // --- MODIFICATION: Added prop for subPageSections to enable intelligent preloading ---
   export let subPageSections: ProjectSubPageSection[];
@@ -31,7 +33,8 @@
     }
     // --- END OF FIX ---
 
-    transitionStore.fadeToBlackAndNavigate(`/projects/${slug}${aspectLink}`);
+  const lang = $page.params?.lang ?? 'de';
+  transitionStore.fadeToBlackAndNavigate(`/${lang}/projects/${slug}${aspectLink}`);
   }
 
   function handleReadMoreClick() {
@@ -43,7 +46,8 @@
       console.log(`[Preloader] Proactively loading background for project overview: ${backgrounds[0].value}`);
     }
 
-    transitionStore.fadeToBlackAndNavigate(`/projects/${slug}`);
+  const lang = $page.params?.lang ?? 'de';
+  transitionStore.fadeToBlackAndNavigate(`/${lang}/projects/${slug}`);
   }
 </script>
 
@@ -51,12 +55,12 @@
   <div class="text-block">
     <h2 class="anim-headline">{headline}</h2>
     <p class="anim-summary">{summary}</p>
-    {#if readMoreLinkText}
+    {#if readMoreLinkText || readMoreFallbackLabel}
       <button class="read-more-btn anim-button" on:click={handleReadMoreClick}>
         <svg>
           <rect x="0" y="0" fill="none" width="100%" height="100%"/>
         </svg>
-        <span>{readMoreLinkText}</span>
+        <span>{readMoreLinkText ?? readMoreFallbackLabel}</span>
       </button>
     {/if}
   </div>
@@ -64,7 +68,7 @@
   <div class="cards-block">
     {#each cards as card, i (card.id)}
       <div class="card-wrapper anim-card" style="--card-index: {i};">
-        <button type="button" class="card-click-target" on:click={() => handleCardClick(card)} aria-label="View details for {card.title}">
+  <button type="button" class="card-click-target" on:click={() => handleCardClick(card)} aria-label={(($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for') + ' ' + card.title}>
           <ParallaxCard cardData={card} width="240px" height="320px" />
         </button>
       </div>
