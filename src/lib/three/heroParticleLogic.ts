@@ -62,6 +62,13 @@ void main() {
 }
 `;
 
+export interface EnvironmentOptions {
+  initialInternalScale?: number; // e.g., 0.7 for mobile
+  maxInternalDim?: number;       // e.g., 960 for mobile
+  amountScale?: number;          // e.g., 0.85 to reduce initial particles
+  antialias?: boolean;           // default true
+}
+
 export class Environment {
   public font: Font;
   public particleTexture: THREE.Texture;
@@ -76,9 +83,10 @@ export class Environment {
   private bloomEffect!: BloomEffect;
 
   private internalScale: number = 1.0; // dynamic internal resolution scale
-  private readonly MAX_INTERNAL_DIM = 1440; // cap for larger dimension
+  private MAX_INTERNAL_DIM = 1440; // cap for larger dimension (overridable)
   private readonly SCALE_FLOOR = 0.6;
   private readonly SCALE_CEIL = 1.0;
+  private options: EnvironmentOptions | undefined;
   // performance tracking
   private frameTimes: number[] = [];
   private readonly FRAME_WINDOW = 50;
@@ -96,10 +104,11 @@ export class Environment {
   private amountTierCooldown = 0;
   private readonly AMOUNT_TIER_COOLDOWN_FRAMES = 240;
 
-  constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
+  constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement, options?: EnvironmentOptions) {
     this.font = font;
     this.particleTexture = particleTexture;
     this.container = container;
+    this.options = options;
     
     if (!this.container) {
       console.error("HeroParticleLogic: Container not provided to Environment!");
@@ -109,6 +118,14 @@ export class Environment {
     this.clock = new THREE.Clock(); 
 
     this.scene = new THREE.Scene();
+    // Apply initial overrides for mobile or perf
+    if (this.options?.maxInternalDim && this.options.maxInternalDim > 0) {
+      this.MAX_INTERNAL_DIM = this.options.maxInternalDim;
+    }
+    if (this.options?.initialInternalScale && this.options.initialInternalScale > 0) {
+      this.internalScale = Math.min(this.SCALE_CEIL, Math.max(this.SCALE_FLOOR, this.options.initialInternalScale));
+    }
+
     this.createCamera();
     this.createRenderer();
     
@@ -121,6 +138,17 @@ export class Environment {
     );
 
     this.setup(); 
+
+    // Optionally reduce initial particle amount after first creation
+    if (this.options?.amountScale && this.options.amountScale > 0 && this.options.amountScale < 1 && this.createParticles) {
+      try {
+        const current = this.createParticles.getAmount();
+        const target = Math.max(100, Math.floor(current * this.options.amountScale));
+        if (target < current) {
+          this.createParticles.rebuildWithAmount(target);
+        }
+      } catch {}
+    }
     this.bindWindowResize();
 
     if (this.renderer) {
@@ -228,7 +256,7 @@ export class Environment {
 
   private createRenderer() {
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: this.options?.antialias ?? true,
       alpha: true 
     });
     // compute capped internal size

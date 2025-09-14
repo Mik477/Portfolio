@@ -6,6 +6,8 @@
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { renderProfile } from '$lib/stores/renderProfile';
+  import { get } from 'svelte/store';
 
   export let activeSectionIndex: number;
   export let isTransitioning: boolean = false;
@@ -85,7 +87,11 @@
     if (!particleSystemInstance) {
       preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loading');
       try {
-        particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement);
+  const mobile = get(renderProfile).isMobile;
+        const options = mobile
+          ? { initialInternalScale: 0.7, maxInternalDim: 960, amountScale: 0.8, antialias: true }
+          : { initialInternalScale: 1.0, maxInternalDim: 1440, amountScale: 1.0, antialias: true };
+        particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement, options);
         preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
         console.log("HPE: Created new Three.js instance.");
       } catch (error) {

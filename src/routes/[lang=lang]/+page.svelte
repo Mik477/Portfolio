@@ -7,6 +7,7 @@
 	import { getProjects, type Project, type Locale } from '$lib/data/projectsData';
 	import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
 	import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
+	import { renderProfile } from '$lib/stores/renderProfile';
 	import { gsap } from 'gsap';
 
 	// Component Imports
@@ -16,6 +17,7 @@
 	import ContactSection from '$lib/components/sections/ContactSection.svelte';
 	import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
 	import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
+	import MobileNavDots from '$lib/components/MobileNavDots.svelte';
 
 	// Type Imports
 	interface IAnimatedComponent {
@@ -82,6 +84,8 @@
 	const isInitialReveal = writable(true);
 	const sectionStatesStore = sectionStates;
 	const isLeavingHero = writable(false);
+		// Dots active index updates at transition start for smooth grow/shrink
+		const navActiveIndex = writable(0);
 
 	// Page & Animation State
 	let visibilityHideTimeoutId: number | undefined;
@@ -101,6 +105,8 @@
 	$: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
 	let mainContainerPointerEvents = 'auto';
 	$: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
+
+	// Render profile
 
 	// Promise setup for initial load
 	let heroReadyResolver: () => void;
@@ -265,8 +271,10 @@
 
 			setupInitialLoad();
 
-			window.addEventListener('wheel', handleWheel, { passive: false });
-			window.addEventListener('keydown', handleKeyDown);
+			if (!get(renderProfile).isMobile) {
+				window.addEventListener('wheel', handleWheel, { passive: false });
+				window.addEventListener('keydown', handleKeyDown);
+			}
 			document.addEventListener('visibilitychange', handleVisibilityChange);
 		};
 
@@ -277,8 +285,10 @@
 	});
 
 		return () => {
-			window.removeEventListener('wheel', handleWheel);
-			window.removeEventListener('keydown', handleKeyDown);
+			if (!get(renderProfile).isMobile) {
+				window.removeEventListener('wheel', handleWheel);
+				window.removeEventListener('keydown', handleKeyDown);
+			}
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			if (unsubInitialLoadComplete) unsubInitialLoadComplete();
 			sectionBackgroundZooms.forEach(tween => tween?.kill());
@@ -307,6 +317,8 @@
 		if (get(isInitialReveal)) return; 
 		const oldIndex = get(currentSectionIndex); 
 		if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
+		// Update dots immediately to animate grow/shrink during transition
+		navActiveIndex.set(newIndex);
     
 		isAnimating.set(true); 
 		isTransitioning.set(true); 
@@ -352,10 +364,55 @@
 		}); 
 	}
 
+	// Mobile navigation wrapper: optional haptic feedback
+	function tryVibrate(duration = 15) {
+		// Basic feature detection; most mobile browsers ignore silently if unsupported
+		try {
+			if (navigator && 'vibrate' in navigator) {
+				// @ts-ignore - vibrate may not be in lib.dom.d.ts for all targets
+				navigator.vibrate?.(duration);
+			}
+		} catch {}
+	}
+	function mobileNavigateTo(newIndex: number, _cause: 'swipe'|'dot') {
+		if (!get(renderProfile).isMobile) return navigateToSection(newIndex);
+		tryVibrate(15);
+		navigateToSection(newIndex);
+	}
+
 	let lastScrollTime = 0;
 	const scrollDebounce = 200;
 	function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
 	function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
+
+	// --- Mobile swipe detection (no drag-follow, swipe triggers only) ---
+	let touchStartY = 0;
+	let touchStartX = 0;
+	let touchStartTime = 0;
+	const SWIPE_DIST = 70; // px
+	const SWIPE_VELOCITY = 0.35; // px/ms
+	const HORIZ_DEADZONE = 60; // px, ignore if mostly horizontal
+
+		function onTouchStart(e: TouchEvent) {
+			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		const t = e.changedTouches[0];
+		touchStartY = t.clientY;
+		touchStartX = t.clientX;
+		touchStartTime = performance.now();
+	}
+		function onTouchEnd(e: TouchEvent) {
+			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		const t = e.changedTouches[0];
+		const dy = t.clientY - touchStartY;
+		const dx = t.clientX - touchStartX;
+		const dt = Math.max(1, performance.now() - touchStartTime);
+		if (Math.abs(dx) > HORIZ_DEADZONE) return; // likely horizontal gesture (e.g., carousels)
+		const v = Math.abs(dy) / dt; // px/ms
+			if (Math.abs(dy) > SWIPE_DIST || v > SWIPE_VELOCITY) {
+				const dir = dy < 0 ? 1 : -1; // swipe up -> next
+				mobileNavigateTo(get(currentSectionIndex) + dir, 'swipe');
+			}
+	}
 </script>
 
 <svelte:head>
@@ -374,6 +431,8 @@
 		class:initial-state={$isInitialReveal}
 		class:on-top={$isLeavingHero}
 		style="pointer-events: {particleLayerPointerEvents};"
+		on:touchstart|passive={onTouchStart}
+		on:touchend|passive={onTouchEnd}
 	>
 			<HeroSection
 			bind:this={heroSectionInstance}
@@ -385,7 +444,12 @@
 		/>
 	</div>
 
-	<main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
+		<main
+			class="portfolio-container"
+			style="pointer-events: {mainContainerPointerEvents};"
+			on:touchstart|passive={onTouchStart}
+			on:touchend|passive={onTouchEnd}
+		>
 		<section id="hero" class="full-screen-section hero-section-container"></section>
 
 		{#each allSectionsData.slice(1) as section, i (section.id)}
@@ -423,7 +487,14 @@
 				{/if}
 			</section>
 		{/each}
-	</main>
+			{#if get(renderProfile).isMobile}
+				<MobileNavDots
+					sections={allSectionsData.map(s => ({ id: s.id, label: s.id }))}
+					activeIndex={$navActiveIndex}
+					on:select={(e) => mobileNavigateTo(e.detail.index, 'dot')}
+				/>
+			{/if}
+		</main>
 
   
 

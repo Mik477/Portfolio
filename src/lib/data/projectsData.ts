@@ -81,7 +81,7 @@ export function getProjects(locale: Locale): Project[] {
         title: isDE ? '3D‑Druck' : '3D-Printing',
         cardImage: '/images/projects/project-one/card2_cropped.webp',
         description: isDE
-          ? 'Vollständig 3D‑gedruckte Zelle mit LW‑PLA und ASA'
+          ? 'Vollständig 3D‑gedruckt mit LW‑PLA und ASA'
           : 'Fully 3D-printed Airframe with LW-PLA and ASA',
         aspectLink: '#3d-printing'
       },
@@ -109,7 +109,7 @@ export function getProjects(locale: Locale): Project[] {
         title: isDE ? 'Innovative Fertigung des Luftfahrzeugs' : 'Innovative Airframe Manufacturing',
         content: isDE
           ? 'Erläuterung des Designs mit Lightweight PLA (LW‑PLA) für Strukturbauteile und ASA für robuste, witterungsbeständige Oberflächen – optimiert für Festigkeit und Flugzeit.'
-          : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable, weather-resistant outer surfaces, optimizing for both strength and flight time.',
+          : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable structural surfaces, optimizing for both strength and flight time.',
         background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
       },
       {

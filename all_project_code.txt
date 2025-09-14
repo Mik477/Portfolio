@@ -849,6 +849,8 @@ export {};
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { renderProfile } from '$lib/stores/renderProfile';
+  import { get } from 'svelte/store';
 
   export let activeSectionIndex: number;
   export let isTransitioning: boolean = false;
@@ -928,7 +930,11 @@ export {};
     if (!particleSystemInstance) {
       preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loading');
       try {
-        particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement);
+  const mobile = get(renderProfile).isMobile;
+        const options = mobile
+          ? { initialInternalScale: 0.7, maxInternalDim: 960, amountScale: 0.8, antialias: true }
+          : { initialInternalScale: 1.0, maxInternalDim: 1440, amountScale: 1.0, antialias: true };
+        particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement, options);
         preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
         console.log("HPE: Created new Three.js instance.");
       } catch (error) {
@@ -1801,6 +1807,62 @@ export {};
   @media (prefers-reduced-motion: reduce) { .word :global(span) { transition: none; } .scanline-overlay, .scanline-overlay::before { animation: none; } }
 </style>
 --- END OF FILE src\lib\components\LoadingScreen.svelte ---
+
+--- START OF FILE src\lib\components\MobileNavDots.svelte ---
+<!-- src/lib/components/MobileNavDots.svelte -->
+<script lang="ts">
+  import { createEventDispatcher } from 'svelte';
+  import { onMount } from 'svelte';
+
+  export let sections: { id: string; label?: string }[] = [];
+  export let activeIndex = 0;
+
+  const dispatch = createEventDispatcher<{ select: { index: number } }>();
+
+  function onSelect(i: number) {
+    dispatch('select', { index: i });
+  }
+</script>
+
+<nav class="mobile-dots" aria-label="Section navigation">
+  <ul>
+    {#each sections as s, i}
+      <li>
+        <button
+          class:active={i === activeIndex}
+          aria-label={s.label ?? s.id}
+          aria-current={i === activeIndex ? 'true' : undefined}
+          on:click={() => onSelect(i)}
+        ></button>
+      </li>
+    {/each}
+  </ul>
+</nav>
+
+<style>
+  .mobile-dots { position: fixed; right: max(8px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%); z-index: 5; }
+  .mobile-dots ul { list-style: none; margin: 0; padding: 8px; display: flex; flex-direction: column; gap: 12px; }
+  .mobile-dots li { margin: 0; padding: 0; }
+  .mobile-dots button { 
+    width: 8px; height: 8px; border-radius: 50%; border: none; 
+    background: rgba(255,255,255,0.8); display: block; padding: 0; cursor: pointer; 
+    transform-origin: center; will-change: transform; 
+    transition: transform 200ms cubic-bezier(.2,.8,.2,1), background-color 180ms ease; 
+  }
+  .mobile-dots button.active { 
+    transform: scale(1.7); 
+    animation: dotPop 220ms cubic-bezier(.2,.8,.2,1);
+    background: rgba(255,255,255,1);
+  }
+  @keyframes dotPop {
+    0% { transform: scale(1); }
+    60% { transform: scale(1.85); }
+    100% { transform: scale(1.7); }
+  }
+  @media (min-width: 769px) { .mobile-dots { display: none; } }
+</style>
+
+--- END OF FILE src\lib\components\MobileNavDots.svelte ---
 
 --- START OF FILE src\lib\components\ParallaxCard.svelte ---
 <!-- src/lib/components/ParallaxCard.svelte -->
@@ -3549,6 +3611,10 @@ export {};
 </style>
 --- END OF FILE src\lib\components\sections\ContactSection.svelte ---
 
+--- START OF FILE src\lib\components\sections\ContactSectionMobile.svelte ---
+
+--- END OF FILE src\lib\components\sections\ContactSectionMobile.svelte ---
+
 --- START OF FILE src\lib\components\sections\HeroSection.svelte ---
 <!-- src/lib/components/sections/HeroSection.svelte -->
 <script context="module" lang="ts">
@@ -3655,6 +3721,10 @@ export {};
   }
 </style>
 --- END OF FILE src\lib\components\sections\HeroSection.svelte ---
+
+--- START OF FILE src\lib\components\sections\HeroSectionMobile.svelte ---
+
+--- END OF FILE src\lib\components\sections\HeroSectionMobile.svelte ---
 
 --- START OF FILE src\lib\components\sections\ProjectSection.svelte ---
 <!-- src/lib/components/sections/ProjectSection.svelte -->
@@ -3888,6 +3958,10 @@ export {};
 </style>
 --- END OF FILE src\lib\components\sections\ProjectSection.svelte ---
 
+--- START OF FILE src\lib\components\sections\ProjectSectionMobile.svelte ---
+
+--- END OF FILE src\lib\components\sections\ProjectSectionMobile.svelte ---
+
 --- START OF FILE src\lib\data\projectsData.ts ---
 // src/lib/data/projectsData.ts
 
@@ -3972,7 +4046,7 @@ export function getProjects(locale: Locale): Project[] {
         title: isDE ? '3D‑Druck' : '3D-Printing',
         cardImage: '/images/projects/project-one/card2_cropped.webp',
         description: isDE
-          ? 'Vollständig 3D‑gedruckte Zelle mit LW‑PLA und ASA'
+          ? 'Vollständig 3D‑gedruckt mit LW‑PLA und ASA'
           : 'Fully 3D-printed Airframe with LW-PLA and ASA',
         aspectLink: '#3d-printing'
       },
@@ -4000,7 +4074,7 @@ export function getProjects(locale: Locale): Project[] {
         title: isDE ? 'Innovative Fertigung des Luftfahrzeugs' : 'Innovative Airframe Manufacturing',
         content: isDE
           ? 'Erläuterung des Designs mit Lightweight PLA (LW‑PLA) für Strukturbauteile und ASA für robuste, witterungsbeständige Oberflächen – optimiert für Festigkeit und Flugzeit.'
-          : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable, weather-resistant outer surfaces, optimizing for both strength and flight time.',
+          : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable structural surfaces, optimizing for both strength and flight time.',
         background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
       },
       {
@@ -4116,6 +4190,10 @@ export const siteConfig = {
   },
 };
 --- END OF FILE src\lib\data\siteConfig.ts ---
+
+--- START OF FILE src\lib\effects\effectConfig.ts ---
+
+--- END OF FILE src\lib\effects\effectConfig.ts ---
 
 --- START OF FILE src\lib\i18n\namespaces.ts ---
 // src/lib/i18n/namespaces.ts
@@ -4600,6 +4678,117 @@ export async function preloadAssets(urls: string[]): Promise<void> {
 }
 --- END OF FILE src\lib\stores\preloadingStore.ts ---
 
+--- START OF FILE src\lib\stores\renderProfile.ts ---
+// src/lib/stores/renderProfile.ts
+import { readable, writable, derived, get } from 'svelte/store';
+import { browser } from '$app/environment';
+import { page } from '$app/stores';
+
+type RenderProfile = {
+  isMobile: boolean;
+  hasCoarsePointer: boolean;
+  prefersReducedMotion: boolean;
+  // Internal: debug/override flags
+  forceMobile?: boolean | null;
+};
+
+const initial: RenderProfile = {
+  isMobile: false,
+  hasCoarsePointer: false,
+  prefersReducedMotion: false,
+  forceMobile: null
+};
+
+const state = writable<RenderProfile>(initial);
+
+// Media query helpers
+function mql(query: string): MediaQueryList | null {
+  if (!browser || typeof window.matchMedia !== 'function') return null;
+  try { return window.matchMedia(query); } catch { return null; }
+}
+
+// Set up listeners only in browser
+if (browser) {
+  const mqMobile = mql('(max-width: 768px)');
+  const mqCoarse = mql('(pointer: coarse)');
+  const mqReduced = mql('(prefers-reduced-motion: reduce)');
+
+  const compute = (override: boolean | null = (get(state).forceMobile ?? null)) => {
+    const isMobileWidth = mqMobile ? mqMobile.matches : false;
+    const coarse = mqCoarse ? mqCoarse.matches : false;
+    const reduced = mqReduced ? mqReduced.matches : false;
+    // Default detection: width or coarse pointer implies mobile
+    const detectedMobile = isMobileWidth || coarse;
+    state.update((s) => ({
+      ...s,
+      isMobile: override === null ? detectedMobile : !!override,
+      hasCoarsePointer: coarse,
+      prefersReducedMotion: reduced
+    }));
+  };
+
+  // Initial compute
+  compute();
+
+  // Listeners
+  const onChange = () => compute();
+  mqMobile?.addEventListener('change', onChange);
+  mqCoarse?.addEventListener('change', onChange);
+  mqReduced?.addEventListener('change', onChange);
+
+  // Resize fallback for UAs not updating MQLs reliably
+  const onResize = () => compute();
+  window.addEventListener('orientationchange', onResize);
+  window.addEventListener('resize', onResize);
+
+  // Clean-up in HMR scenarios
+  if (import.meta && (import.meta as any).hot) {
+    (import.meta as any).hot.dispose(() => {
+      mqMobile?.removeEventListener('change', onChange);
+      mqCoarse?.removeEventListener('change', onChange);
+      mqReduced?.removeEventListener('change', onChange);
+      window.removeEventListener('orientationchange', onResize);
+      window.removeEventListener('resize', onResize);
+    });
+  }
+}
+
+// Expose derived store synced with ?mobile=1/0 override
+export const renderProfile = derived([state, page], ([$state, $page]) => {
+  if (!browser) return $state; // SSR safe
+  const sp = $page?.url?.searchParams;
+  const mobileParam = sp?.get('mobile');
+  let forceMobile: boolean | null = null;
+  if (mobileParam === '1' || mobileParam === 'true') forceMobile = true;
+  if (mobileParam === '0' || mobileParam === 'false') forceMobile = false;
+  if (forceMobile !== $state.forceMobile) {
+    // Update override and recompute
+    state.update((s) => ({ ...s, forceMobile }));
+    // Computation will run on next tick for browser listeners; also do a direct apply
+    if (browser) {
+      const mqMobile = mql('(max-width: 768px)');
+      const mqCoarse = mql('(pointer: coarse)');
+      const mqReduced = mql('(prefers-reduced-motion: reduce)');
+      const isMobileWidth = mqMobile ? mqMobile.matches : false;
+      const coarse = mqCoarse ? mqCoarse.matches : false;
+      const reduced = mqReduced ? mqReduced.matches : false;
+      const detectedMobile = isMobileWidth || coarse;
+      state.set({
+        isMobile: forceMobile === null ? detectedMobile : !!forceMobile,
+        hasCoarsePointer: coarse,
+        prefersReducedMotion: reduced,
+        forceMobile
+      });
+    }
+  }
+  return get(state);
+});
+
+export const isMobile = derived(renderProfile, ($p) => $p.isMobile);
+export const prefersReducedMotion = derived(renderProfile, ($p) => $p.prefersReducedMotion);
+
+--- END OF FILE src\lib\stores\renderProfile.ts ---
+
 --- START OF FILE src\lib\stores\sectionStateStore.ts ---
 // src/lib/stores/sectionStateStore.ts
 import { writable } from 'svelte/store';
@@ -5034,6 +5223,13 @@ void main() {
 }
 `;
 
+export interface EnvironmentOptions {
+  initialInternalScale?: number; // e.g., 0.7 for mobile
+  maxInternalDim?: number;       // e.g., 960 for mobile
+  amountScale?: number;          // e.g., 0.85 to reduce initial particles
+  antialias?: boolean;           // default true
+}
+
 export class Environment {
   public font: Font;
   public particleTexture: THREE.Texture;
@@ -5048,9 +5244,10 @@ export class Environment {
   private bloomEffect!: BloomEffect;
 
   private internalScale: number = 1.0; // dynamic internal resolution scale
-  private readonly MAX_INTERNAL_DIM = 1440; // cap for larger dimension
+  private MAX_INTERNAL_DIM = 1440; // cap for larger dimension (overridable)
   private readonly SCALE_FLOOR = 0.6;
   private readonly SCALE_CEIL = 1.0;
+  private options: EnvironmentOptions | undefined;
   // performance tracking
   private frameTimes: number[] = [];
   private readonly FRAME_WINDOW = 50;
@@ -5068,10 +5265,11 @@ export class Environment {
   private amountTierCooldown = 0;
   private readonly AMOUNT_TIER_COOLDOWN_FRAMES = 240;
 
-  constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement) {
+  constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement, options?: EnvironmentOptions) {
     this.font = font;
     this.particleTexture = particleTexture;
     this.container = container;
+    this.options = options;
     
     if (!this.container) {
       console.error("HeroParticleLogic: Container not provided to Environment!");
@@ -5081,6 +5279,14 @@ export class Environment {
     this.clock = new THREE.Clock(); 
 
     this.scene = new THREE.Scene();
+    // Apply initial overrides for mobile or perf
+    if (this.options?.maxInternalDim && this.options.maxInternalDim > 0) {
+      this.MAX_INTERNAL_DIM = this.options.maxInternalDim;
+    }
+    if (this.options?.initialInternalScale && this.options.initialInternalScale > 0) {
+      this.internalScale = Math.min(this.SCALE_CEIL, Math.max(this.SCALE_FLOOR, this.options.initialInternalScale));
+    }
+
     this.createCamera();
     this.createRenderer();
     
@@ -5093,6 +5299,17 @@ export class Environment {
     );
 
     this.setup(); 
+
+    // Optionally reduce initial particle amount after first creation
+    if (this.options?.amountScale && this.options.amountScale > 0 && this.options.amountScale < 1 && this.createParticles) {
+      try {
+        const current = this.createParticles.getAmount();
+        const target = Math.max(100, Math.floor(current * this.options.amountScale));
+        if (target < current) {
+          this.createParticles.rebuildWithAmount(target);
+        }
+      } catch {}
+    }
     this.bindWindowResize();
 
     if (this.renderer) {
@@ -5200,7 +5417,7 @@ export class Environment {
 
   private createRenderer() {
     this.renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: this.options?.antialias ?? true,
       alpha: true 
     });
     // compute capped internal size
@@ -6965,6 +7182,7 @@ export const load: PageLoad = ({ params }) => {
 	import { getProjects, type Project, type Locale } from '$lib/data/projectsData';
 	import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
 	import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
+	import { renderProfile } from '$lib/stores/renderProfile';
 	import { gsap } from 'gsap';
 
 	// Component Imports
@@ -6974,6 +7192,7 @@ export const load: PageLoad = ({ params }) => {
 	import ContactSection from '$lib/components/sections/ContactSection.svelte';
 	import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
 	import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
+	import MobileNavDots from '$lib/components/MobileNavDots.svelte';
 
 	// Type Imports
 	interface IAnimatedComponent {
@@ -7040,6 +7259,8 @@ export const load: PageLoad = ({ params }) => {
 	const isInitialReveal = writable(true);
 	const sectionStatesStore = sectionStates;
 	const isLeavingHero = writable(false);
+		// Dots active index updates at transition start for smooth grow/shrink
+		const navActiveIndex = writable(0);
 
 	// Page & Animation State
 	let visibilityHideTimeoutId: number | undefined;
@@ -7059,6 +7280,8 @@ export const load: PageLoad = ({ params }) => {
 	$: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
 	let mainContainerPointerEvents = 'auto';
 	$: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
+
+	// Render profile
 
 	// Promise setup for initial load
 	let heroReadyResolver: () => void;
@@ -7223,8 +7446,10 @@ export const load: PageLoad = ({ params }) => {
 
 			setupInitialLoad();
 
-			window.addEventListener('wheel', handleWheel, { passive: false });
-			window.addEventListener('keydown', handleKeyDown);
+			if (!get(renderProfile).isMobile) {
+				window.addEventListener('wheel', handleWheel, { passive: false });
+				window.addEventListener('keydown', handleKeyDown);
+			}
 			document.addEventListener('visibilitychange', handleVisibilityChange);
 		};
 
@@ -7235,8 +7460,10 @@ export const load: PageLoad = ({ params }) => {
 	});
 
 		return () => {
-			window.removeEventListener('wheel', handleWheel);
-			window.removeEventListener('keydown', handleKeyDown);
+			if (!get(renderProfile).isMobile) {
+				window.removeEventListener('wheel', handleWheel);
+				window.removeEventListener('keydown', handleKeyDown);
+			}
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			if (unsubInitialLoadComplete) unsubInitialLoadComplete();
 			sectionBackgroundZooms.forEach(tween => tween?.kill());
@@ -7265,6 +7492,8 @@ export const load: PageLoad = ({ params }) => {
 		if (get(isInitialReveal)) return; 
 		const oldIndex = get(currentSectionIndex); 
 		if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
+		// Update dots immediately to animate grow/shrink during transition
+		navActiveIndex.set(newIndex);
     
 		isAnimating.set(true); 
 		isTransitioning.set(true); 
@@ -7310,10 +7539,55 @@ export const load: PageLoad = ({ params }) => {
 		}); 
 	}
 
+	// Mobile navigation wrapper: optional haptic feedback
+	function tryVibrate(duration = 15) {
+		// Basic feature detection; most mobile browsers ignore silently if unsupported
+		try {
+			if (navigator && 'vibrate' in navigator) {
+				// @ts-ignore - vibrate may not be in lib.dom.d.ts for all targets
+				navigator.vibrate?.(duration);
+			}
+		} catch {}
+	}
+	function mobileNavigateTo(newIndex: number, _cause: 'swipe'|'dot') {
+		if (!get(renderProfile).isMobile) return navigateToSection(newIndex);
+		tryVibrate(15);
+		navigateToSection(newIndex);
+	}
+
 	let lastScrollTime = 0;
 	const scrollDebounce = 200;
 	function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
 	function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
+
+	// --- Mobile swipe detection (no drag-follow, swipe triggers only) ---
+	let touchStartY = 0;
+	let touchStartX = 0;
+	let touchStartTime = 0;
+	const SWIPE_DIST = 70; // px
+	const SWIPE_VELOCITY = 0.35; // px/ms
+	const HORIZ_DEADZONE = 60; // px, ignore if mostly horizontal
+
+		function onTouchStart(e: TouchEvent) {
+			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		const t = e.changedTouches[0];
+		touchStartY = t.clientY;
+		touchStartX = t.clientX;
+		touchStartTime = performance.now();
+	}
+		function onTouchEnd(e: TouchEvent) {
+			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		const t = e.changedTouches[0];
+		const dy = t.clientY - touchStartY;
+		const dx = t.clientX - touchStartX;
+		const dt = Math.max(1, performance.now() - touchStartTime);
+		if (Math.abs(dx) > HORIZ_DEADZONE) return; // likely horizontal gesture (e.g., carousels)
+		const v = Math.abs(dy) / dt; // px/ms
+			if (Math.abs(dy) > SWIPE_DIST || v > SWIPE_VELOCITY) {
+				const dir = dy < 0 ? 1 : -1; // swipe up -> next
+				mobileNavigateTo(get(currentSectionIndex) + dir, 'swipe');
+			}
+	}
 </script>
 
 <svelte:head>
@@ -7332,6 +7606,8 @@ export const load: PageLoad = ({ params }) => {
 		class:initial-state={$isInitialReveal}
 		class:on-top={$isLeavingHero}
 		style="pointer-events: {particleLayerPointerEvents};"
+		on:touchstart|passive={onTouchStart}
+		on:touchend|passive={onTouchEnd}
 	>
 			<HeroSection
 			bind:this={heroSectionInstance}
@@ -7343,7 +7619,12 @@ export const load: PageLoad = ({ params }) => {
 		/>
 	</div>
 
-	<main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
+		<main
+			class="portfolio-container"
+			style="pointer-events: {mainContainerPointerEvents};"
+			on:touchstart|passive={onTouchStart}
+			on:touchend|passive={onTouchEnd}
+		>
 		<section id="hero" class="full-screen-section hero-section-container"></section>
 
 		{#each allSectionsData.slice(1) as section, i (section.id)}
@@ -7381,7 +7662,14 @@ export const load: PageLoad = ({ params }) => {
 				{/if}
 			</section>
 		{/each}
-	</main>
+			{#if get(renderProfile).isMobile}
+				<MobileNavDots
+					sections={allSectionsData.map(s => ({ id: s.id, label: s.id }))}
+					activeIndex={$navActiveIndex}
+					on:select={(e) => mobileNavigateTo(e.detail.index, 'dot')}
+				/>
+			{/if}
+		</main>
 
   
 
