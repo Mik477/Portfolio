@@ -4,7 +4,7 @@
 	import { writable, get } from 'svelte/store';
 		import { siteConfig } from '$lib/data/siteConfig';
 		import { page } from '$app/stores';
-	import { projects, type Project } from '$lib/data/projectsData';
+	import { getProjects, type Project, type Locale } from '$lib/data/projectsData';
 	import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
 	import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
 	import { gsap } from 'gsap';
@@ -27,22 +27,16 @@
 	}
 	import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
 
-	// Section Data Structure
-			const allSectionsData = [
-				{ id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
-			{ id: 'about', component: AboutSection, data: siteConfig.aboutSection, layout: null },
-		{ 
-			id: `project-${projects[0].id}`, 
-			component: ProjectSection, 
-			layout: ProjectOneLayout,
-			data: projects[0] 
-		},
-		{ 
-			id: `project-${projects[1].id}`, 
-			component: ProjectSection,
-			layout: ProjectOneLayout,
-			data: projects[1]
-		},
+	// Section Data Structure (reactive to locale)
+	let allSectionsData: any[] = [];
+	let currentLocale: Locale;
+	$: currentLocale = ((($page.params as any)?.lang === 'de') ? 'de' : 'en');
+	$: localizedProjects = getProjects(currentLocale);
+	$: allSectionsData = [
+		{ id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
+		{ id: 'about', component: AboutSection, data: siteConfig.aboutSection, layout: null },
+		{ id: `project-${localizedProjects[0].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[0] },
+		{ id: `project-${localizedProjects[1].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[1] },
 		{ id: 'contact', component: ContactSection, data: siteConfig.contactSection, layout: null }
 	];
 	const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');

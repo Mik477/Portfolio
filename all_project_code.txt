@@ -1,5 +1,7 @@
 --- START OF FILE src\app.css ---
 /* src/app.css */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap');
+
 :root {
     --keyboard-background-2: #09090b;
     --keyboard-background-3: #232b34;
@@ -1132,6 +1134,7 @@ export {};
   import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import type { SocialLink } from '$lib/data/siteConfig';
+  import { page } from '$app/stores';
 
   const dispatch = createEventDispatcher();
 
@@ -1241,7 +1244,7 @@ export {};
     {/if}
     <div class="key-position gpu-prewarm-target">
       <button type="button" id="about-contact-me-btn" class="key call-to-action peer" on:click={handleContactClick}>
-        <span class="call-to-action-content">Contact Me</span>
+        <span class="call-to-action-content">{(($page.data as any)?.messages?.common?.about?.contactMe) ?? 'Contact Me'}</span>
       </button>
     </div>
   </div>
@@ -1297,11 +1300,307 @@ export {};
 </style>
 --- END OF FILE src\lib\components\KeyboardButtons.svelte ---
 
+--- START OF FILE src\lib\components\LanguageSwitcher.svelte ---
+<script lang="ts">
+  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+
+  export let locale: 'en' | 'de';
+  export let groupLabel: string = 'Language';
+  // Labels stay for a11y/screen readers; visually we render flags
+  export let labelEn: string = 'EN';
+  export let labelDe: string = 'DE';
+  export let switchToEnLabel: string = 'Switch to English';
+  export let switchToDeLabel: string = 'Switch to German';
+
+  function setCookie(name: string, value: string, days = 365) {
+    const d = new Date();
+    d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
+    const expires = 'expires=' + d.toUTCString();
+    document.cookie = `${name}=${value};${expires};path=/;SameSite=Lax`;
+  }
+
+  function switchLocale(target: 'en' | 'de') {
+    if (target === locale) return;
+    setCookie('locale', target);
+    const current = $page.url;
+    const pathname = current.pathname;
+    let newPath = '';
+    if (pathname === '/' || pathname === '') {
+      // When on root, direct to target locale root
+      newPath = `/${target}`;
+    } else if (/^\/(en|de)(\/|$)/.test(pathname)) {
+      newPath = pathname.replace(/^\/(en|de)/, `/${target}`);
+    } else {
+      newPath = `/${target}${pathname}`;
+    }
+  goto(newPath + current.search + current.hash, { keepFocus: true });
+  }
+</script>
+
+<div class="lang-switch" role="group" aria-label={groupLabel}>
+  <button
+    type="button"
+    class="lang-btn flag-btn flag-us"
+    class:active={locale === 'en'}
+    aria-pressed={locale === 'en'}
+    aria-label={switchToEnLabel}
+    title={switchToEnLabel}
+    on:click={() => switchLocale('en')}
+  >
+    <span class="sr-only">{labelEn}</span>
+  </button>
+  <button
+    type="button"
+    class="lang-btn flag-btn flag-de"
+    class:active={locale === 'de'}
+    aria-pressed={locale === 'de'}
+    aria-label={switchToDeLabel}
+    title={switchToDeLabel}
+    on:click={() => switchLocale('de')}
+  >
+    <span class="sr-only">{labelDe}</span>
+  </button>
+</div>
+
+<style>
+  .lang-switch { display: inline-flex; gap: 0.3rem; margin-left: 0.5rem; /* default scalable size */ --flag-h: 1rem; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  .lang-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: var(--flag-h);
+    width: calc(var(--flag-h) * 1.5); /* 3:2 aspect ratio */
+    border-radius: calc(var(--flag-h) * 0.25);
+    border: none;
+    box-shadow: 0 0.125rem 0.5rem rgba(0,0,0,0.35);
+    cursor: pointer;
+    transition: transform 160ms ease, box-shadow 200ms ease, border-color 160ms ease, filter 160ms ease;
+    overflow: hidden;
+  }
+  .lang-btn:hover { transform: translateY(-1px) scale(1.03); box-shadow: 0 0.375rem 1rem rgba(0,0,0,0.5); filter: saturate(1.2) contrast(1.05); }
+  .lang-btn:focus-visible { outline: 0.125rem solid rgba(255,255,255,0.6); outline-offset: 0.125rem; }
+  .lang-btn.active { transform: translateY(-1px) scale(1.02); box-shadow: 0 0.375rem 1rem rgba(0,0,0,0.5); filter: saturate(1.25) contrast(1.05); }
+
+  /* Flag fill variants */
+  .flag-btn { background-size: cover; background-position: center; }
+
+  /* Germany: black-red-gold stripes */
+  .flag-de {
+    background-image:
+      linear-gradient(to bottom, #000 0 33.333%, #dd0000 33.333% 66.666%, #ffce00 66.666% 100%);
+  }
+
+  /* USA: 13 stripes with blue canton (stars simplified) */
+  .flag-us {
+    background-image:
+      /* canton */
+      linear-gradient(#3c3b6e, #3c3b6e),
+      /* stripes */
+      repeating-linear-gradient(to bottom, #b22234 0 7.692%, #fff 7.692% 15.384%);
+    background-size:
+      42% 53.8%, /* approx width:height for canton (7 stripes tall) */
+      100% 100%;
+    background-position:
+      left top,
+      left top;
+    background-repeat: no-repeat;
+  }
+</style>
+
+--- END OF FILE src\lib\components\LanguageSwitcher.svelte ---
+
+--- START OF FILE src\lib\components\LegalFooter.svelte ---
+<script lang="ts">
+	import { page } from '$app/stores';
+	import { transitionStore } from '$lib/stores/transitionStore';
+
+		interface LegalLink {
+		name: string;
+		url: string;
+	}
+
+	export let legalLinks: LegalLink[] = [];
+
+	function withLang(url: string) {
+		// If already prefixed with a locale, keep as is.
+		if (/^\/(en|de)(\/|$)/.test(url)) return url;
+		// Only prefix root-relative paths
+		if (url.startsWith('/')) {
+			const lang = $page.params?.lang ?? 'de';
+			return `/${lang}${url}`;
+		}
+		return url;
+	}
+
+	const handleNavigate = (url: string) => {
+		transitionStore.fadeToBlackAndNavigate(withLang(url));
+	};
+  
+	// Accessibility: small helper for keyboard activation on Enter/Space when needed
+	const onKeyActivate = (e: KeyboardEvent, url: string) => {
+		if (e.key === 'Enter' || e.key === ' ') {
+			e.preventDefault();
+			handleNavigate(url);
+		}
+	};
+</script>
+
+<footer class="legal-footer" aria-label={(($page.data as any)?.messages?.common?.a11y?.legalFooter ?? 'Legal information links')}>
+	<div class="addons"><slot /></div>
+	<nav class="legal-nav" aria-label={(($page.data as any)?.messages?.common?.a11y?.legalNav ?? 'Legal Links')}>
+			{#each legalLinks as link (link.url)}
+				<button
+					type="button"
+					class="legal-link"
+					on:click={() => handleNavigate(link.url)}
+					on:keydown={(e) => onKeyActivate(e, link.url)}
+				>
+					<span class="measure" aria-hidden="true">{link.name}</span>
+					<span class="label">{link.name}</span>
+				</button>
+			{/each}
+	</nav>
+	<div class="legal-meta">© {new Date().getFullYear()}</div>
+  
+	<!-- Ensure overlay can cover this: z-index below TransitionOverlay's 99999 -->
+</footer>
+
+<style>
+	/* Hover behavior matches ParallaxCard title: weight + letter-spacing with smooth timing */
+		.legal-footer {
+			position: fixed;
+			top: 0.75rem;
+			right: 0.75rem;
+			display: flex;
+			align-items: center;
+			justify-content: flex-end;
+			gap: 0.75rem;
+			padding: 0.25rem 0.35rem;
+			font-size: 0.8rem;
+			color: rgba(255, 255, 255, 0.6);
+			pointer-events: none; /* allow clicks through except on buttons */
+			z-index: 9990;
+
+		/* Typography transition parameters (scoped) */
+		--legal-link-transition-duration: 0.8s;
+		/* Space Grotesk weight range (variable): 300..700 */
+		--legal-link-initial-weight: 500;
+		--legal-link-hover-weight: 700;
+		--legal-link-initial-tracking: 0.01em;
+		--legal-link-hover-tracking: 0.03em;
+		}
+			.addons { pointer-events: auto; display: inline-flex; align-items: center; }
+
+		.legal-nav { display: flex; gap: 0.5rem; align-items: center; }
+
+		.legal-link {
+				pointer-events: auto; /* re-enable for interactive elements */
+				background: transparent;
+				border: none;
+				padding: 0.2rem 0.4rem;
+				color: inherit;
+				cursor: pointer;
+				opacity: 0.8;
+				display: grid; /* overlay label + measure to reserve max width */
+				align-items: center;
+				justify-items: end;
+				white-space: nowrap;
+				/* custom property for animatable weight */
+				--legal-link-wght: var(--legal-link-initial-weight);
+	}
+
+			.legal-link:hover,
+			.legal-link:focus-visible {
+				color: #ffffff;
+				opacity: 1;
+				text-shadow: 0 0 4px rgba(255,255,255,0.25);
+				outline: none;
+			}
+
+			/* Overlaid spans: measure reserves hover width; label animates smoothly */
+			.legal-link .measure,
+			.legal-link .label { grid-area: 1 / 1; }
+
+			.legal-link .measure {
+				visibility: hidden; /* not visible but participates in layout sizing */
+				pointer-events: none;
+				user-select: none;
+				white-space: nowrap;
+				font-weight: var(--legal-link-hover-weight);
+				letter-spacing: var(--legal-link-hover-tracking);
+			}
+
+			/* Smooth variable-font weight where supported */
+			@supports (font-variation-settings: 'wght' 500) {
+				/* Register animatable custom property for weight */
+				@property --legal-link-wght {
+					syntax: '<number>';
+					inherits: true;
+					initial-value: 500;
+				}
+
+					.legal-link .label {
+					/* Use variable font axis for smooth boldness */
+					font-variation-settings: 'wght' var(--legal-link-wght);
+					letter-spacing: var(--legal-link-initial-tracking);
+					transition: 
+						--legal-link-wght var(--legal-link-transition-duration) ease,
+						letter-spacing var(--legal-link-transition-duration) ease,
+						color 120ms ease,
+						opacity 120ms ease,
+						text-shadow 120ms ease;
+						/* Modern brutalist sans to vibe with site */
+						font-family: 'Space Grotesk', system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+				}
+
+				.legal-link:hover .label,
+				.legal-link:focus-visible .label {
+					--legal-link-wght: var(--legal-link-hover-weight);
+					letter-spacing: var(--legal-link-hover-tracking);
+				}
+			}
+
+			/* Fallback when variable fonts not available: animate letter-spacing only, keep layout stable via measure */
+			@supports not (font-variation-settings: 'wght' 500) {
+				.legal-link .label {
+					font-weight: var(--legal-link-initial-weight);
+					letter-spacing: var(--legal-link-initial-tracking);
+					transition:
+						letter-spacing var(--legal-link-transition-duration) ease,
+						color 120ms ease,
+						opacity 120ms ease,
+						text-shadow 120ms ease;
+				}
+				.legal-link:hover .label,
+				.legal-link:focus-visible .label {
+					letter-spacing: var(--legal-link-hover-tracking);
+				}
+			}
+
+		.legal-meta {
+			font-size: 0.7rem;
+			color: rgba(255, 255, 255, 0.45);
+			pointer-events: none;
+			margin-left: 0.25rem;
+		}
+
+	@media (max-width: 640px) {
+		.legal-footer { gap: 0.4rem; font-size: 0.75rem; top: 0.5rem; right: 0.5rem; }
+	}
+</style>
+
+
+--- END OF FILE src\lib\components\LegalFooter.svelte ---
+
 --- START OF FILE src\lib\components\LoadingScreen.svelte ---
 <!-- src/lib/components/LoadingScreen.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { overallLoadingState, initialSiteLoadComplete, minimumLoadingDuration } from '$lib/stores/preloadingStore';
+  import { page } from '$app/stores';
   import { get } from 'svelte/store';
 
   let showScreen = !get(initialSiteLoadComplete);
@@ -1445,7 +1744,8 @@ export {};
     if (status === 'error' && textElement) {
       clearTimeout(minimumDurationTimer);
       if (tickerInstance) tickerInstance.destroy();
-      tickerInstance = new Ticker(textElement, "ERROR LOADING");
+  const msg = (($page.data as any)?.messages?.common?.loading?.error) ?? 'ERROR LOADING';
+  tickerInstance = new Ticker(textElement, msg);
       tickerInstance.start();
     }
   });
@@ -1453,7 +1753,8 @@ export {};
   onMount(() => {
     loadingStartTime = Date.now();
     if (!get(initialSiteLoadComplete) && textElement) {
-      tickerInstance = new Ticker(textElement, "LOADING...");
+      const msg = (($page.data as any)?.messages?.common?.loading?.loading) ?? 'LOADING...';
+      tickerInstance = new Ticker(textElement, msg);
       tickerInstance.start();
     }
   });
@@ -1506,6 +1807,7 @@ export {};
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import type { ProjectCard } from '$lib/data/projectsData';
+  import { page } from '$app/stores';
 
   export let cardData: ProjectCard;
   export let width: string = '240px';
@@ -1665,7 +1967,7 @@ export {};
   on:mouseleave={handleMouseLeave}
   bind:this={cardWrapElement}
   role="group"
-  aria-label="Interactive project card for {cardData.title}"
+  aria-label={(($page.data as any)?.messages?.common?.projects?.cardAriaPrefix ?? 'Interactive project card for') + ' ' + cardData.title}
 >
   <div class="card" style={cardStyle}>
     <div class="card-bg" style="{cardBgTransform} {cardBgImage}" id="card-bg-{cardData.id}"></div>
@@ -1843,6 +2145,7 @@ export {};
 <script lang="ts">
   import type { Project, ProjectCard, ProjectSubPageSection } from '$lib/data/projectsData';
   import { transitionStore } from '$lib/stores/transitionStore';
+  import { page } from '$app/stores';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
 
   export let headline: string;
@@ -1850,6 +2153,7 @@ export {};
   export let cards: ProjectCard[];
   export let slug: string;
   export let readMoreLinkText: string | undefined = undefined;
+  export let readMoreFallbackLabel: string | undefined = undefined;
   export let backgrounds: Project['backgrounds'];
   // --- MODIFICATION: Added prop for subPageSections to enable intelligent preloading ---
   export let subPageSections: ProjectSubPageSection[];
@@ -1872,7 +2176,8 @@ export {};
     }
     // --- END OF FIX ---
 
-    transitionStore.fadeToBlackAndNavigate(`/projects/${slug}${aspectLink}`);
+  const lang = $page.params?.lang ?? 'de';
+  transitionStore.fadeToBlackAndNavigate(`/${lang}/projects/${slug}${aspectLink}`);
   }
 
   function handleReadMoreClick() {
@@ -1884,7 +2189,8 @@ export {};
       console.log(`[Preloader] Proactively loading background for project overview: ${backgrounds[0].value}`);
     }
 
-    transitionStore.fadeToBlackAndNavigate(`/projects/${slug}`);
+  const lang = $page.params?.lang ?? 'de';
+  transitionStore.fadeToBlackAndNavigate(`/${lang}/projects/${slug}`);
   }
 </script>
 
@@ -1892,12 +2198,12 @@ export {};
   <div class="text-block">
     <h2 class="anim-headline">{headline}</h2>
     <p class="anim-summary">{summary}</p>
-    {#if readMoreLinkText}
+    {#if readMoreLinkText || readMoreFallbackLabel}
       <button class="read-more-btn anim-button" on:click={handleReadMoreClick}>
         <svg>
           <rect x="0" y="0" fill="none" width="100%" height="100%"/>
         </svg>
-        <span>{readMoreLinkText}</span>
+        <span>{readMoreLinkText ?? readMoreFallbackLabel}</span>
       </button>
     {/if}
   </div>
@@ -1905,7 +2211,7 @@ export {};
   <div class="cards-block">
     {#each cards as card, i (card.id)}
       <div class="card-wrapper anim-card" style="--card-index: {i};">
-        <button type="button" class="card-click-target" on:click={() => handleCardClick(card)} aria-label="View details for {card.title}">
+  <button type="button" class="card-click-target" on:click={() => handleCardClick(card)} aria-label={(($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for') + ' ' + card.title}>
           <ParallaxCard cardData={card} width="240px" height="320px" />
         </button>
       </div>
@@ -3022,6 +3328,7 @@ export {};
 
   type ContactSectionData = typeof siteConfig.contactSection;
   export let data: ContactSectionData;
+  export let emailLabel: string | undefined;
 
   // 2. Create a binding for the child component instance.
   let contactEffectInstance: ContactEffectInstance | null = null;
@@ -3105,7 +3412,7 @@ export {};
 
     <div class="links-column">
       <a href="mailto:{data.email}" class="contact-link anim-ui-element">
-        <span>Email Me</span>
+        <span>{emailLabel ?? 'Email Me'}</span>
         <svg width="13px" height="10px" viewBox="0 0 13 10">
           <path d="M1,5 L11,5"></path>
           <polyline points="8 1 12 5 8 9"></polyline>
@@ -3629,122 +3936,113 @@ export interface Project {
   readMoreLinkText?: string;
 }
 
-export const projects: Project[] = [
-  {
+export type Locale = 'en' | 'de';
+
+export function getProjects(locale: Locale): Project[] {
+  const isDE = locale === 'de';
+
+  const projectOne: Project = {
     id: 'project-one',
     slug: 'BURA',
-    headline: 'BURA \n Long Range Recon UAV',
-    summary: 'A fully 3D-Printed UAV designed for long-range, multi-hour reconnaissance missions.',
+    headline: isDE ? 'BURA \n Langstrecken-Aufklärungs-UAV' : 'BURA \n Long Range Recon UAV',
+    summary: isDE
+      ? 'Ein vollständig 3D-gedrucktes UAV für Langstrecken- und mehrstündige Aufklärungsmissionen.'
+      : 'A fully 3D-Printed UAV designed for long-range, multi-hour reconnaissance missions.',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-one/Drone_Sunset.webp' },
       { type: 'image', value: '/images/projects/project-one/clouds.webp' },
       { type: 'image', value: '/images/projects/project-one/Me_and_Drone.webp' },
-      { type: 'image', value: '/images/projects/project-one/Drone_close_clouds.webp' },
+      { type: 'image', value: '/images/projects/project-one/Drone_close_clouds.webp' }
     ],
-    tags: ['3D Printing', 'UAV Design', 'Aerospace Engineering', 'Electronics'],
+    tags: isDE
+      ? ['3D‑Druck', 'UAV‑Design', 'Luft- und Raumfahrttechnik', 'Elektronik']
+      : ['3D Printing', 'UAV Design', 'Aerospace Engineering', 'Electronics'],
     cards: [
       {
         id: 'p1_capability',
-        title: 'Capability',
-        // MODIFICATION: Removed 'image' property. The background is now defined in the subPageSection below.
+        title: isDE ? 'Fähigkeiten' : 'Capability',
         cardImage: '/images/projects/project-one/card1_cropped.webp',
-        description: 'Elaborate Sensor Array for advanced autonomous capabilities',
+        description: isDE
+          ? 'Ausgefeilte Sensorik für fortgeschrittene autonome Funktionen'
+          : 'Elaborate Sensor Array for advanced autonomous capabilities',
         aspectLink: '#capability'
       },
       {
         id: 'p1_3d_printing',
-        title: '3D-Printing',
+        title: isDE ? '3D‑Druck' : '3D-Printing',
         cardImage: '/images/projects/project-one/card2_cropped.webp',
-        description: 'Fully 3D-printed Airframe with LW-PLA and ASA',
+        description: isDE
+          ? 'Vollständig 3D‑gedruckte Zelle mit LW‑PLA und ASA'
+          : 'Fully 3D-printed Airframe with LW-PLA and ASA',
         aspectLink: '#3d-printing'
       },
       {
         id: 'p1_testing',
-        title: 'Testing',
+        title: isDE ? 'Tests' : 'Testing',
         cardImage: '/images/projects/project-one/card3_cropped.webp',
-        description: 'Analyzing model performance and flight characteristics',
+        description: isDE
+          ? 'Analyse der Leistungsdaten und Flugeigenschaften'
+          : 'Analyzing model performance and flight characteristics',
         aspectLink: '#testing'
       }
     ],
     subPageSections: [
-        {
-            // FIX: ID now correctly matches the aspectLink from the card above.
-            id: 'capability',
-            title: 'Advanced Autonomous Capabilities',
-            content: 'Detailed walkthrough of the sensor suite, including high-resolution cameras, thermal imaging, and real-time data links, enabling sophisticated autonomous flight and data collection.',
-            background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' }
-        },
-        {
-            id: '3d-printing',
-            title: 'Innovative Airframe Manufacturing',
-            content: 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable, weather-resistant outer surfaces, optimizing for both strength and flight time.',
-            background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
-        },
-        {
-            id: 'testing',
-            title: 'Rigorous Field Testing & Validation',
-            content: 'Presentation of flight test data, including endurance, range, and payload capacity metrics. The UAV successfully demonstrated over 2 hours of flight time and a range of 50km.',
-            background: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' }
-        }
-    ],
-    readMoreLinkText: "Explore More"
-  },
-  {
-    id: 'project-two',
-    slug: 'interactive-data-visualization',
-    headline: 'Project 2',
-    summary: 'Filler content for a second project (coming soon)',
-    backgrounds: [
-      { type: 'image', value: '/images/projects/project-two/background.jpg' },
-      { type: 'image', value: '/images/projects/project-two/background2.jpg' },
-    ],
-    tags: ['Data Visualization', 'Tableau', 'JavaScript', 'SQL'],
-    cards: [
       {
-        id: 'Project_2_Card_1',
-        title: 'Card 1',
-        cardImage: '/images/projects/project-two/card-data-small.webp',
-        description: 'Content',
-        aspectLink: '#1'
+        id: 'capability',
+        title: isDE ? 'Erweiterte autonome Fähigkeiten' : 'Advanced Autonomous Capabilities',
+        content: isDE
+          ? 'Detaillierte Vorstellung der Sensorsuite mit hochauflösenden Kameras, Wärmebildgebung und Echtzeit-Datenlinks – Grundlage für anspruchsvolle autonome Flüge und Datenerfassung.'
+          : 'Detailed walkthrough of the sensor suite, including high-resolution cameras, thermal imaging, and real-time data links, enabling sophisticated autonomous flight and data collection.',
+        background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' }
       },
       {
-        id: 'Project_2_Card_2',
-        title: 'Card 2',
-        cardImage: '/images/projects/project-two/card-design-small.webp',
-        description: 'Content',
-        aspectLink: '#2'
+        id: '3d-printing',
+        title: isDE ? 'Innovative Fertigung des Luftfahrzeugs' : 'Innovative Airframe Manufacturing',
+        content: isDE
+          ? 'Erläuterung des Designs mit Lightweight PLA (LW‑PLA) für Strukturbauteile und ASA für robuste, witterungsbeständige Oberflächen – optimiert für Festigkeit und Flugzeit.'
+          : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable, weather-resistant outer surfaces, optimizing for both strength and flight time.',
+        background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
       },
       {
-        id: 'Project_2_Card_3',
-        title: 'Card 3',
-        cardImage: '/images/projects/project-two/card-insights-small.webp',
-        description: 'Content',
-        aspectLink: '#3'
+        id: 'testing',
+        title: isDE ? 'Umfassende Feldtests & Validierung' : 'Rigorous Field Testing & Validation',
+        content: isDE
+          ? 'Präsentation der Flugtestergebnisse, darunter Ausdauer, Reichweite und Nutzlast. Das UAV demonstrierte über 2 Stunden Flugzeit und eine Reichweite von 50 km.'
+          : 'Presentation of flight test data, including endurance, range, and payload capacity metrics. The UAV successfully demonstrated over 2 hours of flight time and a range of 50km.',
+        background: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' }
       }
     ],
-    subPageSections: [
-        {
-            id: 'Project_2_Subpage_Section_1',
-            title: '1',
-            content: 'Content',
-            background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' }
-        },
-        {
-            id: 'Project_2_Subpage_Section_2',
-            title: '2',
-            content: 'Content',
-            background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' }
-        },
-        {
-            id: 'Project_2_Subpage_Section_3',
-            title: '3',
-            content: 'Content',
-            background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' }
-        }
+    readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
+  };
+
+  const projectTwo: Project = {
+    id: 'project-two',
+    slug: 'interactive-data-visualization',
+    headline: isDE ? 'Projekt 2' : 'Project 2',
+    summary: isDE ? 'Platzhalterinhalt für ein zweites Projekt (in Kürze)' : 'Filler content for a second project (coming soon)',
+    backgrounds: [
+      { type: 'image', value: '/images/projects/project-two/background.jpg' },
+      { type: 'image', value: '/images/projects/project-two/background2.jpg' }
     ],
-    readMoreLinkText: "Explore More"
-  }
-];
+    tags: isDE ? ['Datenvisualisierung', 'Tableau', 'JavaScript', 'SQL'] : ['Data Visualization', 'Tableau', 'JavaScript', 'SQL'],
+    cards: [
+      { id: 'Project_2_Card_1', title: isDE ? 'Karte 1' : 'Card 1', cardImage: '/images/projects/project-two/card-data-small.webp', description: isDE ? 'Inhalt' : 'Content', aspectLink: '#1' },
+      { id: 'Project_2_Card_2', title: isDE ? 'Karte 2' : 'Card 2', cardImage: '/images/projects/project-two/card-design-small.webp', description: isDE ? 'Inhalt' : 'Content', aspectLink: '#2' },
+      { id: 'Project_2_Card_3', title: isDE ? 'Karte 3' : 'Card 3', cardImage: '/images/projects/project-two/card-insights-small.webp', description: isDE ? 'Inhalt' : 'Content', aspectLink: '#3' }
+    ],
+    subPageSections: [
+      { id: 'Project_2_Subpage_Section_1', title: '1', content: isDE ? 'Inhalt' : 'Content', background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' } },
+      { id: 'Project_2_Subpage_Section_2', title: '2', content: isDE ? 'Inhalt' : 'Content', background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' } },
+      { id: 'Project_2_Subpage_Section_3', title: '3', content: isDE ? 'Inhalt' : 'Content', background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' } }
+    ],
+    readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
+  };
+
+  return [projectOne, projectTwo];
+}
+
+// Backward-compatible default export (English)
+export const projects: Project[] = getProjects('en');
 --- END OF FILE src\lib\data\projectsData.ts ---
 
 --- START OF FILE src\lib\data\siteConfig.ts ---
@@ -3759,6 +4057,11 @@ export interface SocialLink {
   name: string; // e.g., 'LinkedIn', 'GitHub', 'Email'
   url: string;
   icon?: string; // Optional: path to an icon or an icon library class name
+}
+
+export interface LegalLink {
+  name: string; // e.g., 'Impressum', 'Datenschutz', 'Barrierefreiheit'
+  url: string;  // e.g., '/impressum'
 }
 
 export const siteConfig = {
@@ -3798,6 +4101,13 @@ export const siteConfig = {
     ]
   },
 
+  // Centralized legal links for global footer
+  legalLinks: [
+    { name: 'Impressum', url: '/impressum' },
+    { name: 'Datenschutz', url: '/datenschutz' },
+    { name: 'Barrierefreiheit', url: '/barrierefreiheit' },
+  ] as LegalLink[],
+
   defaultHeadlineAnimation: {
     type: 'fadeInUp',
     duration: 0.8,
@@ -3806,6 +4116,284 @@ export const siteConfig = {
   },
 };
 --- END OF FILE src\lib\data\siteConfig.ts ---
+
+--- START OF FILE src\lib\i18n\namespaces.ts ---
+// src/lib/i18n/namespaces.ts
+// Namespace list and helpers for loading message files
+
+export type Namespace =
+  | 'common'
+  | 'layout'
+  | 'hero'
+  | 'about'
+  | 'contact'
+  | 'projects'
+  | 'project-bura'
+  | 'legal';
+
+export const CORE_NAMESPACES: Namespace[] = ['common', 'layout'];
+
+export function nsPath(locale: string, ns: Namespace) {
+  return `/src/lib/i18n/locales/${locale}/${ns}.json`;
+}
+
+--- END OF FILE src\lib\i18n\namespaces.ts ---
+
+--- START OF FILE src\lib\i18n\README.md ---
+# i18n structure
+
+This folder contains locale files for English (en) and German (de). We use namespaces to keep bundles small and lazy-load what's needed per route.
+
+- locales/
+  - en/
+    - common.json (global UI, language switcher, legal labels)
+    - layout.json (head meta, skip links)
+  - de/
+    - common.json
+    - layout.json
+- namespaces.ts (namespace type and helpers)
+
+Next steps:
+1. Wire SSR locale detection (cookie + Accept-Language) and expose `locale` via +layout.server.ts.
+2. Add a language switcher (EN/DE) that sets the cookie, runs the fade transition, and navigates to the target locale URL.
+3. Migrate UI strings into `common.json` and page meta into `layout.json`.
+4. Add more namespaces (hero, about, contact, projects, project-bura, legal) and migrate the rest incrementally.
+5. Introduce `[lang=lang]` route segment and redirect `/` to the chosen locale.
+
+--- END OF FILE src\lib\i18n\README.md ---
+
+--- START OF FILE src\lib\i18n\locales\de\common.json ---
+{
+  "legal": {
+    "impressum": "Impressum",
+    "datenschutz": "Datenschutz",
+    "barrierefreiheit": "Barrierefreiheit"
+  },
+  "language": {
+    "groupLabel": "Sprache",
+    "en": "EN",
+    "de": "DE",
+    "switchToEn": "Zu Englisch wechseln",
+    "switchToDe": "Zu Deutsch wechseln"
+  },
+  "about": {
+    "title": "Über mich",
+    "introduction": "Hier erfahren Sie, wer ich bin und was ich mache.",
+    "contactMe": "Kontakt aufnehmen"
+  },
+  "contact": {
+    "title": "Kontakt",
+    "outroMessage": "Ich freue mich über neue Projekte, Kooperationen oder Möglichkeiten. Melden Sie sich gern!",
+    "emailLabel": "E-Mail senden",
+    "resumeLabel": "Lebenslauf ansehen"
+  },
+  "loading": {
+    "loading": "LADEN...",
+    "error": "FEHLER BEIM LADEN"
+  },
+  "hero": {
+    "greeting": "Hallo, ich bin",
+    "name": "Ihr Name",
+    "introduction": "Ein Data Scientist mit Leidenschaft für Erkenntnisse und intelligente Lösungen."
+  },
+  "projects": {
+    "readMore": "Mehr erfahren",
+    "viewDetailsPrefix": "Details anzeigen für",
+    "cardAriaPrefix": "Interaktive Projektkarte für"
+  },
+  "a11y": {
+    "backHome": "Zurück zur Startseite",
+    "legalFooter": "Links zu rechtlichen Informationen",
+    "legalNav": "Rechtliche Links"
+  }
+}
+
+--- END OF FILE src\lib\i18n\locales\de\common.json ---
+
+--- START OF FILE src\lib\i18n\locales\de\layout.json ---
+{
+  "meta": {
+    "siteTitle": "Ihr Name - Portfolio",
+    "siteDescription": "Ein Portfolio mit Projekten und Expertise."
+  },
+  "a11y": {
+    "skipToContent": "Zum Hauptinhalt springen"
+  }
+}
+
+--- END OF FILE src\lib\i18n\locales\de\layout.json ---
+
+--- START OF FILE src\lib\i18n\locales\en\common.json ---
+{
+  "legal": {
+    "impressum": "Imprint",
+    "datenschutz": "Privacy",
+    "barrierefreiheit": "Accessibility"
+  },
+  "language": {
+    "groupLabel": "Language",
+    "en": "EN",
+    "de": "DE",
+    "switchToEn": "Switch to English",
+    "switchToDe": "Switch to German"
+  },
+  "about": {
+    "title": "About Me",
+  "introduction": "This is where you'll learn about who I am and what I do.",
+  "contactMe": "Contact Me"
+  },
+  "contact": {
+    "title": "Get in Touch",
+    "outroMessage": "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
+    "emailLabel": "Email me",
+    "resumeLabel": "View my resume"
+  },
+  "loading": {
+    "loading": "LOADING...",
+    "error": "ERROR LOADING"
+  },
+  "hero": {
+    "greeting": "Hello, I'm",
+    "name": "Your Name",
+    "introduction": "A data scientist passionate about insights and intelligent solutions."
+  },
+  "projects": {
+  "readMore": "Read more",
+  "viewDetailsPrefix": "View details for",
+  "cardAriaPrefix": "Interactive project card for"
+  },
+  "a11y": {
+    "backHome": "Back to home",
+    "legalFooter": "Legal information links",
+    "legalNav": "Legal Links"
+  }
+}
+
+--- END OF FILE src\lib\i18n\locales\en\common.json ---
+
+--- START OF FILE src\lib\i18n\locales\en\layout.json ---
+{
+  "meta": {
+    "siteTitle": "Your Name - Portfolio",
+    "siteDescription": "A portfolio showcasing projects and expertise."
+  },
+  "a11y": {
+    "skipToContent": "Skip to main content"
+  }
+}
+
+--- END OF FILE src\lib\i18n\locales\en\layout.json ---
+
+--- START OF FILE src\lib\server\locale.ts ---
+// src/lib/server/locale.ts
+import type { Cookies } from '@sveltejs/kit';
+
+export const SUPPORTED = ['en', 'de'] as const;
+export type Locale = typeof SUPPORTED[number];
+export const DEFAULT_LOCALE: Locale = 'en';
+
+export function pickFromAcceptLanguage(header: string | null): Locale | undefined {
+  if (!header) return undefined;
+  const lowered = header.toLowerCase();
+  if (lowered.includes('de')) return 'de';
+  if (lowered.includes('en')) return 'en';
+  return undefined;
+}
+
+const GERMAN_COUNTRIES = new Set(['DE', 'AT', 'CH', 'LI', 'LU']);
+
+export function localeFromCountryCode(code: string | null | undefined): Locale | undefined {
+  if (!code) return undefined;
+  const upper = code.trim().slice(0, 2).toUpperCase();
+  if (!upper) return undefined;
+  return GERMAN_COUNTRIES.has(upper) ? 'de' : 'en';
+}
+
+export function extractCountryCodeFromHeaders(get: (name: string) => string | null): string | undefined {
+  // Common CDN/host headers
+  // Cloudflare: CF-IPCountry, Vercel: x-vercel-ip-country, Fastly: Fastly-GeoIP-Country-Code | X-Fastly-Country-Code
+  // Generic/Custom: X-Country-Code, X-Geo-Country; Netlify: x-nf-geo (JSON string)
+  const candidates = [
+    'cf-ipcountry',
+    'x-vercel-ip-country',
+    'fastly-geoip-country-code',
+    'x-fastly-country-code',
+    'x-country-code',
+    'x-geo-country'
+  ];
+  for (const name of candidates) {
+    const v = get(name);
+    if (v && v.trim()) return v.trim();
+  }
+
+  // Netlify specific header (JSON string)
+  const nf = get('x-nf-geo');
+  if (nf) {
+    try {
+      const data = JSON.parse(nf);
+      const code = data?.country?.code || data?.country?.toString?.();
+      if (code) return String(code);
+    } catch {
+      // ignore parsing errors
+    }
+  }
+  return undefined;
+}
+
+export function decideLocale(opts: {
+  urlLocale?: string | null;
+  cookieLocale?: string | null;
+  acceptLanguage?: string | null;
+  countryCode?: string | null;
+}): Locale {
+  // 1) Explicit URL wins
+  const url = (opts.urlLocale || '').toLowerCase();
+  if (SUPPORTED.includes(url as Locale)) return url as Locale;
+
+  // 2) Cookie next
+  const cookie = (opts.cookieLocale || '').toLowerCase();
+  if (SUPPORTED.includes(cookie as Locale)) return cookie as Locale;
+
+  // 3) Accept-Language next
+  const fromAL = pickFromAcceptLanguage(opts.acceptLanguage ?? null);
+  if (fromAL) return fromAL;
+
+  // 4) GeoIP country (final fallback)
+  const fromGeo = localeFromCountryCode(opts.countryCode ?? undefined);
+  if (fromGeo) return fromGeo;
+
+  // 5) Default
+  return DEFAULT_LOCALE;
+}
+
+export function syncLocaleCookie(cookies: Cookies, locale: Locale) {
+  if (cookies.get('locale') !== locale) {
+    cookies.set('locale', locale, {
+      path: '/',
+      httpOnly: false,
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 365
+    });
+  }
+}
+
+export function setVaryHeaders(setHeaders: (headers: Record<string, string>) => void) {
+  // Ensure caches consider language and geo headers
+  const varyValues = [
+    'Accept-Language',
+    'Cookie',
+    'CF-IPCountry',
+    'X-Country-Code',
+    'X-Geo-Country',
+    'X-Vercel-IP-Country',
+    'Fastly-GeoIP-Country-Code',
+    'X-Fastly-Country-Code',
+    'X-NF-Geo'
+  ];
+  setHeaders({ Vary: varyValues.join(', ') });
+}
+
+--- END OF FILE src\lib\server\locale.ts ---
 
 --- START OF FILE src\lib\stores\preloadingStore.ts ---
 // src/lib/stores/preloadingStore.ts
@@ -5609,17 +6197,132 @@ export class CreateParticles {
 }
 --- END OF FILE src\lib\three\heroParticleLogic.ts ---
 
+--- START OF FILE src\params\lang.ts ---
+// src/params/lang.ts
+// Constrains [lang] route segment to supported locales
+export function match(param: string) {
+  return param === 'en' || param === 'de';
+}
+
+--- END OF FILE src\params\lang.ts ---
+
+--- START OF FILE src\routes\+layout.server.ts ---
+// src/routes/+layout.server.ts
+import type { LayoutServerLoad } from './$types';
+import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders, syncLocaleCookie } from '$lib/server/locale';
+
+export const load: LayoutServerLoad = async ({ cookies, request, params, setHeaders }) => {
+  const urlLocale = params?.lang ?? null;
+  const cookieLocale = cookies.get('locale');
+  const accept = request.headers.get('accept-language');
+  const countryCode = extractCountryCodeFromHeaders((name) => request.headers.get(name));
+
+  const locale = decideLocale({ urlLocale, cookieLocale, acceptLanguage: accept, countryCode });
+  syncLocaleCookie(cookies, locale);
+  setVaryHeaders(setHeaders);
+
+  return { locale };
+};
+
+--- END OF FILE src\routes\+layout.server.ts ---
+
 --- START OF FILE src\routes\+layout.svelte ---
 <!-- src/routes/+layout.svelte -->
 <script lang="ts">
   // Import the global stylesheet. This is the new line.
   import '../app.css';
   import TransitionOverlay from '$lib/components/TransitionOverlay.svelte';
+  import LegalFooter from '$lib/components/LegalFooter.svelte';
+  import LanguageSwitcher from '$lib/components/LanguageSwitcher.svelte';
+  import { siteConfig } from '$lib/data/siteConfig';
+  import { initialSiteLoadComplete } from '$lib/stores/preloadingStore';
+  import { page } from '$app/stores';
+  import { fade } from 'svelte/transition';
+  import { browser } from '$app/environment';
+  import { onMount, onDestroy } from 'svelte';
+
+  export let data: { locale: 'en' | 'de'; messages?: { common?: any; layout?: any } };
+  let isHome: boolean;
+  let showFooter: boolean;
+  // Fallback: force-show footer on home after short delay if initial load signal is slow
+  let footerForcedVisible = false;
+  let footerForceTimer: number | undefined;
+  // Treat /, /en and /de as home (with or without trailing slash)
+  $: isHome = /^\/(|en\/|de\/?|en|de)$/.test($page.url.pathname);
+  $: showFooter = isHome ? ($initialSiteLoadComplete || footerForcedVisible) : true;
+  const fadeIn = { duration: 250 };
+
+  // Keep document language in sync with the active locale
+  $: if (browser && data?.locale) {
+    document.documentElement.lang = data.locale;
+  }
+
+  onMount(() => {
+    // Safety: ensure footer becomes visible even if initial load never flips (e.g., dev anomalies)
+    footerForceTimer = window.setTimeout(() => {
+      footerForcedVisible = true;
+    }, 2500);
+  });
+
+  onDestroy(() => {
+    if (footerForceTimer) clearTimeout(footerForceTimer);
+  });
 </script>
+
+<svelte:head>
+  {#if $page}
+    {@const pathname = $page.url.pathname}
+    {@const origin = $page.url.origin}
+    {@const hrefEn = (() => {
+      if (pathname === '/' || pathname === '') return `/en`;
+      if (/^\/(en|de)(\/|$)/.test(pathname)) return pathname.replace(/^\/(en|de)/, `/en`);
+      return `/en${pathname}`;
+    })()}
+    {@const hrefDe = (() => {
+      if (pathname === '/' || pathname === '') return `/de`;
+      if (/^\/(en|de)(\/|$)/.test(pathname)) return pathname.replace(/^\/(en|de)/, `/de`);
+      return `/de${pathname}`;
+    })()}
+    <link rel="alternate" hreflang="en" href={`${origin}${hrefEn}`} />
+    <link rel="alternate" hreflang="de" href={`${origin}${hrefDe}`} />
+    <link rel="alternate" hreflang="x-default" href={`${origin}${hrefDe}`} />
+  {/if}
+  {#if data?.messages?.layout?.meta?.siteTitle}
+    <title>{data.messages.layout.meta.siteTitle}</title>
+    <meta name="description" content={data.messages.layout.meta.siteDescription} />
+  {/if}
+</svelte:head>
 
 <TransitionOverlay />
 
 <slot />
+
+{#if showFooter}
+  <div in:fade={fadeIn}>
+    <LegalFooter
+      legalLinks={siteConfig.legalLinks.map((l) => ({
+        ...l,
+        name:
+          l.url === '/impressum'
+            ? data.messages?.common?.legal?.impressum ?? l.name
+            : l.url === '/datenschutz'
+            ? data.messages?.common?.legal?.datenschutz ?? l.name
+            : l.url === '/barrierefreiheit'
+            ? data.messages?.common?.legal?.barrierefreiheit ?? l.name
+            : l.name
+      }))}
+    >
+      <LanguageSwitcher
+        locale={data.locale}
+        groupLabel={data.messages?.common?.language?.groupLabel ?? 'Language'}
+        labelEn={data.messages?.common?.language?.en ?? 'EN'}
+        labelDe={data.messages?.common?.language?.de ?? 'DE'}
+        switchToEnLabel={data.messages?.common?.language?.switchToEn ?? 'Switch to English'}
+        switchToDeLabel={data.messages?.common?.language?.switchToDe ?? 'Switch to German'}
+      />
+    </LegalFooter>
+  </div>
+{/if}
 
 <!-- 
   The <style> block has been removed from here and its contents
@@ -5627,467 +6330,214 @@ export class CreateParticles {
 -->
 --- END OF FILE src\routes\+layout.svelte ---
 
+--- START OF FILE src\routes\+layout.ts ---
+import type { LayoutLoad } from './$types';
+
+export const load: LayoutLoad = async ({ data }) => {
+  const locale = (data as { locale?: 'en' | 'de' })?.locale ?? 'de';
+
+  const common = (await import(`$lib/i18n/locales/${locale}/common.json`)).default;
+  const layout = (await import(`$lib/i18n/locales/${locale}/layout.json`)).default;
+
+  return { messages: { common, layout }, locale };
+};
+
+--- END OF FILE src\routes\+layout.ts ---
+
+--- START OF FILE src\routes\+page.server.ts ---
+// src/routes/+page.server.ts
+import type { PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
+import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders } from '$lib/server/locale';
+
+export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => {
+  const locale = decideLocale({
+    cookieLocale: cookies.get('locale') ?? null,
+    acceptLanguage: request.headers.get('accept-language'),
+    countryCode: extractCountryCodeFromHeaders((name) => request.headers.get(name)) ?? null
+  });
+  setVaryHeaders(setHeaders);
+  throw redirect(307, `/${locale}`);
+};
+
+--- END OF FILE src\routes\+page.server.ts ---
+
 --- START OF FILE src\routes\+page.svelte ---
-<!-- src/routes/+page.svelte -->
+<!-- Minimal placeholder. Root path redirects via +page.server.ts -->
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
-  import { writable, get } from 'svelte/store';
-  import { siteConfig } from '$lib/data/siteConfig';
-  import { projects, type Project } from '$lib/data/projectsData';
-  import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
-  import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
-  import { gsap } from 'gsap';
+  // intentionally empty
+</script>
 
-  // Component Imports
-  import LoadingScreen from '$lib/components/LoadingScreen.svelte';
-  import HeroSection from '$lib/components/sections/HeroSection.svelte';
-  import AboutSection from '$lib/components/sections/AboutSection.svelte';
-  import ContactSection from '$lib/components/sections/ContactSection.svelte';
-  import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
-  import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
+<div></div>
+--- END OF FILE src\routes\+page.svelte ---
 
-  // Type Imports
-  interface IAnimatedComponent {
-    onEnterSection: () => void;
-    onLeaveSection: () => void;
-    initializeEffect?: () => Promise<void>;
-    onTransitionComplete?: () => void;
-    onUnload?: () => void;
-  }
-  import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
+--- START OF FILE src\routes\barrierefreiheit\+page.server.ts ---
+import type { PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
+import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders } from '$lib/server/locale';
 
-  // Section Data Structure
-  const allSectionsData = [
-    { id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
-    { id: 'about', component: AboutSection, data: siteConfig.aboutSection, layout: null },
-    { 
-      id: `project-${projects[0].id}`, 
-      component: ProjectSection, 
-      layout: ProjectOneLayout,
-      data: projects[0] 
-    },
-    { 
-      id: `project-${projects[1].id}`, 
-      component: ProjectSection,
-      layout: ProjectOneLayout,
-      data: projects[1]
-    },
-    { id: 'contact', component: ContactSection, data: siteConfig.contactSection, layout: null }
-  ];
-  const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
-
-  // Instance Management
-  let heroSectionInstance: HeroSectionInstance | null = null;
-  let sectionInstancesArray: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
-  let sectionInstances = new Map<string, IAnimatedComponent>();
-  $: if (sectionInstancesArray.length > 0) {
-    const newMap = new Map<string, IAnimatedComponent>();
-    allSectionsData.forEach((section, index) => {
-      const instance = index === 0 ? heroSectionInstance : sectionInstancesArray[index];
-      if (instance) newMap.set(section.id, instance);
-    });
-    sectionInstances = newMap;
-  }
-  
-  // Core State
-  const isAnimating = writable(false);
-  const currentSectionIndex = writable(0);
-  const isTransitioning = writable(false);
-  const isInitialReveal = writable(true);
-  const sectionStatesStore = sectionStates;
-  const isLeavingHero = writable(false);
-
-  // Page & Animation State
-  let visibilityHideTimeoutId: number | undefined;
-  let isTabHiddenAndPaused = false;
-  const HIDE_BUFFER_DURATION = 15000;
-  let sectionElements: HTMLElement[] = [];
-  let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
-  const transitionDuration = 1.1;
-  const projectBgZoomDuration = 5;
-  const minSectionDisplayDuration = 1.2;
-  const initialRevealDelay = 300;
-  const particleFadeInDuration = 1.5;
-  let unsubInitialLoadComplete: (() => void) | undefined;
-  let hasStartedInitialReveal = false;
-  
-  let particleLayerPointerEvents = 'none';
-  $: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
-  let mainContainerPointerEvents = 'auto';
-  $: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
-
-  // Promise setup for initial load
-  let heroReadyResolver: () => void;
-  const heroReadyPromise = new Promise<void>(resolve => {
-    heroReadyResolver = resolve;
+export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => {
+  const locale = decideLocale({
+    cookieLocale: cookies.get('locale') ?? null,
+    acceptLanguage: request.headers.get('accept-language'),
+    countryCode: extractCountryCodeFromHeaders((name) => request.headers.get(name)) ?? null
   });
+  setVaryHeaders(setHeaders);
+  throw redirect(307, `/${locale}/barrierefreiheit`);
+};
 
-  // The HYBRID Preload Manager
-  const preloadManager = {
-    async updateNeighborStates(activeIndex: number) {
-      const currentStates = get(sectionStatesStore);
-      const desiredStates: SectionState[] = allSectionsData.map((_, i) => {
-        if (i === activeIndex) return 'ACTIVE';
-        if (i === activeIndex - 1 || i === activeIndex + 1) return 'READY';
-        return 'COOLDOWN';
-      });
+--- END OF FILE src\routes\barrierefreiheit\+page.server.ts ---
 
-      const tasks: Promise<void>[] = [];
-
-      for (let i = 0; i < allSectionsData.length; i++) {
-        const currentState = currentStates[i];
-        const desiredState = desiredStates[i];
-
-        if (currentState !== desiredState) {
-          if ((currentState === 'IDLE' || currentState === 'COOLDOWN') && desiredState === 'READY') {
-            tasks.push(this.prepareSection(i));
-          }
-          if (currentState === 'READY' && desiredState === 'COOLDOWN') {
-            tasks.push(this.coolDownSection(i));
-          }
-        }
-      }
-      
-      sectionStatesStore.update(states => {
-        states[activeIndex] = 'ACTIVE';
-        return states;
-      });
-
-      await Promise.all(tasks);
-    },
-    
-    async prepareSection(index: number) {
-      const currentState = get(sectionStatesStore)[index];
-      if (currentState !== 'IDLE' && currentState !== 'COOLDOWN') return;
-      
-      const sectionInfo = allSectionsData[index];
-      const instance = sectionInstances.get(sectionInfo.id);
-      const element = sectionElements[index];
-
-      if (!instance || !element) return;
-
-      sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
-
-      const urls = this.getSectionAssetUrls(index);
-      if (urls.length > 0) await preloadAssets(urls);
-      
-      if (instance.initializeEffect) await instance.initializeEffect();
-      
-      if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
-        gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
-        instance.onEnterSection();
-        instance.onTransitionComplete?.();
-        await new Promise(resolve => setTimeout(resolve, 200));
-        instance.onLeaveSection();
-        gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-      } else if (sectionInfo.id.startsWith('project-')) {
-        gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-      }
-      
-      sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
-    },
-
-    async coolDownSection(index: number) {
-      const sectionId = allSectionsData[index].id;
-      sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
-      
-      const instance = sectionInstances.get(sectionId);
-      instance?.onUnload?.();
-      
-      sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
-    },
-
-    getSectionAssetUrls(index: number): string[] {
-      if (index < 0 || index >= allSectionsData.length) return [];
-      const section = allSectionsData[index];
-      let urls: string[] = [];
-      if (section.id === 'about') {
-        urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
-      } else if (section.id.startsWith('project-')) {
-        const p = section.data as Project;
-        if (p.backgrounds && p.backgrounds.length > 0) {
-          urls.push(p.backgrounds[0].value);
-          if (p.backgrounds.length > 1) urls.push(p.backgrounds[1].value);
-        }
-        p.cards.forEach(card => {
-          if (card.cardImage) urls.push(card.cardImage);
-        });
-      }
-      return urls.filter(Boolean);
-    },
-  };
-
-  function handleAnimationComplete() {
-    const nextNeighborIndex = get(currentSectionIndex) + 2;
-    if(nextNeighborIndex < allSectionsData.length) {
-      preloadManager.prepareSection(nextNeighborIndex);
-    }
-  }
-
-  async function handleVisibilityChange() {
-    const currentIndex = get(currentSectionIndex);
-    const currentInstance = sectionInstances.get(allSectionsData[currentIndex].id);
-    if (!currentInstance) return;
-    if (document.hidden) {
-      visibilityHideTimeoutId = window.setTimeout(() => {
-        if (document.hidden && !isTabHiddenAndPaused) {
-          currentInstance.onLeaveSection();
-          isTabHiddenAndPaused = true;
-        }
-      }, HIDE_BUFFER_DURATION);
-    } else {
-      clearTimeout(visibilityHideTimeoutId);
-      if (isTabHiddenAndPaused) {
-        if (currentInstance.onUnload && currentInstance.initializeEffect) {
-          currentInstance.onUnload();
-          await currentInstance.initializeEffect();
-        }
-        currentInstance.onEnterSection();
-        requestAnimationFrame(() => {
-          currentInstance.onTransitionComplete?.();
-        });
-        isTabHiddenAndPaused = false;
-        preloadManager.updateNeighborStates(currentIndex);
-      }
-    }
-  }
-
-  onMount(() => {
-    const mountLogic = async () => {
-      await tick();
-      
-      sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
-      sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
-
-      sectionElements.forEach((sectionEl, index) => {
-        const sectionData = allSectionsData[index];
-        if (sectionData.id.startsWith('project-')) {
-          const bgTarget = sectionEl.querySelector('.background-zoom-target') as HTMLElement;
-          sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.08, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
-        }
-        gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
-      });
-
-      const setupInitialLoad = async () => {
-        await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
-        preloadManager.updateNeighborStates(0);
-        initialSiteLoadComplete.set(true);
-      };
-
-      setupInitialLoad();
-
-      window.addEventListener('wheel', handleWheel, { passive: false });
-      window.addEventListener('keydown', handleKeyDown);
-      document.addEventListener('visibilitychange', handleVisibilityChange);
-    };
-
-    mountLogic();
-    
-    unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
-        if (complete && !hasStartedInitialReveal) startInitialReveal();
-    });
-
-    return () => {
-      window.removeEventListener('wheel', handleWheel);
-      window.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      if (unsubInitialLoadComplete) unsubInitialLoadComplete();
-      sectionBackgroundZooms.forEach(tween => tween?.kill());
-      clearTimeout(visibilityHideTimeoutId);
-    };
-  });
-
-  function onParticleEffectReady() {
-    if (heroReadyResolver) heroReadyResolver();
-  }
-
-  function startInitialReveal() {
-    if (hasStartedInitialReveal) return;
-    hasStartedInitialReveal = true;
-
-    setTimeout(() => {
-      if (heroSectionInstance) {
-        heroSectionInstance.onTransitionToHeroComplete();
-        preloadManager.prepareSection(2);
-      }
-      setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
-    }, initialRevealDelay);
-  }
-  
-  function navigateToSection(newIndex: number) { 
-    if (get(isInitialReveal)) return; 
-    const oldIndex = get(currentSectionIndex); 
-    if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
-    
-    isAnimating.set(true); 
-    isTransitioning.set(true); 
-
-    if (oldIndex === 0 && newIndex > 0) {
-      isLeavingHero.set(true);
-    }
-
-    const oldInstance = sectionInstances.get(allSectionsData[oldIndex].id);
-    const newInstance = sectionInstances.get(allSectionsData[newIndex].id);
-    
-    oldInstance?.onLeaveSection();
-    sectionBackgroundZooms[oldIndex]?.progress(0).pause();
-    newInstance?.onEnterSection();
-
-    const currentSectionEl = sectionElements[oldIndex]; 
-    const targetSectionEl = sectionElements[newIndex]; 
-    const direction = newIndex > oldIndex ? 1 : -1; 
-    
-    const masterTransitionTl = gsap.timeline({ 
-      onComplete: () => { 
-        currentSectionIndex.set(newIndex); 
-        isTransitioning.set(false);
-        isLeavingHero.set(false);
-        preloadManager.updateNeighborStates(newIndex);
-        requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
-        if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
-           heroSectionInstance.onTransitionToHeroComplete();
-        }
-      } 
-    }); 
-    
-    gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
-    masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
-    masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
-    
-    masterTransitionTl.call(() => {
-        sectionBackgroundZooms[newIndex]?.restart();
-    }, [], `slide+=${transitionDuration * 0.1}`);
-
-    gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
-      isAnimating.set(false); 
-    }); 
-  }
-
-  let lastScrollTime = 0;
-  const scrollDebounce = 200;
-  function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
-  function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
+--- START OF FILE src\routes\barrierefreiheit\+page.svelte ---
+<script lang="ts">
+  import { transitionStore } from '$lib/stores/transitionStore';
+  function backHome() { transitionStore.fadeToBlackAndNavigate('/'); }
 </script>
 
 <svelte:head>
-  <title>{siteConfig.title}</title>
-  <meta name="description" content={siteConfig.description} />
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400..900&display=swap" rel="stylesheet">
+  <title>Barrierefreiheit</title>
 </svelte:head>
 
-<div>
-  <LoadingScreen /> 
+<main class="legal-page">
+  <h1>Barrierefreiheit</h1>
+  <p>Platzhalter-Inhalt. Hier folgt die Erklärung zur Barrierefreiheit dieser Website.</p>
+  <button class="back" on:click={backHome}>Zurück zur Startseite</button>
+</main>
 
-  <div 
-    class="particle-effect-layer" 
-    class:initial-state={$isInitialReveal}
-    class:on-top={$isLeavingHero}
-    style="pointer-events: {particleLayerPointerEvents};"
-  >
-    <HeroSection
-      bind:this={heroSectionInstance}
-      activeSectionIndex={$currentSectionIndex}
-      isTransitioning={$isTransitioning}
-      {transitionDuration}
-      isInitialLoad={$isInitialReveal}
-      on:ready={onParticleEffectReady}
-    />
-  </div>
+<style>
+  .legal-page { min-height: 100vh; display: grid; place-items: center; padding: 2rem; color: white; }
+  h1 { font-size: 2rem; margin-bottom: 1rem; }
+  p { max-width: 60ch; color: rgba(255,255,255,0.8); margin-bottom: 1.5rem; }
+  .back { background: rgba(30,30,32,0.7); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; }
+  .back:hover { background: rgba(50,50,52,0.9); }
+</style>
 
-  <main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
-    <section id="hero" class="full-screen-section hero-section-container"></section>
+--- END OF FILE src\routes\barrierefreiheit\+page.svelte ---
 
-    {#each allSectionsData.slice(1) as section, i (section.id)}
-      <section 
-        id={section.id} 
-        class="full-screen-section"
-      >
-        {#if section.id === 'about'}
-          <AboutSection
-            bind:this={sectionInstancesArray[i + 1]}
-            data={section.data as typeof siteConfig.aboutSection}
-            {contactSectionIndex}
-            {navigateToSection}
-            on:animationComplete={handleAnimationComplete}
-          />
-        {:else if section.id.startsWith('project-')}
-          <ProjectSection
-            bind:this={sectionInstancesArray[i + 1]}
-            project={section.data as Project}
-            on:animationComplete={handleAnimationComplete}
-          >
-            <svelte:component 
-              this={section.layout} 
-              {...(section.data as Project)}
-            />
-          </ProjectSection>
-        {:else if section.id === 'contact'}
-          <ContactSection
-            bind:this={sectionInstancesArray[i + 1]}
-            data={section.data as typeof siteConfig.contactSection}
-            on:animationComplete={handleAnimationComplete}
-          />
-        {/if}
-      </section>
-    {/each}
-  </main>
+--- START OF FILE src\routes\datenschutz\+page.server.ts ---
+import type { PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
+import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders } from '$lib/server/locale';
 
-  <style>
-    .particle-effect-layer { 
-      position: fixed; 
-      top: 0; 
-      left: 0; 
-      width: 100vw; 
-      height: 100vh; 
-      z-index: 0; /* Default state: behind main content */
-      background-color: rgb(9 9 11); 
-      transition: opacity 1.5s cubic-bezier(0.4, 0.2, 1); 
+export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => {
+  const locale = decideLocale({
+    cookieLocale: cookies.get('locale') ?? null,
+    acceptLanguage: request.headers.get('accept-language'),
+    countryCode: extractCountryCodeFromHeaders((name) => request.headers.get(name)) ?? null
+  });
+  setVaryHeaders(setHeaders);
+  throw redirect(307, `/${locale}/datenschutz`);
+};
+
+--- END OF FILE src\routes\datenschutz\+page.server.ts ---
+
+--- START OF FILE src\routes\datenschutz\+page.svelte ---
+<script lang="ts">
+  import { transitionStore } from '$lib/stores/transitionStore';
+  function backHome() { transitionStore.fadeToBlackAndNavigate('/'); }
+</script>
+
+<svelte:head>
+  <title>Datenschutz</title>
+</svelte:head>
+
+<main class="legal-page">
+  <h1>Datenschutz</h1>
+  <p>Platzhalter-Inhalt. Hier stehen Informationen zur Datenverarbeitung und Ihren Rechten.</p>
+  <button class="back" on:click={backHome}>Zurück zur Startseite</button>
+</main>
+
+<style>
+  .legal-page { min-height: 100vh; display: grid; place-items: center; padding: 2rem; color: white; }
+  h1 { font-size: 2rem; margin-bottom: 1rem; }
+  p { max-width: 60ch; color: rgba(255,255,255,0.8); margin-bottom: 1.5rem; }
+  .back { background: rgba(30,30,32,0.7); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; }
+  .back:hover { background: rgba(50,50,52,0.9); }
+</style>
+
+--- END OF FILE src\routes\datenschutz\+page.svelte ---
+
+--- START OF FILE src\routes\debug\locale\+server.ts ---
+// src/routes/debug/locale/+server.ts
+import type { RequestHandler } from './$types';
+import { json } from '@sveltejs/kit';
+import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders } from '$lib/server/locale';
+
+export const GET: RequestHandler = async ({ cookies, request, setHeaders, url }) => {
+  const acceptLanguage = request.headers.get('accept-language');
+  const countryCode = extractCountryCodeFromHeaders((name) => request.headers.get(name));
+  const cookieLocale = cookies.get('locale');
+  const resolved = decideLocale({ urlLocale: null, cookieLocale, acceptLanguage, countryCode });
+
+  setVaryHeaders(setHeaders);
+  setHeaders({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' });
+
+  return json({
+    resolvedLocale: resolved,
+    inputs: {
+      url: url.pathname,
+  urlLocale: null,
+      cookieLocale,
+      acceptLanguage,
+      countryCode
+    },
+    headers: {
+      'accept-language': acceptLanguage,
+      'cf-ipcountry': request.headers.get('cf-ipcountry'),
+      'x-vercel-ip-country': request.headers.get('x-vercel-ip-country'),
+      'fastly-geoip-country-code': request.headers.get('fastly-geoip-country-code'),
+      'x-fastly-country-code': request.headers.get('x-fastly-country-code'),
+      'x-country-code': request.headers.get('x-country-code'),
+      'x-geo-country': request.headers.get('x-geo-country'),
+      'x-nf-geo': request.headers.get('x-nf-geo')
     }
+  });
+};
 
-    /* --- START OF FIX --- */
-    /* This class is now applied only when transitioning away from the hero section. */
-    .particle-effect-layer.on-top {
-      z-index: 2; /* Promoted state: on top of main content */
-      background-color: transparent; /* Makes the layer see-through, leaving only the particles. */
-    }
-    /* --- END OF FIX --- */
+--- END OF FILE src\routes\debug\locale\+server.ts ---
 
-    .particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
-    .portfolio-container { 
-      position: relative; 
-      width: 100%; 
-      height: 100vh; 
-      overflow: hidden; 
-      z-index: 1; /* Default state: on top of hero particles */
-    }
-    
-    .full-screen-section {
-      height: 100%;
-      width: 100%;
-      position: absolute;
-      top: 0;
-      left: 0;
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      box-sizing: border-box;
-      background-color: transparent; 
-    }
+--- START OF FILE src\routes\impressum\+page.server.ts ---
+import type { PageServerLoad } from './$types';
+import { redirect } from '@sveltejs/kit';
+import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders } from '$lib/server/locale';
 
-    .hero-section-container {
-      pointer-events: none;
-    }
-    
-    * { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
-  </style>
-</div>
---- END OF FILE src\routes\+page.svelte ---
+export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => {
+  const locale = decideLocale({
+    cookieLocale: cookies.get('locale') ?? null,
+    acceptLanguage: request.headers.get('accept-language'),
+    countryCode: extractCountryCodeFromHeaders((name) => request.headers.get(name)) ?? null
+  });
+  setVaryHeaders(setHeaders);
+  throw redirect(307, `/${locale}/impressum`);
+};
+
+--- END OF FILE src\routes\impressum\+page.server.ts ---
+
+--- START OF FILE src\routes\impressum\+page.svelte ---
+<script lang="ts">
+  import { transitionStore } from '$lib/stores/transitionStore';
+  function backHome() { transitionStore.fadeToBlackAndNavigate('/'); }
+</script>
+
+<svelte:head>
+  <title>Impressum</title>
+</svelte:head>
+
+<main class="legal-page">
+  <h1>Impressum</h1>
+  <p>Platzhalter-Inhalt. Hier folgen rechtliche Angaben gemäß § 5 TMG.</p>
+  <button class="back" on:click={backHome}>Zurück zur Startseite</button>
+</main>
+
+<style>
+  .legal-page { min-height: 100vh; display: grid; place-items: center; padding: 2rem; color: white; }
+  h1 { font-size: 2rem; margin-bottom: 1rem; }
+  p { max-width: 60ch; color: rgba(255,255,255,0.8); margin-bottom: 1.5rem; }
+  .back { background: rgba(30,30,32,0.7); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; }
+  .back:hover { background: rgba(50,50,52,0.9); }
+</style>
+
+--- END OF FILE src\routes\impressum\+page.svelte ---
 
 --- START OF FILE src\routes\projects\[slug]\+layout.svelte ---
 <!-- src/routes/projects/[slug]/+layout.svelte -->
@@ -6504,4 +6954,830 @@ export const load: PageLoad = ({ params }) => {
   };
 };
 --- END OF FILE src\routes\projects\[slug]\+page.ts ---
+
+--- START OF FILE src\routes\[lang=lang]\+page.svelte ---
+<!-- src/routes/[lang=lang]/+page.svelte -->
+<script lang="ts">
+	import { onMount, onDestroy, tick } from 'svelte';
+	import { writable, get } from 'svelte/store';
+		import { siteConfig } from '$lib/data/siteConfig';
+		import { page } from '$app/stores';
+	import { getProjects, type Project, type Locale } from '$lib/data/projectsData';
+	import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
+	import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
+	import { gsap } from 'gsap';
+
+	// Component Imports
+	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
+	import HeroSection from '$lib/components/sections/HeroSection.svelte';
+	import AboutSection from '$lib/components/sections/AboutSection.svelte';
+	import ContactSection from '$lib/components/sections/ContactSection.svelte';
+	import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
+	import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
+
+	// Type Imports
+	interface IAnimatedComponent {
+		onEnterSection: () => void;
+		onLeaveSection: () => void;
+		initializeEffect?: () => Promise<void>;
+		onTransitionComplete?: () => void;
+		onUnload?: () => void;
+	}
+	import type { HeroSectionInstance } from '$lib/components/sections/HeroSection.svelte';
+
+	// Section Data Structure (reactive to locale)
+	let allSectionsData: any[] = [];
+	let currentLocale: Locale;
+	$: currentLocale = ((($page.params as any)?.lang === 'de') ? 'de' : 'en');
+	$: localizedProjects = getProjects(currentLocale);
+	$: allSectionsData = [
+		{ id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
+		{ id: 'about', component: AboutSection, data: siteConfig.aboutSection, layout: null },
+		{ id: `project-${localizedProjects[0].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[0] },
+		{ id: `project-${localizedProjects[1].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[1] },
+		{ id: 'contact', component: ContactSection, data: siteConfig.contactSection, layout: null }
+	];
+	const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
+
+		// Localized data overrides for About and Contact
+		let aboutData: typeof siteConfig.aboutSection = siteConfig.aboutSection;
+		let contactData: typeof siteConfig.contactSection = siteConfig.contactSection;
+		$: {
+			const common = ($page.data as any)?.messages?.common;
+			if (common?.about) {
+				aboutData = {
+					...siteConfig.aboutSection,
+					title: common.about.title ?? siteConfig.aboutSection.title,
+					introduction: common.about.introduction ?? siteConfig.aboutSection.introduction
+				};
+			}
+			if (common?.contact) {
+				contactData = {
+					...siteConfig.contactSection,
+					title: common.contact.title ?? siteConfig.contactSection.title,
+					outroMessage: common.contact.outroMessage ?? siteConfig.contactSection.outroMessage
+				};
+			}
+		}
+
+	// Instance Management
+	let heroSectionInstance: HeroSectionInstance | null = null;
+	let sectionInstancesArray: (IAnimatedComponent | null)[] = new Array(allSectionsData.length).fill(null);
+	let sectionInstances = new Map<string, IAnimatedComponent>();
+	$: if (sectionInstancesArray.length > 0) {
+		const newMap = new Map<string, IAnimatedComponent>();
+		allSectionsData.forEach((section, index) => {
+			const instance = index === 0 ? heroSectionInstance : sectionInstancesArray[index];
+			if (instance) newMap.set(section.id, instance);
+		});
+		sectionInstances = newMap;
+	}
+  
+	// Core State
+	const isAnimating = writable(false);
+	const currentSectionIndex = writable(0);
+	const isTransitioning = writable(false);
+	const isInitialReveal = writable(true);
+	const sectionStatesStore = sectionStates;
+	const isLeavingHero = writable(false);
+
+	// Page & Animation State
+	let visibilityHideTimeoutId: number | undefined;
+	let isTabHiddenAndPaused = false;
+	const HIDE_BUFFER_DURATION = 15000;
+	let sectionElements: HTMLElement[] = [];
+	let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
+	const transitionDuration = 1.1;
+	const projectBgZoomDuration = 5;
+	const minSectionDisplayDuration = 1.2;
+	const initialRevealDelay = 300;
+	const particleFadeInDuration = 1.5;
+	let unsubInitialLoadComplete: (() => void) | undefined;
+	let hasStartedInitialReveal = false;
+  
+	let particleLayerPointerEvents = 'none';
+	$: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
+	let mainContainerPointerEvents = 'auto';
+	$: mainContainerPointerEvents = ($currentSectionIndex === 0 || $isInitialReveal) ? 'none' : 'auto';
+
+	// Promise setup for initial load
+	let heroReadyResolver: () => void;
+	const heroReadyPromise = new Promise<void>(resolve => {
+		heroReadyResolver = resolve;
+	});
+
+	// The HYBRID Preload Manager
+	const preloadManager = {
+		async updateNeighborStates(activeIndex: number) {
+			const currentStates = get(sectionStatesStore);
+			const desiredStates: SectionState[] = allSectionsData.map((_, i) => {
+				if (i === activeIndex) return 'ACTIVE';
+				if (i === activeIndex - 1 || i === activeIndex + 1) return 'READY';
+				return 'COOLDOWN';
+			});
+
+			const tasks: Promise<void>[] = [];
+
+			for (let i = 0; i < allSectionsData.length; i++) {
+				const currentState = currentStates[i];
+				const desiredState = desiredStates[i];
+
+				if (currentState !== desiredState) {
+					if ((currentState === 'IDLE' || currentState === 'COOLDOWN') && desiredState === 'READY') {
+						tasks.push(this.prepareSection(i));
+					}
+					if (currentState === 'READY' && desiredState === 'COOLDOWN') {
+						tasks.push(this.coolDownSection(i));
+					}
+				}
+			}
+      
+			sectionStatesStore.update(states => {
+				states[activeIndex] = 'ACTIVE';
+				return states;
+			});
+
+			await Promise.all(tasks);
+		},
+    
+		async prepareSection(index: number) {
+			const currentState = get(sectionStatesStore)[index];
+			if (currentState !== 'IDLE' && currentState !== 'COOLDOWN') return;
+      
+			const sectionInfo = allSectionsData[index];
+			const instance = sectionInstances.get(sectionInfo.id);
+			const element = sectionElements[index];
+
+			if (!instance || !element) return;
+
+			sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
+
+			const urls = this.getSectionAssetUrls(index);
+			if (urls.length > 0) await preloadAssets(urls);
+      
+			if (instance.initializeEffect) await instance.initializeEffect();
+      
+			if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
+				gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
+				instance.onEnterSection();
+				instance.onTransitionComplete?.();
+				await new Promise(resolve => setTimeout(resolve, 200));
+				instance.onLeaveSection();
+				gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+			} else if (sectionInfo.id.startsWith('project-')) {
+				gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
+				await new Promise(resolve => requestAnimationFrame(resolve));
+				await new Promise(resolve => requestAnimationFrame(resolve));
+				gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+			}
+      
+			sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
+		},
+
+		async coolDownSection(index: number) {
+			const sectionId = allSectionsData[index].id;
+			sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
+      
+			const instance = sectionInstances.get(sectionId);
+			instance?.onUnload?.();
+      
+			sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
+		},
+
+		getSectionAssetUrls(index: number): string[] {
+			if (index < 0 || index >= allSectionsData.length) return [];
+			const section = allSectionsData[index];
+			let urls: string[] = [];
+			if (section.id === 'about') {
+				urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
+			} else if (section.id.startsWith('project-')) {
+				const p = section.data as Project;
+				if (p.backgrounds && p.backgrounds.length > 0) {
+					urls.push(p.backgrounds[0].value);
+					if (p.backgrounds.length > 1) urls.push(p.backgrounds[1].value);
+				}
+				p.cards.forEach(card => {
+					if (card.cardImage) urls.push(card.cardImage);
+				});
+			}
+			return urls.filter(Boolean);
+		},
+	};
+
+	function handleAnimationComplete() {
+		const nextNeighborIndex = get(currentSectionIndex) + 2;
+		if(nextNeighborIndex < allSectionsData.length) {
+			preloadManager.prepareSection(nextNeighborIndex);
+		}
+	}
+
+	async function handleVisibilityChange() {
+		const currentIndex = get(currentSectionIndex);
+		const currentInstance = sectionInstances.get(allSectionsData[currentIndex].id);
+		if (!currentInstance) return;
+		if (document.hidden) {
+			visibilityHideTimeoutId = window.setTimeout(() => {
+				if (document.hidden && !isTabHiddenAndPaused) {
+					currentInstance.onLeaveSection();
+					isTabHiddenAndPaused = true;
+				}
+			}, HIDE_BUFFER_DURATION);
+		} else {
+			clearTimeout(visibilityHideTimeoutId);
+			if (isTabHiddenAndPaused) {
+				if (currentInstance.onUnload && currentInstance.initializeEffect) {
+					currentInstance.onUnload();
+					await currentInstance.initializeEffect();
+				}
+				currentInstance.onEnterSection();
+				requestAnimationFrame(() => {
+					currentInstance.onTransitionComplete?.();
+				});
+				isTabHiddenAndPaused = false;
+				preloadManager.updateNeighborStates(currentIndex);
+			}
+		}
+	}
+
+	onMount(() => {
+		const mountLogic = async () => {
+			await tick();
+      
+			sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
+			sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
+
+			sectionElements.forEach((sectionEl, index) => {
+				const sectionData = allSectionsData[index];
+				if (sectionData.id.startsWith('project-')) {
+					const bgTarget = sectionEl.querySelector('.background-zoom-target') as HTMLElement;
+					sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.08, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
+				}
+				gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
+			});
+
+			const setupInitialLoad = async () => {
+				await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
+				preloadManager.updateNeighborStates(0);
+				initialSiteLoadComplete.set(true);
+			};
+
+			setupInitialLoad();
+
+			window.addEventListener('wheel', handleWheel, { passive: false });
+			window.addEventListener('keydown', handleKeyDown);
+			document.addEventListener('visibilitychange', handleVisibilityChange);
+		};
+
+		mountLogic();
+    
+	unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
+		if (complete && !hasStartedInitialReveal) startInitialReveal();
+	});
+
+		return () => {
+			window.removeEventListener('wheel', handleWheel);
+			window.removeEventListener('keydown', handleKeyDown);
+			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			if (unsubInitialLoadComplete) unsubInitialLoadComplete();
+			sectionBackgroundZooms.forEach(tween => tween?.kill());
+			clearTimeout(visibilityHideTimeoutId);
+		};
+	});
+
+	function onParticleEffectReady() {
+		if (heroReadyResolver) heroReadyResolver();
+	}
+
+	function startInitialReveal() {
+		if (hasStartedInitialReveal) return;
+		hasStartedInitialReveal = true;
+
+		setTimeout(() => {
+			if (heroSectionInstance) {
+				heroSectionInstance.onTransitionToHeroComplete();
+				preloadManager.prepareSection(2);
+			}
+			setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
+		}, initialRevealDelay);
+	}
+  
+	function navigateToSection(newIndex: number) { 
+		if (get(isInitialReveal)) return; 
+		const oldIndex = get(currentSectionIndex); 
+		if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
+    
+		isAnimating.set(true); 
+		isTransitioning.set(true); 
+
+		if (oldIndex === 0 && newIndex > 0) {
+			isLeavingHero.set(true);
+		}
+
+		const oldInstance = sectionInstances.get(allSectionsData[oldIndex].id);
+		const newInstance = sectionInstances.get(allSectionsData[newIndex].id);
+    
+		oldInstance?.onLeaveSection();
+		sectionBackgroundZooms[oldIndex]?.progress(0).pause();
+		newInstance?.onEnterSection();
+
+		const currentSectionEl = sectionElements[oldIndex]; 
+		const targetSectionEl = sectionElements[newIndex]; 
+		const direction = newIndex > oldIndex ? 1 : -1; 
+    
+		const masterTransitionTl = gsap.timeline({ 
+			onComplete: () => { 
+				currentSectionIndex.set(newIndex); 
+				isTransitioning.set(false);
+				isLeavingHero.set(false);
+				preloadManager.updateNeighborStates(newIndex);
+				requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
+				if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
+					 heroSectionInstance.onTransitionToHeroComplete();
+				}
+			} 
+		}); 
+    
+		gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
+		masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
+		masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
+    
+		masterTransitionTl.call(() => {
+				sectionBackgroundZooms[newIndex]?.restart();
+		}, [], `slide+=${transitionDuration * 0.1}`);
+
+		gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
+			isAnimating.set(false); 
+		}); 
+	}
+
+	let lastScrollTime = 0;
+	const scrollDebounce = 200;
+	function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
+	function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
+</script>
+
+<svelte:head>
+	<title>{siteConfig.title}</title>
+	<meta name="description" content={siteConfig.description} />
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
+	<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400..900&display=swap" rel="stylesheet">
+</svelte:head>
+
+<div>
+	<LoadingScreen /> 
+
+	<div 
+		class="particle-effect-layer" 
+		class:initial-state={$isInitialReveal}
+		class:on-top={$isLeavingHero}
+		style="pointer-events: {particleLayerPointerEvents};"
+	>
+			<HeroSection
+			bind:this={heroSectionInstance}
+				activeSectionIndex={$currentSectionIndex}
+			isTransitioning={$isTransitioning}
+			{transitionDuration}
+			isInitialLoad={$isInitialReveal}
+			on:ready={onParticleEffectReady}
+		/>
+	</div>
+
+	<main class="portfolio-container" style="pointer-events: {mainContainerPointerEvents};">
+		<section id="hero" class="full-screen-section hero-section-container"></section>
+
+		{#each allSectionsData.slice(1) as section, i (section.id)}
+			<section 
+				id={section.id} 
+				class="full-screen-section"
+			>
+				{#if section.id === 'about'}
+					<AboutSection
+						bind:this={sectionInstancesArray[i + 1]}
+					data={aboutData}
+						{contactSectionIndex}
+						{navigateToSection}
+						on:animationComplete={handleAnimationComplete}
+					/>
+						{:else if section.id.startsWith('project-')}
+					<ProjectSection
+						bind:this={sectionInstancesArray[i + 1]}
+						project={section.data as Project}
+						on:animationComplete={handleAnimationComplete}
+					>
+						<svelte:component 
+							this={section.layout} 
+									{...(section.data as Project)}
+									readMoreFallbackLabel={(($page.data as any)?.messages?.common?.projects?.readMore) ?? undefined}
+						/>
+					</ProjectSection>
+				{:else if section.id === 'contact'}
+								<ContactSection
+						bind:this={sectionInstancesArray[i + 1]}
+									data={contactData}
+								emailLabel={(($page.data as any)?.messages?.common?.contact?.emailLabel) ?? undefined}
+						on:animationComplete={handleAnimationComplete}
+					/>
+				{/if}
+			</section>
+		{/each}
+	</main>
+
+  
+
+	<style>
+		.particle-effect-layer { 
+			position: fixed; 
+			top: 0; 
+			left: 0; 
+			width: 100vw; 
+			height: 100vh; 
+			z-index: 0; /* Default state: behind main content */
+			background-color: rgb(9 9 11); 
+			transition: opacity 1.5s cubic-bezier(0.4, 0.2, 1); 
+		}
+
+		/* --- START OF FIX --- */
+		/* This class is now applied only when transitioning away from the hero section. */
+		.particle-effect-layer.on-top {
+			z-index: 2; /* Promoted state: on top of main content */
+			background-color: transparent; /* Makes the layer see-through, leaving only the particles. */
+		}
+		/* --- END OF FIX --- */
+
+		.particle-effect-layer.initial-state { background-color: rgb(5 8 5); }
+		.portfolio-container { 
+			position: relative; 
+			width: 100%; 
+			height: 100vh; 
+			overflow: hidden; 
+			z-index: 1; /* Default state: on top of hero particles */
+		}
+    
+		.full-screen-section {
+			height: 100%;
+			width: 100%;
+			position: absolute;
+			top: 0;
+			left: 0;
+			display: flex;
+			flex-direction: column;
+			justify-content: center;
+			align-items: center;
+			box-sizing: border-box;
+			background-color: transparent; 
+		}
+
+		.hero-section-container {
+			pointer-events: none;
+		}
+    
+		* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+	</style>
+
+  
+</div>
+
+--- END OF FILE src\routes\[lang=lang]\+page.svelte ---
+
+--- START OF FILE src\routes\[lang=lang]\barrierefreiheit\+page.svelte ---
+<script lang="ts">
+  import { page } from '$app/stores';
+  import { transitionStore } from '$lib/stores/transitionStore';
+  const lang = $page.params.lang === 'en' ? 'en' : 'de';
+  function backHome() { transitionStore.fadeToBlackAndNavigate(`/${lang}`); }
+  const title = lang === 'en' ? 'Accessibility' : 'Barrierefreiheit';
+  const blurb = lang === 'en' ? 'Placeholder content. The accessibility statement for this website will appear here.' : 'Platzhalter-Inhalt. Hier folgt die Erklärung zur Barrierefreiheit dieser Website.';
+  const backLabel = lang === 'en' ? 'Back to homepage' : 'Zurück zur Startseite';
+</script>
+
+<svelte:head>
+  <title>{title}</title>
+  <meta name="robots" content="noindex" />
+</svelte:head>
+
+<main class="legal-page">
+  <h1>{title}</h1>
+  <p>{blurb}</p>
+  <button class="back" on:click={backHome}>{backLabel}</button>
+</main>
+
+<style>
+  .legal-page { min-height: 100vh; display: grid; place-items: center; padding: 2rem; color: white; }
+  h1 { font-size: 2rem; margin-bottom: 1rem; }
+  p { max-width: 60ch; color: rgba(255,255,255,0.8); margin-bottom: 1.5rem; }
+  .back { background: rgba(30,30,32,0.7); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; }
+  .back:hover { background: rgba(50,50,52,0.9); }
+</style>
+
+--- END OF FILE src\routes\[lang=lang]\barrierefreiheit\+page.svelte ---
+
+--- START OF FILE src\routes\[lang=lang]\datenschutz\+page.svelte ---
+<script lang="ts">
+  import { page } from '$app/stores';
+  import { transitionStore } from '$lib/stores/transitionStore';
+  const lang = $page.params.lang === 'en' ? 'en' : 'de';
+  function backHome() { transitionStore.fadeToBlackAndNavigate(`/${lang}`); }
+  const title = lang === 'en' ? 'Privacy' : 'Datenschutz';
+  const blurb = lang === 'en' ? 'Placeholder content. Details on data processing and your rights will be added here.' : 'Platzhalter-Inhalt. Hier stehen Informationen zur Datenverarbeitung und Ihren Rechten.';
+  const backLabel = lang === 'en' ? 'Back to homepage' : 'Zurück zur Startseite';
+</script>
+
+<svelte:head>
+  <title>{title}</title>
+  <meta name="robots" content="noindex" />
+</svelte:head>
+
+<main class="legal-page">
+  <h1>{title}</h1>
+  <p>{blurb}</p>
+  <button class="back" on:click={backHome}>{backLabel}</button>
+</main>
+
+<style>
+  .legal-page { min-height: 100vh; display: grid; place-items: center; padding: 2rem; color: white; }
+  h1 { font-size: 2rem; margin-bottom: 1rem; }
+  p { max-width: 60ch; color: rgba(255,255,255,0.8); margin-bottom: 1.5rem; }
+  .back { background: rgba(30,30,32,0.7); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; }
+  .back:hover { background: rgba(50,50,52,0.9); }
+</style>
+
+--- END OF FILE src\routes\[lang=lang]\datenschutz\+page.svelte ---
+
+--- START OF FILE src\routes\[lang=lang]\impressum\+page.svelte ---
+<script lang="ts">
+  import { page } from '$app/stores';
+  import { transitionStore } from '$lib/stores/transitionStore';
+  const lang = $page.params.lang === 'en' ? 'en' : 'de';
+  function backHome() { transitionStore.fadeToBlackAndNavigate(`/${lang}`); }
+  const title = lang === 'en' ? 'Imprint' : 'Impressum';
+  const blurb = lang === 'en' ? 'Placeholder content. Legal information as required by German law will appear here.' : 'Platzhalter-Inhalt. Hier folgen rechtliche Angaben gemäß § 5 TMG.';
+  const backLabel = lang === 'en' ? 'Back to homepage' : 'Zurück zur Startseite';
+</script>
+
+<svelte:head>
+  <title>{title}</title>
+  <meta name="robots" content="noindex" />
+</svelte:head>
+
+<main class="legal-page">
+  <h1>{title}</h1>
+  <p>{blurb}</p>
+  <button class="back" on:click={backHome}>{backLabel}</button>
+</main>
+
+<style>
+  .legal-page { min-height: 100vh; display: grid; place-items: center; padding: 2rem; color: white; }
+  h1 { font-size: 2rem; margin-bottom: 1rem; }
+  p { max-width: 60ch; color: rgba(255,255,255,0.8); margin-bottom: 1.5rem; }
+  .back { background: rgba(30,30,32,0.7); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; }
+  .back:hover { background: rgba(50,50,52,0.9); }
+</style>
+
+--- END OF FILE src\routes\[lang=lang]\impressum\+page.svelte ---
+
+--- START OF FILE src\routes\[lang=lang]\projects\[slug]\+layout.svelte ---
+<script lang="ts">
+  import { onMount } from 'svelte';
+  import { ArrowLeft } from 'lucide-svelte';
+  import { page } from '$app/stores';
+  import { transitionStore } from '$lib/stores/transitionStore';
+
+  let showButton = false;
+  $: backAria = (($page.data as any)?.messages?.common?.a11y?.backHome) ?? (($page.params.lang === 'en') ? 'Back to home' : 'Zurück zur Startseite');
+
+  onMount(() => {
+    const timer = setTimeout(() => {
+      showButton = true;
+    }, 300);
+
+    return () => clearTimeout(timer);
+  });
+
+  function handleBackClick() {
+    const lang = $page.params.lang ?? 'de';
+    transitionStore.fadeToBlackAndNavigate(`/${lang}`);
+  }
+</script>
+<div class="project-subpage-layout">
+  <button 
+    class="back-button"
+    class:visible={showButton}
+    on:click={handleBackClick}
+  aria-label={backAria}
+  >
+    <ArrowLeft size={24} />
+  </button>
+
+  <slot />
+  
+</div>
+
+<style>
+  .project-subpage-layout { width: 100%; height: 100%; position: relative; }
+  .back-button {
+    position: fixed; top: 2rem; left: 2rem; z-index: 1000;
+    background-color: rgba(30,30,32,0.7);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: white; backdrop-filter: blur(8px);
+    width: 3rem; height: 3rem; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: all 0.3s ease-in-out;
+    opacity: 0; transform: scale(0.8); pointer-events: none;
+  }
+  .back-button.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
+  .back-button:hover { background-color: rgba(50,50,52,0.9); transform: scale(1.05); }
+</style>
+
+--- END OF FILE src\routes\[lang=lang]\projects\[slug]\+layout.svelte ---
+
+--- START OF FILE src\routes\[lang=lang]\projects\[slug]\+page.svelte ---
+<script lang="ts">
+  import { onMount, tick } from 'svelte';
+  import { get, writable } from 'svelte/store';
+  import { page } from '$app/stores';
+  import { gsap } from 'gsap';
+  import { siteConfig } from '$lib/data/siteConfig';
+  import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+
+  export let data;
+  const { project } = data;
+
+  const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
+  const isContentLoaded = writable(false);
+
+  const allSubSections = [
+    { id: 'overview', title: project.headline, content: project.summary, background: project.backgrounds[0] },
+    ...project.subPageSections
+  ];
+
+  let sectionElements: HTMLElement[] = [];
+  let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
+  let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
+
+  let currentSectionIndex = 0;
+  let isAnimating = false;
+  let lastScrollTime = 0;
+  const scrollDebounce = 200;
+  const transitionDuration = 1.1;
+
+  onMount(() => {
+    const runPreloadAndSetup = async () => {
+      startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
+      const assetUrls = allSubSections
+        .filter(s => s.background && s.background.type === 'image')
+        .map(s => s.background.value);
+      try {
+        await preloadAssets(assetUrls);
+        preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
+      } catch (error) {
+        console.error(error);
+        preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
+      } finally {
+        isContentLoaded.set(true);
+      }
+    };
+    runPreloadAndSetup();
+
+    return () => {
+      window.removeEventListener('wheel', handleWheel);
+      window.removeEventListener('keydown', handleKeyDown);
+      sectionContentTimelines.forEach(t => t?.kill());
+      sectionBackgroundZooms.forEach(t => t?.kill());
+    };
+  });
+
+  $: if ($isContentLoaded) setupAnimations();
+
+  async function setupAnimations() {
+    await tick();
+    sectionElements = allSubSections.map(section => document.getElementById(section.id) as HTMLElement);
+    const urlHash = get(page).url.hash;
+    const cleanHash = urlHash.startsWith('#') ? urlHash.substring(1) : null;
+    let initialIndex = 0;
+    if (cleanHash) {
+      const foundIndex = allSubSections.findIndex(s => s.id === cleanHash);
+      if (foundIndex !== -1) initialIndex = foundIndex;
+    }
+    currentSectionIndex = initialIndex;
+
+    sectionElements.forEach((sectionEl, index) => {
+      const contentTl = gsap.timeline({ paused: true });
+      const contentOverlay = sectionEl.querySelector('.subpage-content-overlay');
+      const h2El = sectionEl.querySelector('h2');
+      const pEl = sectionEl.querySelector('p');
+
+      if (contentOverlay) contentTl.fromTo(contentOverlay, { autoAlpha: 0, scale: 0.95 }, { autoAlpha: 1, scale: 1, duration: 0.7, ease: 'power2.out' }, 'start');
+      if (h2El) contentTl.fromTo(h2El, { autoAlpha: 0, y: 30 }, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power2.out' }, 'start+=0.2');
+      if (pEl) contentTl.fromTo(pEl, { autoAlpha: 0, y: 20 }, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power2.out' }, 'start+=0.35');
+      sectionContentTimelines[index] = contentTl;
+
+      const bgTarget = sectionEl.querySelector('.subpage-background-image') as HTMLElement;
+      if (bgTarget) sectionBackgroundZooms[index] = gsap.to(bgTarget, { scale: 1.05, duration: 3, ease: 'power1.out', paused: true });
+    });
+
+    sectionElements.forEach((el, index) => {
+      if (index === initialIndex) {
+        gsap.set(el, { yPercent: 0, autoAlpha: 1 });
+        sectionContentTimelines[index]?.restart();
+        sectionBackgroundZooms[index]?.restart();
+      } else {
+        gsap.set(el, { yPercent: 100, autoAlpha: 0 });
+      }
+    });
+
+    window.addEventListener('wheel', handleWheel, { passive: false });
+    window.addEventListener('keydown', handleKeyDown);
+  }
+
+  function navigateToSection(newIndex: number) {
+    const oldIndex = currentSectionIndex;
+    if (isAnimating || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return;
+    isAnimating = true;
+
+    const currentSectionEl = sectionElements[oldIndex];
+    const targetSectionEl = sectionElements[newIndex];
+    const direction = newIndex > oldIndex ? 1 : -1;
+
+    sectionContentTimelines[oldIndex]?.progress(0).pause();
+    sectionBackgroundZooms[oldIndex]?.progress(0).pause();
+    gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
+
+    const masterTl = gsap.timeline({ onComplete: () => { isAnimating = false; currentSectionIndex = newIndex; } });
+    masterTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
+    masterTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
+    masterTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
+    masterTl.call(() => { sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
+  }
+
+  function handleWheel(event: WheelEvent) {
+    event.preventDefault();
+    const currentTime = Date.now();
+    if (currentTime - lastScrollTime < scrollDebounce || isAnimating) return;
+    lastScrollTime = currentTime;
+    navigateToSection(currentSectionIndex + (event.deltaY > 0 ? 1 : -1));
+  }
+
+  function handleKeyDown(event: KeyboardEvent) {
+    if (isAnimating) { event.preventDefault(); return; }
+    const currentTime = Date.now();
+    if (currentTime - lastScrollTime < scrollDebounce) { event.preventDefault(); return; }
+    let newIndex = currentSectionIndex; let shouldScroll = false;
+    switch (event.key) {
+      case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break;
+      case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break;
+      case 'Home': newIndex = 0; shouldScroll = true; break;
+      case 'End': newIndex = allSubSections.length - 1; shouldScroll = true; break;
+    }
+    if (shouldScroll && newIndex !== currentSectionIndex) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); }
+  }
+</script>
+
+<svelte:head>
+  <title>{project.headline} | {siteConfig.author}</title>
+  <meta name="description" content={project.summary} />
+</svelte:head>
+
+<div class="subpage-container" class:loaded={$isContentLoaded}>
+  {#each allSubSections as section, i (section.id)}
+    <section id={section.id} class="subpage-fullscreen-section">
+      {#if section.background}
+        <div class="subpage-background-image" style="background-image: url({section.background.value});"></div>
+      {/if}
+      <div class="subpage-content-overlay">
+        <h2>{section.title}</h2>
+        <p>{section.content}</p>
+      </div>
+    </section>
+  {/each}
+  
+</div>
+
+<style>
+  .subpage-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #000; overflow: hidden; opacity: 0; transition: opacity 0.6s ease-in-out; }
+  .subpage-container.loaded { opacity: 1; }
+  .subpage-fullscreen-section { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; color: white; padding: 2rem; box-sizing: border-box; }
+  .subpage-background-image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-position: center; z-index: 0; transform: scale(1); }
+  .subpage-content-overlay { position: relative; z-index: 1; max-width: 800px; text-align: center; padding: 2rem 3rem; background-color: rgba(9,9,11,0.75); backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); opacity: 0; visibility: hidden; }
+  .subpage-content-overlay h2 { font-size: clamp(2.2rem, 5vw, 3.5rem); font-weight: 700; font-family: 'Playfair Display', serif; margin-bottom: 1.5rem; text-shadow: 0 2px 20px rgba(0,0,0,0.5); opacity: 0; visibility: hidden; }
+  .subpage-content-overlay p { font-size: clamp(1rem, 2.5vw, 1.15rem); line-height: 1.8; max-width: 700px; margin: 0 auto; color: #e2e8f0; opacity: 0; visibility: hidden; }
+</style>
+
+--- END OF FILE src\routes\[lang=lang]\projects\[slug]\+page.svelte ---
+
+--- START OF FILE src\routes\[lang=lang]\projects\[slug]\+page.ts ---
+import { error } from '@sveltejs/kit';
+import { getProjects } from '$lib/data/projectsData';
+import type { PageLoad } from './$types';
+
+export const load: PageLoad = ({ params }) => {
+  const locale = (params.lang === 'de' ? 'de' : 'en');
+  const project = getProjects(locale).find(p => p.slug === params.slug);
+  if (!project) {
+    throw error(404, 'Project not found');
+  }
+  return { project };
+};
+
+--- END OF FILE src\routes\[lang=lang]\projects\[slug]\+page.ts ---
 

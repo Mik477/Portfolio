@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { transitionStore } from '$lib/stores/transitionStore';
+  import { goto } from '$app/navigation';
 
   export let locale: 'en' | 'de';
   export let groupLabel: string = 'Language';
@@ -31,7 +31,7 @@
     } else {
       newPath = `/${target}${pathname}`;
     }
-    transitionStore.fadeToBlackAndNavigate(newPath + current.search + current.hash);
+  goto(newPath + current.search + current.hash, { keepFocus: true });
   }
 </script>
 
