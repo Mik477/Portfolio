@@ -4,6 +4,7 @@
   import { transitionStore } from '$lib/stores/transitionStore';
   import { page } from '$app/stores';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
+  import { renderProfile } from '$lib/stores/renderProfile';
 
   export let headline: string;
   export let summary: string;
@@ -69,7 +70,11 @@
     {#each cards as card, i (card.id)}
       <div class="card-wrapper anim-card" style="--card-index: {i};">
   <button type="button" class="card-click-target" on:click={() => handleCardClick(card)} aria-label={(($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for') + ' ' + card.title}>
-          <ParallaxCard cardData={card} width="240px" height="320px" />
+          <ParallaxCard
+            cardData={card}
+            width={$renderProfile.isMobile ? '100%' : '240px'}
+            height={$renderProfile.isMobile ? 'auto' : '320px'}
+          />
         </button>
       </div>
     {/each}
@@ -211,5 +216,54 @@
       rgba(0, 0, 0, 0.66) 0 30px 60px 0, 
       inset #333 0 0 0 5px,
       inset rgb(99 102 241) 0 0 0 7px;
+  }
+
+  /* Mobile-only reflow: keep desktop unchanged */
+  @media (max-width: 768px) {
+    .layout-container {
+      height: auto;
+      min-height: 100vh;
+    }
+    .text-block {
+      position: static;
+      left: auto;
+      bottom: auto;
+      width: auto;
+      max-width: none;
+      padding: 2rem 4vw 1rem;
+    }
+    .cards-block {
+      position: static;
+      top: auto;
+      right: auto;
+      transform: none;
+      width: 100%;
+      /* Use variables to keep columns within viewport including gap */
+      --grid-gap: 4vw;
+      --grid-pad: 4vw;
+      padding: 0 var(--grid-pad) 2rem;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, calc((100% - var(--grid-gap)) / 2)));
+      column-gap: var(--grid-gap);
+      row-gap: var(--grid-gap);
+      align-items: start;
+      justify-items: stretch;
+      box-sizing: border-box;
+      overflow-x: hidden;
+    }
+    .card-wrapper {
+      width: 100%;
+    }
+    .card-click-target {
+      display: block;
+      width: 100%;
+    }
+    /* Remove inner ParallaxCard margins to avoid squishing */
+    .cards-block :global(.card-wrap) {
+  margin: 0;
+  width: 100%;
+  aspect-ratio: 2 / 3; /* keeps a tall card while allowing full cell width */
+      box-sizing: border-box;
+    }
   }
 </style>

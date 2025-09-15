@@ -17,6 +17,7 @@
   import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
   import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
   import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
+  import { renderProfile } from '$lib/stores/renderProfile';
 
   const dispatch = createEventDispatcher();
 
@@ -87,6 +88,7 @@
   <AboutImageEffect
     bind:this={aboutImageEffectInstance}
     imageUrl={data.imageUrl}
+  mobileMode={$renderProfile.isMobile}
   />
 </div>
 
@@ -121,25 +123,17 @@
     .about-section-wrapper { 
       flex-direction: column;
       justify-content: center;
-      padding: 2rem; 
-      align-items: center;
+  padding: 2rem; 
+  align-items: stretch;
     }
 
     .about-content-wrapper { 
-      justify-content: center; 
-      text-align: center; 
-      padding: 1rem;
+  justify-content: flex-start; 
+  text-align: left; 
+      padding: 1rem 1rem 2rem;
       width: 100%;
       flex-grow: 0;
       z-index: 2;
-    }
-    
-    .about-section-wrapper :global(.main-container) {
-      position: absolute;
-      top: 0;
-      left: 0;
-      opacity: 0.15 !important;
-      z-index: 1;
     }
 
     .about-section-wrapper :global(.image-pane) {

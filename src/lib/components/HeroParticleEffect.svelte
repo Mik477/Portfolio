@@ -89,7 +89,7 @@
       try {
   const mobile = get(renderProfile).isMobile;
         const options = mobile
-          ? { initialInternalScale: 0.7, maxInternalDim: 960, amountScale: 0.8, antialias: true }
+          ? { initialInternalScale: 0.7, maxInternalDim: 960, amountScale: 1.0, antialias: true }
           : { initialInternalScale: 1.0, maxInternalDim: 1440, amountScale: 1.0, antialias: true };
         particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement, options);
         preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');

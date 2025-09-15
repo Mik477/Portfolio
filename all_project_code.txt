@@ -116,6 +116,29 @@ export {};
 
   export let imageUrl: string;
   export let fadeInDelay: number = 250;
+    // Mobile-optimized mode controls
+    export let mobileMode: boolean = false;
+    // Shift image slightly on mobile (percentage of image width; 50=center)
+    export let mobileImageOffsetX: number = 58;
+    export let mobileSymbolCount: number = 150; // reduced default number of active symbols
+    export let mobileSymbolLifetime: { min: number; max: number } = { min: 4, max: 30 };
+    export let mobileSymbolSize: { min: number; max: number } = { min: 12, max: 22 };
+    // Debug logging
+    export let debug: boolean = true;
+            // Grouped configuration for easy editing (overrides above if provided)
+            type MobileConfig = {
+                count: number;
+                lifetime: { min: number; max: number };
+                size: { min: number; max: number };
+                amplitude: { min: number; max: number };
+                speedFactor: number; // multiplier on derived speed
+                fadeStartScreenFraction: number; // when to start fading relative to screen width (e.g., 0.5)
+                fadeStartLifetimeFraction: number; // when to start fading relative to particle lifetime (e.g., 0.5)
+                fadeInDuration: number; // seconds
+                fadeOutDuration: number; // seconds
+                rampDuration: number; // seconds to reach full count
+            };
+            export let mobileConfig: Partial<MobileConfig> | undefined = undefined;
 
   let mainContainer: HTMLDivElement;
   let imageElement: HTMLImageElement;
@@ -123,7 +146,12 @@ export {};
 
   let effectInstance: DigitalDecayEffect | null = null;
   let isInitialized = false;
-  let fadeInTimeoutId: number | undefined;
+    let fadeInTimeoutId: number | undefined;
+        let _boundVisibilityHandler: (() => void) | null = null;
+        let _boundFocusHandler: (() => void) | null = null;
+        let _boundBlurHandler: (() => void) | null = null;
+        let _boundPageShowHandler: ((e: Event) => void) | null = null;
+        let _boundPageHideHandler: ((e: Event) => void) | null = null;
 
   // --- Component API ---
 
@@ -131,7 +159,32 @@ export {};
     if (isInitialized) return;
     await tick();
     if (!particleOverlayElement || !imageElement) return;
-    effectInstance = new DigitalDecayEffect(particleOverlayElement, imageElement);
+                effectInstance = new DigitalDecayEffect(particleOverlayElement, imageElement, {
+            mobileMode,
+            mobileParams: {
+                            count: Math.max(50, Math.floor(mobileConfig?.count ?? mobileSymbolCount)),
+                            lifetime: mobileConfig?.lifetime ?? mobileSymbolLifetime,
+                            size: mobileConfig?.size ?? mobileSymbolSize,
+                            amplitude: mobileConfig?.amplitude ?? { min: 3, max: 10 },
+                            speedFactor: mobileConfig?.speedFactor ?? 0.8,
+                            fadeStartScreenFraction: mobileConfig?.fadeStartScreenFraction ?? 0.5,
+                            fadeStartLifetimeFraction: mobileConfig?.fadeStartLifetimeFraction ?? 0.5,
+                            fadeInDuration: mobileConfig?.fadeInDuration ?? 0.05,
+                            fadeOutDuration: mobileConfig?.fadeOutDuration ?? 0.8,
+                            rampDuration: mobileConfig?.rampDuration ?? 15.0
+                        },
+                        debug
+        });
+        if (debug) {
+            console.log('[AboutImageEffect] initializeEffect()', {
+                mobileMode,
+                mobileSymbolCount,
+                mobileSymbolLifetime,
+                mobileSymbolSize,
+                overlayEl: !!particleOverlayElement,
+                imageEl: !!imageElement
+            });
+        }
     effectInstance.init();
     isInitialized = true;
   }
@@ -144,12 +197,24 @@ export {};
     }, fadeInDelay);
   }
   
-  export function onTransitionComplete() {
-    if (effectInstance) {
-      effectInstance.onWindowResize();
-      effectInstance.start();
+    export function onTransitionComplete() {
+        if (debug) console.log('[AboutImageEffect] onTransitionComplete() called. isInitialized:', isInitialized, 'hasInstance:', !!effectInstance);
+        if (!effectInstance && !isInitialized) {
+            // Safety: ensure initialization happened even if preload didn't call it
+            // Non-blocking; we'll poll next frame to start
+            initializeEffect();
+        }
+        const kickoff = () => {
+            if (effectInstance) {
+            if (debug) console.log('[AboutImageEffect] kickoff start, calling onWindowResize() + start()');
+                effectInstance.onWindowResize();
+                effectInstance.start();
+            } else {
+                requestAnimationFrame(kickoff);
+            }
+        };
+        kickoff();
     }
-  }
 
   export function onLeaveSection() {
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
@@ -174,26 +239,79 @@ export {};
   
   // --- Lifecycle ---
 
-  onMount(() => {
-    // Initialization is fully deferred to the Animation API.
-  });
+    onMount(() => {
+        // Initialization is fully deferred to the Animation API.
+        const handler = () => {
+            if (document.visibilityState === 'visible') {
+                console.log('[AboutImageEffect][COMP] visibilitychange -> visible: init + enter + kickoff');
+                // Ensure the effect is initialized; prefer a hard restart to avoid stuck opacity/pipeline
+                initializeEffect();
+                onEnterSection();
+                if (effectInstance && (effectInstance as any).restart) {
+                    (effectInstance as any).restart();
+                } else {
+                    onTransitionComplete();
+                }
+            } else {
+                console.log('[AboutImageEffect][COMP] visibilitychange -> hidden');
+            }
+        };
+        document.addEventListener('visibilitychange', handler);
+        _boundVisibilityHandler = handler;
+
+        const onFocus = () => console.log('[AboutImageEffect][COMP] window focus');
+        const onBlur = () => console.log('[AboutImageEffect][COMP] window blur');
+        const onPageShow = (e: Event) => console.log('[AboutImageEffect][COMP] pageshow (persisted=', (e as any).persisted, ')');
+        const onPageHide = (e: Event) => console.log('[AboutImageEffect][COMP] pagehide (persisted=', (e as any).persisted, ')');
+        window.addEventListener('focus', onFocus);
+        window.addEventListener('blur', onBlur);
+        window.addEventListener('pageshow', onPageShow);
+        window.addEventListener('pagehide', onPageHide);
+        _boundFocusHandler = onFocus;
+        _boundBlurHandler = onBlur;
+        _boundPageShowHandler = onPageShow;
+        _boundPageHideHandler = onPageHide;
+    });
 
   onDestroy(() => {
     // onDestroy should also ensure cleanup, acting as a final safeguard.
     onUnload();
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
+        if (_boundVisibilityHandler) {
+            document.removeEventListener('visibilitychange', _boundVisibilityHandler);
+            _boundVisibilityHandler = null;
+        }
+    if (_boundFocusHandler) { window.removeEventListener('focus', _boundFocusHandler); _boundFocusHandler = null; }
+    if (_boundBlurHandler) { window.removeEventListener('blur', _boundBlurHandler); _boundBlurHandler = null; }
+    if (_boundPageShowHandler) { window.removeEventListener('pageshow', _boundPageShowHandler); _boundPageShowHandler = null; }
+    if (_boundPageHideHandler) { window.removeEventListener('pagehide', _boundPageHideHandler); _boundPageHideHandler = null; }
   });
 
   // --- DigitalDecayEffect Class ---
 
-  interface GridCell { state: number; timer: number; opacity: number; }
-  interface Particle { index: number; active: boolean; originalPos: THREE.Vector2; amplitude: number; timeOffset: number; speed: number; lifetime: number; age: number; size: number; color: THREE.Color; symbolIndex: number; gridCellIndex: number; lastSymbolChange: number; symbolChangeInterval: number; }
+    interface GridCell { state: number; timer: number; opacity: number; }
+    interface Particle { index: number; active: boolean; originalPos: THREE.Vector2; amplitude: number; timeOffset: number; speed: number; lifetime: number; age: number; size: number; color: THREE.Color; symbolIndex: number; gridCellIndex: number; lastSymbolChange: number; symbolChangeInterval: number; }
+    // replaced with extended MobileParams below
+                type MobileParams = {
+                    count: number;
+                    lifetime: { min: number; max: number };
+                    size: { min: number; max: number };
+                    amplitude: { min: number; max: number };
+                    speedFactor: number;
+                    fadeStartScreenFraction: number;
+                    fadeStartLifetimeFraction: number;
+                    fadeInDuration: number;
+                    fadeOutDuration: number;
+                    rampDuration: number;
+                };
 
-  class DigitalDecayEffect {
+    class DigitalDecayEffect {
     private overlayContainer: HTMLElement;
     private image: HTMLImageElement;
     private clock: THREE.Clock | null = null;
     private animationFrameId: number | null = null;
+    private debug = false;
+    private frameCount = 0;
     
     private width = 0;   // CSS width of overlay container
     private height = 0;  // CSS height of overlay container
@@ -209,12 +327,30 @@ export {};
     private readonly SCALE_CEIL = 1.0;
     private frameTimes: number[] = [];
     private readonly FRAME_WINDOW = 50;
-    private readonly HIGH_THRESHOLD = 19.5; // ms (≈51 FPS)
-    private readonly LOW_THRESHOLD = 14.0;  // ms (≈71 FPS)
+    private readonly HIGH_THRESHOLD = 19.5; // ms (≈51 FPS) -> downscale when slower than this
+    private readonly LOW_THRESHOLD = 16.7;  // ms (≈60 FPS) -> upscale when consistently faster
     private scaleCooldown = 0;
     private readonly SCALE_COOLDOWN_FRAMES = 45;
     private avgFrameMs = 0;
     private metricsEnabled = false;
+    private isPageVisible = true;
+    private boundOnVisibilityChange = this.onVisibilityChange.bind(this);
+
+    // Mobile mode
+    private isMobileMode = false;
+    private mobileParams: MobileParams = {
+                count: 100,
+                lifetime: { min: 1, max: 4 },
+                size: { min: 12, max: 22 },
+                amplitude: { min: 8, max: 18 },
+                speedFactor: 0.8,
+                fadeStartScreenFraction: 0.5,
+                fadeStartLifetimeFraction: 0.5,
+                fadeInDuration: 0.01,
+                fadeOutDuration: 0.6,
+                rampDuration: 10.0
+            };
+            private rampTimer = 0;
 
     // =========================================================================
     // == EFFECT PARAMETERS ==
@@ -267,63 +403,80 @@ export {};
     private symbolsTexture!: THREE.CanvasTexture;
     private boundOnWindowResize = this.onWindowResize.bind(this);
 
-    constructor(overlayContainer: HTMLElement, image: HTMLImageElement) {
+    constructor(overlayContainer: HTMLElement, image: HTMLImageElement, opts?: { mobileMode?: boolean; mobileParams?: MobileParams; debug?: boolean }) {
         this.overlayContainer = overlayContainer;
         this.image = image;
+        if (opts?.mobileMode) this.isMobileMode = true;
+        if (opts?.mobileParams) this.mobileParams = { ...this.mobileParams, ...opts.mobileParams };
+        if (opts?.debug) this.debug = !!opts.debug;
     }
+
+    private dlog(...args: any[]) { if (this.debug) console.log('[DigitalDecayEffect]', ...args); }
 
     public init(): void {
       if (this.image.complete && this.image.naturalHeight !== 0) {
+          this.dlog('init(): image already loaded; setting up scene');
           this.setupSceneOnce();
       } else {
-          this.image.onload = () => this.setupSceneOnce();
+          this.dlog('init(): waiting for image load...');
+          this.image.onload = () => { this.dlog('image onload fired'); this.setupSceneOnce(); };
       }
     }
 
     private setupSceneOnce(): void {
         this.setupScene();
+    this.dlog('setupSceneOnce(): dimensions', { width: this.width, height: this.height });
     this.bloomEffect = new BloomEffect(this.renderer, this.scene, this.camera, this.width, this.height);
-        this.createSymbolTexture();
-        this.createBlackoutMesh();
-        this.createParticleSystem();
+    this.createSymbolTexture();
+    if (!this.isMobileMode) this.createBlackoutMesh();
+    this.createParticleSystem();
 
     // Ensure point size is normalized to CSS pixels initially
     this.updatePointScale(this.width, this.height);
+    this.dlog('setupSceneOnce(): point scale set, renderer size', this.renderer.getSize(new THREE.Vector2()).toArray(), 'css', { w: (this.renderer.domElement.style.width), h: (this.renderer.domElement.style.height) });
 
         if (this.bloomEffect && this.bloomEffect.composer) {
             this.bloomEffect.composer.render(0.01);
         }
 
-        window.addEventListener('resize', this.boundOnWindowResize);
+    window.addEventListener('resize', this.boundOnWindowResize);
+    document.addEventListener('visibilitychange', this.boundOnVisibilityChange);
+        this.dlog('setupSceneOnce(): listeners attached, mobileMode=', this.isMobileMode);
     }
     
     private animate(): void {
-        this.animationFrameId = requestAnimationFrame(() => this.animate());
-        if (!this.clock || !this.imageRect) return;
+    this.animationFrameId = requestAnimationFrame(() => this.animate());
+        if (!this.clock) return;
+        if (!this.isMobileMode && !this.imageRect) return;
+    this.frameCount++;
 
-                const deltaTime = this.clock.getDelta();
-                const frameMs = deltaTime * 1000;
-                this.frameTimes.push(frameMs);
-                if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
-                if (this.frameTimes.length === this.FRAME_WINDOW) {
-                    this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
-                    if (this.scaleCooldown > 0) this.scaleCooldown--;
-                    let changed = false;
-                    if (this.scaleCooldown === 0) {
-                        if (this.avgFrameMs > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
-                            this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
-                            changed = true;
-                        } else if (this.avgFrameMs < this.LOW_THRESHOLD && this.internalScale < this.SCALE_CEIL) {
-                            this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
-                            changed = true;
-                        }
-                        if (changed) { this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES; this.onWindowResize(); }
+                const rawDt = this.clock.getDelta();
+        // clamp large deltas (e.g., after tab becomes visible again) to avoid jumps
+        const deltaTime = Math.min(rawDt, 0.05);
+        if (this.isPageVisible) {
+            const frameMs = deltaTime * 1000;
+            this.frameTimes.push(frameMs);
+            if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+            if (this.frameTimes.length === this.FRAME_WINDOW) {
+                this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
+                if (this.scaleCooldown > 0) this.scaleCooldown--;
+                let changed = false;
+                if (this.scaleCooldown === 0) {
+                    if (this.avgFrameMs > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
+                        this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
+                        changed = true;
+                    } else if (this.avgFrameMs < this.LOW_THRESHOLD && this.internalScale < this.SCALE_CEIL) {
+                        this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
+                        changed = true;
                     }
+                    if (changed) { this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES; this.onWindowResize(); }
                 }
+            }
+        }
 
         if (this.isFadingOut) {
             this.fadeOutTimer += deltaTime;
-            this.updateParticles(deltaTime);
+            if (this.isMobileMode) this.updateParticlesMobile(deltaTime); else this.updateParticles(deltaTime);
             const fadeProgress = Math.max(0, 1.0 - (this.fadeOutTimer / this.PARTICLE_FADEOUT_DURATION));
             this.particleSystem.material.uniforms.globalOpacity.value = fadeProgress;
 
@@ -331,10 +484,20 @@ export {};
                 this.stop();
                 this.fullReset();
             }
-        } else {
-            this.updateGrid(deltaTime);
-            this.updateParticles(deltaTime);
-            this.updateBlackout();
+                } else {
+                        if (this.isMobileMode) {
+                            // Ramp up desired active count over configured duration
+                            this.rampTimer += deltaTime;
+                            const rampProgress = Math.min(1, this.mobileParams.rampDuration > 0 ? this.rampTimer / this.mobileParams.rampDuration : 1);
+                            const target = Math.floor(this.mobileParams.count * rampProgress);
+                            if (this.particles.active.size < target) this.initMobileParticles(target);
+                            // No emergency spawn; ramp controls initial population from zero
+                            this.updateParticlesMobile(deltaTime);
+                        } else {
+                            this.updateGrid(deltaTime);
+                            this.updateParticles(deltaTime);
+                            this.updateBlackout();
+                        }
         }
 
     this.bloomEffect.render(deltaTime);
@@ -361,15 +524,16 @@ export {};
             this.bloomEffect.setSize(targetW, targetH);
         }
 
-        // Update point-size scale so symbols remain visually consistent
+    // Update point-size scale so symbols remain visually consistent
         this.updatePointScale(this.width, this.height);
-
-        this.setupGrid();
+    if (!this.isMobileMode) this.setupGrid();
+        this.dlog('onWindowResize(): css', { w: this.width, h: this.height }, 'internal', { targetW, targetH }, 'pointScale', (this.particleSystem.material as THREE.ShaderMaterial).uniforms.uPointScale.value);
     }
     
     public dispose(): void {
       this.stop();
       window.removeEventListener('resize', this.boundOnWindowResize);
+    document.removeEventListener('visibilitychange', this.boundOnVisibilityChange);
       if (this.bloomEffect) {
         this.bloomEffect.dispose();
       }
@@ -384,9 +548,68 @@ export {};
       }
     }
 
+    private onVisibilityChange(): void {
+        const visible = document.visibilityState === 'visible';
+        this.isPageVisible = visible;
+        if (visible) {
+            this.dlog('visibilitychange -> visible: resetting metrics, checking RAF/particles');
+            // Reset performance metrics to avoid stale downscale decisions
+            this.frameTimes = [];
+            this.avgFrameMs = 0;
+            // Add brief cooldown to prevent immediate scaling on resume
+            this.scaleCooldown = Math.max(this.scaleCooldown, Math.floor(this.SCALE_COOLDOWN_FRAMES / 2));
+            // Ensure sizes and grid are correct after tab return
+            try { this.onWindowResize(); } catch {}
+            // If loop stopped for any reason, restart it
+            if (this.animationFrameId === null) {
+                // Reinitialize particle state for a clean start
+                this.fullReset();
+                if (this.isMobileMode) {
+                    this.resetAllParticles();
+                    this.rampTimer = 0;
+                }
+                this.clock = new THREE.Clock();
+                this.animate();
+                this.dlog('visibilitychange -> visible: RAF restarted');
+            } else {
+                // If running but no particles are active, kick spawning
+                if (this.isMobileMode) {
+                    if (this.particles.active.size === 0) {
+                        this.rampTimer = 0;
+                        this.resetAllParticles();
+                        // spawn a small initial batch to make it visible immediately
+                        this.initMobileParticles(Math.min(20, this.mobileParams.count));
+                        this.dlog('visibilitychange -> visible: mobile particles kickstarted');
+                    }
+                } else {
+                    if (this.particles.active.size === 0) {
+                        this.onsetTimer = 0;
+                        this.resetBlackoutGrid();
+                        // grid-based spawning will resume automatically in updateGrid
+                        this.dlog('visibilitychange -> visible: grid reset; waiting for spawns');
+                    }
+                }
+            }
+            // Defensive: ensure no residual fade and compositor is primed
+            this.isFadingOut = false;
+            this.fadeOutTimer = 0;
+            if (this.particleSystem) {
+                (this.particleSystem.material as THREE.ShaderMaterial).uniforms.globalOpacity.value = 1.0;
+            }
+            try { this.bloomEffect?.composer?.render(0.01); } catch {}
+        } else {
+            this.dlog('visibilitychange -> hidden: pausing perf sampling');
+        }
+    }
+
     public start(): void {
         if (this.animationFrameId === null) {
             this.fullReset();
+            if (this.isMobileMode) {
+                // Start empty on mobile and let ramp gradually spawn
+                this.resetAllParticles();
+                this.rampTimer = 0;
+            }
             this.clock = new THREE.Clock();
             this.animate();
         }
@@ -400,11 +623,24 @@ export {};
       }
     }
 
+        // Force a clean restart of the loop and visual state
+        public restart(): void {
+            this.stop();
+            this.fullReset();
+            // Ensure fully opaque after resume
+            if (this.particleSystem) {
+                (this.particleSystem.material as THREE.ShaderMaterial).uniforms.globalOpacity.value = 1.0;
+            }
+            this.clock = new THREE.Clock();
+            this.animate();
+            this.dlog('restart(): forced reset + RAF restart');
+        }
+
     public beginLeaveAnimation(): void {
       if (!this.isFadingOut) {
         this.isFadingOut = true;
         this.fadeOutTimer = 0;
-        this.resetBlackoutGrid();
+    if (!this.isMobileMode) this.resetBlackoutGrid();
       }
     }
 
@@ -414,7 +650,7 @@ export {};
     this.height = this.overlayContainer.clientHeight;
     this.scene = new THREE.Scene();
         
-        this.camera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 1, 1000);
+    this.camera = new THREE.OrthographicCamera(-this.width / 2, this.width / 2, this.height / 2, -this.height / 2, 1, 1000);
         this.camera.position.z = 100;
         
     this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
@@ -425,18 +661,24 @@ export {};
     const canvas = this.renderer.domElement;
     canvas.style.width = this.width + 'px';
     canvas.style.height = this.height + 'px';
+    canvas.style.position = 'absolute';
+    canvas.style.inset = '0';
+    canvas.style.zIndex = '10';
     this.overlayContainer.appendChild(canvas);
+    this.dlog('setupScene(): renderer appended. DOM canvas size', { w: canvas.style.width, h: canvas.style.height });
     }
 
     private fullReset(): void {
         this.isFadingOut = false;
         this.fadeOutTimer = 0;
         this.onsetTimer = 0;
+        this.rampTimer = 0;
         if(this.particleSystem) {
             this.particleSystem.material.uniforms.globalOpacity.value = 1.0;
         }
-        this.resetBlackoutGrid();
-        this.resetAllParticles();
+    if (!this.isMobileMode) this.resetBlackoutGrid();
+    // Always clear particles so mobile also deletes symbols on leave
+    this.resetAllParticles();
     }
 
     // Compute internal render target dimensions with 1440p cap and internalScale
@@ -548,12 +790,13 @@ export {};
     }
 
     private createParticleSystem(): void {
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3));
-        geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES * 3), 3));
-        geometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
-        geometry.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
-        geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(this.MAX_ACTIVE_PARTICLES), 1));
+    const geometry = new THREE.BufferGeometry();
+        const cap = this.MAX_ACTIVE_PARTICLES;
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(cap * 3), 3));
+        geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(new Float32Array(cap * 3), 3));
+        geometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
+        geometry.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
+        geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
 
         const material = new THREE.ShaderMaterial({
             uniforms: {
@@ -579,7 +822,7 @@ export {};
                     gl_Position = projectionMatrix * mvPosition;
                 }
             `,
-            fragmentShader: `
+        fragmentShader: `
                 uniform sampler2D symbolsTexture;
                 uniform float globalOpacity;
                 varying vec3 vColor;
@@ -593,7 +836,7 @@ export {};
                     symbolCoord.y = (symbolCoord.y + floor(vSymbolIndex / symbolsPerRow)) / totalRows;
                     
                     vec4 tex = texture2D(symbolsTexture, symbolCoord);
-                    if (tex.a < 0.3) discard;
+            if (tex.a < 0.2) discard;
                     
                     gl_FragColor = vec4(vColor, tex.a * vOpacity * ${this.PARTICLE_BASE_OPACITY} * globalOpacity);
                 }
@@ -606,21 +849,140 @@ export {};
         this.particleSystem = new THREE.Points(geometry, material);
         this.scene.add(this.particleSystem);
 
-        const symbolIndices = (geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
-        for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) {
+                const symbolIndices = (geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+                for (let i = 0; i < cap; i++) {
             symbolIndices[i] = Math.floor(Math.random() * this.SYMBOLS.length);
         }
-        (geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+    (geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+                for (let i = 0; i < cap; i++) {
+                    this.particles.pool.push({
+                        index: i, active: false, originalPos: new THREE.Vector2(),
+                        amplitude: 0, timeOffset: 0, speed: 0, lifetime: 0, age: 0, size: 0,
+                        color: new THREE.Color(), symbolIndex: 0, gridCellIndex: -1,
+                        lastSymbolChange: 0, symbolChangeInterval: 0
+                    });
+                }
 
-        for (let i = 0; i < this.MAX_ACTIVE_PARTICLES; i++) {
-            this.particles.pool.push({
-                index: i, active: false, originalPos: new THREE.Vector2(),
-                amplitude: 0, timeOffset: 0, speed: 0, lifetime: 0, age: 0, size: 0,
-                color: new THREE.Color(), symbolIndex: 0, gridCellIndex: -1,
-                lastSymbolChange: 0, symbolChangeInterval: 0
-            });
-        }
+                        // Mobile: don't pre-spawn here; ramp will handle spawning after start()
+                        this.dlog('createParticleSystem(): created geometry + material. pool size:', this.particles.pool.length, 'active size:', this.particles.active.size, 'mobileMode:', this.isMobileMode);
     }
+
+        // --- Mobile simplified particle spawning: float in from left ---
+        private initMobileParticles(desiredCount?: number): void {
+            const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+            const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array;
+            const colors = (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).array as Float32Array;
+            const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array;
+            const desired = Math.min((desiredCount ?? this.mobileParams.count), this.MAX_ACTIVE_PARTICLES);
+            const current = this.particles.active.size;
+            let toSpawn = Math.max(0, desired - current);
+            if (toSpawn <= 0) { this.dlog('initMobileParticles(): current meets or exceeds desired; skipping', { current, desired }); return; }
+            if (this.particles.pool.length <= 0) { this.dlog('initMobileParticles(): pool empty; cannot spawn'); return; }
+            toSpawn = Math.min(toSpawn, this.particles.pool.length);
+            const rightX = this.width / 2 - 2; // place just inside the screen for immediate visibility
+            for (let i = 0; i < toSpawn; i++) {
+                const p = this.particles.pool.pop();
+                if (!p) { this.dlog('initMobileParticles(): pool underflow at i=', i); break; }
+                p.active = true;
+                p.originalPos.set(rightX, (Math.random() - 0.5) * this.height);
+                // assign lifetime first, then compute speed; start new particles at age 0
+                p.lifetime = this.mobileParams.lifetime.min + Math.random() * (this.mobileParams.lifetime.max - this.mobileParams.lifetime.min);
+                p.age = 0;
+                // derive base speed so that by fadeStartLifetimeFraction of lifetime, particle reaches ~fadeStartScreenFraction of screen width
+                const baseSpeed = (this.width * this.mobileParams.fadeStartScreenFraction) / Math.max(0.001, (p.lifetime * this.mobileParams.fadeStartLifetimeFraction));
+                const jitter = 0.7 + Math.random() * 0.6; // ~±30%
+                p.speed = baseSpeed * this.mobileParams.speedFactor * jitter; // px/sec
+                p.amplitude = this.mobileParams.amplitude.min + Math.random() * (this.mobileParams.amplitude.max - this.mobileParams.amplitude.min); // vertical drift amplitude
+                p.timeOffset = Math.random() * Math.PI * 2;
+                p.size = this.mobileParams.size.min + Math.random() * (this.mobileParams.size.max - this.mobileParams.size.min);
+                p.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
+                p.color.copy(this.getSymbolColor());
+                p.lastSymbolChange = 0;
+                p.symbolChangeInterval = 1.5 + Math.random() * 1.5;
+                this.particles.active.set(p.index, p);
+                positions[p.index * 3] = p.originalPos.x;
+                positions[p.index * 3 + 1] = p.originalPos.y;
+                positions[p.index * 3 + 2] = 1;
+                colors[p.index * 3] = p.color.r; colors[p.index * 3 + 1] = p.color.g; colors[p.index * 3 + 2] = p.color.b;
+                sizes[p.index] = p.size;
+                opacities[p.index] = 0;
+            }
+            (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true;
+            // removed noisy sampling log
+        }
+
+        private updateParticlesMobile(deltaTime: number): void {
+            const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
+            const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array;
+            const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array;
+            const symbolIndices = (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+            let needsUpdate = false;
+
+                        this.particles.active.forEach(p => {
+                p.age += deltaTime;
+                                // movement from right to left with slight vertical drift
+                const x = p.originalPos.x - p.speed * p.age;
+                const y = p.originalPos.y + Math.sin(p.age * 2 + p.timeOffset) * p.amplitude;
+                positions[p.index * 3] = x;
+                positions[p.index * 3 + 1] = y;
+                positions[p.index * 3 + 2] = 1;
+
+                                // fade in/out: combine lifetime and screen fraction triggers
+                                const fadeIn = Math.min(1, p.age / Math.max(0.001, this.mobileParams.fadeInDuration));
+                                const fadeStartLifetime = p.lifetime * this.mobileParams.fadeStartLifetimeFraction;
+                                const distFromRight = (this.width / 2) - x;
+                                const screenThreshold = this.width * this.mobileParams.fadeStartScreenFraction;
+                                const fadeProgressScreen = this.mobileParams.fadeStartScreenFraction <= 0 ? 0 : Math.max(0, (distFromRight - screenThreshold) / Math.max(1, (this.width - screenThreshold)));
+                                const hasPassedLifetimeFade = p.age >= fadeStartLifetime;
+                                const shouldFade = hasPassedLifetimeFade || fadeProgressScreen > 0;
+                                let fadeOut = 1;
+                                if (shouldFade) {
+                                    const tLife = (p.age - fadeStartLifetime) / Math.max(0.001, this.mobileParams.fadeOutDuration);
+                                    const t = Math.max(0, Math.min(1, Math.max(tLife, fadeProgressScreen)));
+                                    fadeOut = 1 - t;
+                                }
+                                opacities[p.index] = Math.min(fadeIn, fadeOut);
+
+                // occasional symbol change
+                p.lastSymbolChange += deltaTime;
+                if (p.lastSymbolChange > p.symbolChangeInterval) {
+                    symbolIndices[p.index] = Math.floor(Math.random() * this.SYMBOLS.length);
+                    p.lastSymbolChange = 0;
+                }
+
+                // recycle when lifetime ends or out of bounds
+                if (p.age >= p.lifetime || x < -this.width / 2 - 30) {
+                    // reuse particle: respawn near left
+                    p.active = true;
+                    p.originalPos.set(this.width / 2 - 2, (Math.random() - 0.5) * this.height);
+                    // assign lifetime first, then compute speed; reset age
+                    p.lifetime = this.mobileParams.lifetime.min + Math.random() * (this.mobileParams.lifetime.max - this.mobileParams.lifetime.min);
+                    p.age = 0;
+                    const baseSpeed2 = (this.width * this.mobileParams.fadeStartScreenFraction) / Math.max(0.001, (p.lifetime * this.mobileParams.fadeStartLifetimeFraction));
+                    const jitter2 = 0.7 + Math.random() * 0.6;
+                    p.speed = baseSpeed2 * this.mobileParams.speedFactor * jitter2;
+                    p.amplitude = this.mobileParams.amplitude.min + Math.random() * (this.mobileParams.amplitude.max - this.mobileParams.amplitude.min);
+                    p.timeOffset = Math.random() * Math.PI * 2;
+                    p.size = this.mobileParams.size.min + Math.random() * (this.mobileParams.size.max - this.mobileParams.size.min);
+                    sizes[p.index] = p.size;
+                    opacities[p.index] = 0;
+                    needsUpdate = true;
+                } else {
+                    needsUpdate = true;
+                }
+            });
+
+            if (needsUpdate) {
+                (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+                (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
+                (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+                (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true;
+                // removed periodic mobile sampling log
+            }
+        }
 
     private getSymbolColor(): THREE.Color {
         return this.SYMBOL_COLORS[Math.floor(Math.random() * this.SYMBOL_COLORS.length)];
@@ -796,7 +1158,7 @@ export {};
 
 <div class="main-container gpu-prewarm-target" bind:this={mainContainer}>
   <div class="image-pane">
-    <img src={imageUrl} alt="Profile" bind:this={imageElement}/>
+    <img src={imageUrl} alt="Profile" bind:this={imageElement} style={`object-position: ${mobileMode ? mobileImageOffsetX : 50}% center;`}/>
   </div>
 </div>
 
@@ -805,7 +1167,7 @@ export {};
 <style>
   .main-container {
     position: relative;
-    z-index: 1;
+    z-index: 0;
     width: 100%;
     height: 100%;
     display: flex;
@@ -827,16 +1189,24 @@ export {};
     width: auto;
     display: block;
     object-fit: cover;
+    object-position: center;
   }
-  .particle-overlay {
-    position: fixed;
+    .particle-overlay {
+        position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    z-index: 2;
+    z-index: 10;
     pointer-events: none;
   }
+
+    /* Mobile: ensure full-screen centered background image */
+    @media (max-width: 768px) {
+        .main-container { visibility: visible; opacity: 1; }
+        .image-pane { position: fixed; inset: 0; z-index: 0; display: flex; justify-content: center; align-items: center; }
+        .image-pane img { width: 100vw; height: 100dvh; object-fit: cover; object-position: center; }
+    }
 </style>
 --- END OF FILE src\lib\components\AboutImageEffect.svelte ---
 
@@ -932,7 +1302,7 @@ export {};
       try {
   const mobile = get(renderProfile).isMobile;
         const options = mobile
-          ? { initialInternalScale: 0.7, maxInternalDim: 960, amountScale: 0.8, antialias: true }
+          ? { initialInternalScale: 0.7, maxInternalDim: 960, amountScale: 1.0, antialias: true }
           : { initialInternalScale: 1.0, maxInternalDim: 1440, amountScale: 1.0, antialias: true };
         particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement, options);
         preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
@@ -1228,27 +1598,27 @@ export {};
 
   <div class="keyboard-buttons-wrapper">
     {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
-    <div class="key-position gpu-prewarm-target">
+  <div class="key-position gpu-prewarm-target">
       <a aria-label="Github" class="key" target="_blank" rel="noopener noreferrer" href={getLink('GitHub')}>
         <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor"><path d="M10 20.568c-3.429 1.157-6.286 0-8-3.568"></path><path d="M10 22v-3.242c0-.598.184-1.118.48-1.588c.204-.322.064-.78-.303-.88C7.134 15.452 5 14.107 5 9.645c0-1.16.38-2.25 1.048-3.2c.166-.236.25-.354.27-.46c.02-.108-.015-.247-.085-.527c-.283-1.136-.264-2.343.16-3.43c0 0 .877-.287 2.874.96c.456.285.684.428.885.46s.469-.035 1.005-.169A9.5 9.5 0 0 1 13.5 3a9.6 9.6 0 0 1 2.343.28c.536.134.805.2 1.006.169c.2-.032.428-.175.884-.46c1.997-1.247 2.874-.96 2.874-.96c.424 1.087.443 2.294.16 3.43c-.07.28-.104.42-.084.526s.103.225.269.461c.668.95 1.048 2.04 1.048 3.2c0 4.462-2.364 5.807-5.177 6.643c-.367.101-.507.559-.303.88c.296.47.48.99.48 1.589V22"></path></g></svg>
       </a>
     </div>
     {/if}
     {#if socialLinks.find(l => l.name.toLowerCase() === 'linkedin')}
-    <div class="key-position gpu-prewarm-target">
+  <div class="key-position gpu-prewarm-target">
       <a aria-label="LinkedIn" class="key" target="_blank" rel="noopener noreferrer" href={getLink('LinkedIn')}>
         <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.5 9.5H4c-.943 0-1.414 0-1.707.293S2 10.557 2 11.5V20c0 .943 0 1.414.293 1.707S3.057 22 4 22h.5c.943 0 1.414 0 1.707-.293S6.5 20.943 6.5 20v-8.5c0-.943 0-1.414-.293-1.707S5.443 9.5 4.5 9.5m2-5.25a2.25 2.25 0 1 1-4.5 0a2.25 2.25 0 0 1 4.5 0m5.826 5.25H11.5c-.943 0-1.414 0-1.707.293S9.5 10.557 9.5 11.5V20c0 .943 0 1.414.293 1.707S10.557 22 11.5 22h.5c.943 0 1.414 0 1.707-.293S14 20.943 14 20v-3.5c0-1.657.528-3 2.088-3c.78 0 1.412.672 1.412 1.5v4.5c0 .943 0 1.414.293 1.707s.764.293 1.707.293h.499c.942 0 1.414 0 1.707-.293c.292-.293.293-.764.293-1.706L22 14c0-2.486-2.364-4.5-4.703-4.5c-1.332 0-2.52.652-3.297 1.673c0-.63 0-.945-.137-1.179a1 1 0 0 0-.358-.358c-.234-.137-.549-.137-1.179-.137" color="currentColor"></path></svg>
       </a>
     </div>
     {/if}
     {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
-    <div class="key-position gpu-prewarm-target">
+  <div class="key-position gpu-prewarm-target">
       <a aria-label="Email" class="key" target="_blank" rel="noopener noreferrer" href={getLink('Email')}>
         <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor"><path d="m2 6l6.913 3.917c2.549 1.444 3.625 1.444 6.174 0L22 6"></path><path d="M2.016 13.476c.065 3.065.098 4.598 1.229 5.733c1.131 1.136 2.705 1.175 5.854 1.254c1.94.05 3.862.05 5.802 0c3.149-.079 4.723-.118 5.854-1.254c1.131-1.135 1.164-2.668 1.23-5.733c.02-.986.02-1.966 0-2.952c-.066-3.065-.099-4.598-1.23-5.733c-1.131-1.136-2.705-1.175-5.854-1.254a115 115 0 0 0-5.802 0c-3.149.079-4.723.118-5.854 1.254c-1.131 1.135-1.164 2.668-1.23 5.733a69 69 0 0 0 0 2.952"></path></g></svg>
       </a>
     </div>
     {/if}
-    <div class="key-position gpu-prewarm-target">
+  <div class="key-position key-position-cta gpu-prewarm-target">
       <button type="button" id="about-contact-me-btn" class="key call-to-action peer" on:click={handleContactClick}>
         <span class="call-to-action-content">{(($page.data as any)?.messages?.common?.about?.contactMe) ?? 'Contact Me'}</span>
       </button>
@@ -1302,7 +1672,25 @@ export {};
   .key span { color: inherit; margin: 0; padding: 0; }
   .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); }
   .key:active { cursor: grabbing; transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
-  @media (max-width: 640px) { .keyboard-buttons-wrapper { flex-direction: column; align-items: center; gap: 1rem; } }
+  @media (max-width: 640px) {
+    .keyboard-buttons-wrapper {
+      flex-direction: row;
+      flex-wrap: wrap;
+      justify-content: flex-start; /* left align */
+      align-items: flex-start;
+      gap: calc(var(--keyboard-key-base-size) * 0.01);
+    }
+    /* Put CTA on its own line under the social row, left-aligned */
+    .key-position-cta {
+      flex-basis: 100%;
+      display: flex;
+      justify-content: flex-start;
+      margin-top: 0.25rem;
+    }
+    .about-text-block { margin: 0 auto; }
+    .about-text-block h2,
+    .about-text-block > p { text-align: left; }
+  }
 </style>
 --- END OF FILE src\lib\components\KeyboardButtons.svelte ---
 
@@ -1846,18 +2234,11 @@ export {};
   .mobile-dots button { 
     width: 8px; height: 8px; border-radius: 50%; border: none; 
     background: rgba(255,255,255,0.8); display: block; padding: 0; cursor: pointer; 
-    transform-origin: center; will-change: transform; 
-    transition: transform 200ms cubic-bezier(.2,.8,.2,1), background-color 180ms ease; 
+    transform-origin: center; transition: transform 220ms cubic-bezier(.2,.8,.2,1), background-color 180ms ease; 
   }
   .mobile-dots button.active { 
     transform: scale(1.7); 
-    animation: dotPop 220ms cubic-bezier(.2,.8,.2,1);
     background: rgba(255,255,255,1);
-  }
-  @keyframes dotPop {
-    0% { transform: scale(1); }
-    60% { transform: scale(1.85); }
-    100% { transform: scale(1.7); }
   }
   @media (min-width: 769px) { .mobile-dots { display: none; } }
 </style>
@@ -2209,6 +2590,7 @@ export {};
   import { transitionStore } from '$lib/stores/transitionStore';
   import { page } from '$app/stores';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
+  import { renderProfile } from '$lib/stores/renderProfile';
 
   export let headline: string;
   export let summary: string;
@@ -2274,7 +2656,11 @@ export {};
     {#each cards as card, i (card.id)}
       <div class="card-wrapper anim-card" style="--card-index: {i};">
   <button type="button" class="card-click-target" on:click={() => handleCardClick(card)} aria-label={(($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for') + ' ' + card.title}>
-          <ParallaxCard cardData={card} width="240px" height="320px" />
+          <ParallaxCard
+            cardData={card}
+            width={$renderProfile.isMobile ? '100%' : '240px'}
+            height={$renderProfile.isMobile ? 'auto' : '320px'}
+          />
         </button>
       </div>
     {/each}
@@ -2417,6 +2803,55 @@ export {};
       inset #333 0 0 0 5px,
       inset rgb(99 102 241) 0 0 0 7px;
   }
+
+  /* Mobile-only reflow: keep desktop unchanged */
+  @media (max-width: 768px) {
+    .layout-container {
+      height: auto;
+      min-height: 100vh;
+    }
+    .text-block {
+      position: static;
+      left: auto;
+      bottom: auto;
+      width: auto;
+      max-width: none;
+      padding: 2rem 4vw 1rem;
+    }
+    .cards-block {
+      position: static;
+      top: auto;
+      right: auto;
+      transform: none;
+      width: 100%;
+      /* Use variables to keep columns within viewport including gap */
+      --grid-gap: 4vw;
+      --grid-pad: 4vw;
+      padding: 0 var(--grid-pad) 2rem;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, calc((100% - var(--grid-gap)) / 2)));
+      column-gap: var(--grid-gap);
+      row-gap: var(--grid-gap);
+      align-items: start;
+      justify-items: stretch;
+      box-sizing: border-box;
+      overflow-x: hidden;
+    }
+    .card-wrapper {
+      width: 100%;
+    }
+    .card-click-target {
+      display: block;
+      width: 100%;
+    }
+    /* Remove inner ParallaxCard margins to avoid squishing */
+    .cards-block :global(.card-wrap) {
+  margin: 0;
+  width: 100%;
+  aspect-ratio: 2 / 3; /* keeps a tall card while allowing full cell width */
+      box-sizing: border-box;
+    }
+  }
 </style>
 --- END OF FILE src\lib\components\layouts\ProjectOneLayout.svelte ---
 
@@ -2440,6 +2875,7 @@ export {};
   import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
   import type { KeyboardButtonsInstance } from '$lib/components/KeyboardButtons.svelte';
   import type { AboutImageEffectInstance } from '$lib/components/AboutImageEffect.svelte';
+  import { renderProfile } from '$lib/stores/renderProfile';
 
   const dispatch = createEventDispatcher();
 
@@ -2510,6 +2946,7 @@ export {};
   <AboutImageEffect
     bind:this={aboutImageEffectInstance}
     imageUrl={data.imageUrl}
+  mobileMode={$renderProfile.isMobile}
   />
 </div>
 
@@ -2544,25 +2981,17 @@ export {};
     .about-section-wrapper { 
       flex-direction: column;
       justify-content: center;
-      padding: 2rem; 
-      align-items: center;
+  padding: 2rem; 
+  align-items: stretch;
     }
 
     .about-content-wrapper { 
-      justify-content: center; 
-      text-align: center; 
-      padding: 1rem;
+  justify-content: flex-start; 
+  text-align: left; 
+      padding: 1rem 1rem 2rem;
       width: 100%;
       flex-grow: 0;
       z-index: 2;
-    }
-    
-    .about-section-wrapper :global(.main-container) {
-      position: absolute;
-      top: 0;
-      left: 0;
-      opacity: 0.15 !important;
-      z-index: 1;
     }
 
     .about-section-wrapper :global(.image-pane) {
@@ -2697,6 +3126,9 @@ export {};
     private animationFrameId: number | null = null;
     private isLooping = false;
     private boundOnMouseMove: (e: MouseEvent) => void;
+  private boundOnTouchStart: (e: TouchEvent) => void;
+  private boundOnTouchMove: (e: TouchEvent) => void;
+  private boundOnTouchEnd: (e: TouchEvent) => void;
     private boundOnResize: () => void;
     private mousePos = new THREE.Vector2(0.5, 0.5);   // smoothed pointer (for shader)
     private targetMouse = new THREE.Vector2(0.5, 0.5); // raw pointer target
@@ -2779,6 +3211,9 @@ export {};
       this.container = container;
       this.clock = new THREE.Clock();
       this.boundOnMouseMove = this.onMouseMove.bind(this);
+  this.boundOnTouchStart = this.onTouchStart.bind(this);
+  this.boundOnTouchMove = this.onTouchMove.bind(this);
+  this.boundOnTouchEnd = this.onTouchEnd.bind(this);
       this.boundOnResize = this.onWindowResize.bind(this);
 
       // prepare typed arrays and params
@@ -2818,6 +3253,11 @@ export {};
       try { this.finalComposer.render(); } catch (e) { /* noop */ }
 
       window.addEventListener('mousemove', this.boundOnMouseMove, { passive: true });
+  // Touch support: react continuously while dragging a finger
+  window.addEventListener('touchstart', this.boundOnTouchStart, { passive: true });
+  window.addEventListener('touchmove', this.boundOnTouchMove, { passive: true });
+  window.addEventListener('touchend', this.boundOnTouchEnd, { passive: true });
+  window.addEventListener('touchcancel', this.boundOnTouchEnd, { passive: true });
       window.addEventListener('resize', this.boundOnResize);
     }
 
@@ -3228,6 +3668,37 @@ export {};
       }
     }
 
+    // Touch handlers to support dragging on mobile/tablet
+    private onTouchStart(e: TouchEvent) {
+      if (!e.touches || e.touches.length === 0) return;
+      const t = e.touches[0];
+      const rect = this.container.getBoundingClientRect();
+      const nx = (t.clientX - rect.left) / rect.width;
+      const ny = 1.0 - (t.clientY - rect.top) / rect.height;
+      this.targetMouse.set(nx, ny);
+      // immediate uniform push
+      const mp: THREE.Vector2 | undefined = this.material?.uniforms?.uMousePosition?.value as THREE.Vector2 | undefined;
+      if (mp) { mp.set(this.targetMouse.x, this.targetMouse.y); }
+    }
+
+    private onTouchMove(e: TouchEvent) {
+      if (!e.touches || e.touches.length === 0) return;
+      const t = e.touches[0];
+      const rect = this.container.getBoundingClientRect();
+      const nx = (t.clientX - rect.left) / rect.width;
+      const ny = 1.0 - (t.clientY - rect.top) / rect.height;
+      this.targetMouse.set(nx, ny);
+      // immediate uniform push for responsiveness during drag
+      const mp: THREE.Vector2 | undefined = this.material?.uniforms?.uMousePosition?.value as THREE.Vector2 | undefined;
+      if (mp) { mp.set(this.targetMouse.x, this.targetMouse.y); }
+    }
+
+    private onTouchEnd(_e: TouchEvent) {
+      // Optional: ease back toward center when finger lifts
+      // Keep small inertia by not snapping instantly; reuse neutralization smoothing
+      this.neutralizeState(0.5);
+    }
+
     // Resize handling and LOD adjustments
     private onWindowResize(): void {
       if (!this.renderer) return;
@@ -3309,6 +3780,10 @@ export {};
       this.isDisposed = true;
       this.stopAnimationLoop();
       window.removeEventListener('mousemove', this.boundOnMouseMove);
+  window.removeEventListener('touchstart', this.boundOnTouchStart as any);
+  window.removeEventListener('touchmove', this.boundOnTouchMove as any);
+  window.removeEventListener('touchend', this.boundOnTouchEnd as any);
+  window.removeEventListener('touchcancel', this.boundOnTouchEnd as any);
       window.removeEventListener('resize', this.boundOnResize);
 
       try {
@@ -3611,10 +4086,6 @@ export {};
 </style>
 --- END OF FILE src\lib\components\sections\ContactSection.svelte ---
 
---- START OF FILE src\lib\components\sections\ContactSectionMobile.svelte ---
-
---- END OF FILE src\lib\components\sections\ContactSectionMobile.svelte ---
-
 --- START OF FILE src\lib\components\sections\HeroSection.svelte ---
 <!-- src/lib/components/sections/HeroSection.svelte -->
 <script context="module" lang="ts">
@@ -3721,10 +4192,6 @@ export {};
   }
 </style>
 --- END OF FILE src\lib\components\sections\HeroSection.svelte ---
-
---- START OF FILE src\lib\components\sections\HeroSectionMobile.svelte ---
-
---- END OF FILE src\lib\components\sections\HeroSectionMobile.svelte ---
 
 --- START OF FILE src\lib\components\sections\ProjectSection.svelte ---
 <!-- src/lib/components/sections/ProjectSection.svelte -->
@@ -3957,10 +4424,6 @@ export {};
   }
 </style>
 --- END OF FILE src\lib\components\sections\ProjectSection.svelte ---
-
---- START OF FILE src\lib\components\sections\ProjectSectionMobile.svelte ---
-
---- END OF FILE src\lib\components\sections\ProjectSectionMobile.svelte ---
 
 --- START OF FILE src\lib\data\projectsData.ts ---
 // src/lib/data/projectsData.ts
@@ -5251,13 +5714,15 @@ export class Environment {
   // performance tracking
   private frameTimes: number[] = [];
   private readonly FRAME_WINDOW = 50;
-  private readonly HIGH_THRESHOLD = 19.5;
-  private readonly LOW_THRESHOLD = 7.0;
+  private readonly HIGH_THRESHOLD = 19.5; // ~51 FPS
+  private readonly LOW_THRESHOLD = 16.7;  // ~60 FPS to allow upscaling when stable
   private scaleCooldown = 0;
   private readonly SCALE_COOLDOWN_FRAMES = 45;
   private avgFrameMs = 0;
   // metrics flag
   private metricsEnabled = false;
+  private isPageVisible = true;
+  private boundOnVisibilityChange = this.onVisibilityChange.bind(this);
 
   private baseAmountScale = 1.0;
   private readonly AMOUNT_TIERS = [1.0, 0.85, 0.7, 0.55];
@@ -5310,7 +5775,8 @@ export class Environment {
         }
       } catch {}
     }
-    this.bindWindowResize();
+  this.bindWindowResize();
+  document.addEventListener('visibilitychange', this.boundOnVisibilityChange);
 
     if (this.renderer) {
         this.startAnimationLoop();
@@ -5355,11 +5821,13 @@ export class Environment {
   }
 
   public render() {
-    const deltaTime = this.clock.getDelta();
-    const frameMs = deltaTime * 1000;
-    this.frameTimes.push(frameMs);
-    if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
-    if (this.frameTimes.length === this.FRAME_WINDOW) {
+    const rawDt = this.clock.getDelta();
+    const deltaTime = Math.min(rawDt, 0.05); // clamp large dt spikes after tab resume
+    if (this.isPageVisible) {
+      const frameMs = deltaTime * 1000;
+      this.frameTimes.push(frameMs);
+      if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+      if (this.frameTimes.length === this.FRAME_WINDOW) {
       this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
       if (this.scaleCooldown > 0) this.scaleCooldown--;
       let changed = false;
@@ -5377,14 +5845,14 @@ export class Environment {
       if (this.createParticles) {
         if (this.amountTierCooldown > 0) this.amountTierCooldown--;
         if (this.amountTierCooldown === 0) {
-          if (this.internalScale <= this.SCALE_FLOOR + 1e-3 && this.avgFrameMs > this.HIGH_THRESHOLD + 1.5) {
+          if (this.internalScale <= this.SCALE_FLOOR + 1e-3 && this.avgFrameMs > this.HIGH_THRESHOLD + 1.0) {
             if (this.amountTierIdx < this.AMOUNT_TIERS.length - 1) {
               this.amountTierIdx++;
               const newAmount = Math.floor(this.createParticles.getAmount() * this.AMOUNT_TIERS[this.amountTierIdx]);
               this.createParticles.rebuildWithAmount(newAmount);
               this.amountTierCooldown = this.AMOUNT_TIER_COOLDOWN_FRAMES;
             }
-          } else if (this.avgFrameMs < this.LOW_THRESHOLD - 1.0) {
+          } else if (this.avgFrameMs < this.LOW_THRESHOLD - 0.7) {
             if (this.amountTierIdx > 0) {
               this.amountTierIdx--;
               const newAmount = Math.floor(this.createParticles.getAmount() / this.AMOUNT_TIERS[this.amountTierIdx+1]);
@@ -5393,6 +5861,7 @@ export class Environment {
             }
           }
         }
+      }
       }
     }
     // Force stable background
@@ -5483,6 +5952,7 @@ export class Environment {
   public dispose() {
     this.stopAnimationLoop();
     this.unbindWindowResize();
+  document.removeEventListener('visibilitychange', this.boundOnVisibilityChange);
     if (this.createParticles) {
       this.createParticles.dispose();
     }
@@ -5507,6 +5977,20 @@ export class Environment {
                 }
             }
         });
+    }
+  }
+
+  private onVisibilityChange() {
+    const visible = document.visibilityState === 'visible';
+    this.isPageVisible = visible;
+    if (visible) {
+      // clear metrics so stale hidden-frame spikes don't cause downscale
+      this.frameTimes = [];
+      this.avgFrameMs = 0;
+      // small cooldown to avoid immediate rescale upon resume
+      this.scaleCooldown = Math.max(this.scaleCooldown, Math.floor(this.SCALE_COOLDOWN_FRAMES / 2));
+      // also pause amount tiering adjustments briefly
+      this.amountTierCooldown = Math.max(this.amountTierCooldown, Math.floor(this.AMOUNT_TIER_COOLDOWN_FRAMES / 4));
     }
   }
 }
@@ -5617,8 +6101,8 @@ export class CreateParticles {
   };
 
   private readonly RESPONSIVE_PARAMS: Record<ScreenSizeType, Partial<ParticleData>> = {
-    mobile: { amount: 1200, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
-    tablet: { amount: 1800, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
+    mobile: { amount: 2000, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
+    tablet: { amount: 2200, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
     laptop: { amount: 2200, particleSize: 1.5, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
     desktop: { amount: 2400, particleSize: 1.68, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
     large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 8, maxSymbolSize: 11, area: 280 },

@@ -90,13 +90,15 @@ export class Environment {
   // performance tracking
   private frameTimes: number[] = [];
   private readonly FRAME_WINDOW = 50;
-  private readonly HIGH_THRESHOLD = 19.5;
-  private readonly LOW_THRESHOLD = 7.0;
+  private readonly HIGH_THRESHOLD = 19.5; // ~51 FPS
+  private readonly LOW_THRESHOLD = 16.7;  // ~60 FPS to allow upscaling when stable
   private scaleCooldown = 0;
   private readonly SCALE_COOLDOWN_FRAMES = 45;
   private avgFrameMs = 0;
   // metrics flag
   private metricsEnabled = false;
+  private isPageVisible = true;
+  private boundOnVisibilityChange = this.onVisibilityChange.bind(this);
 
   private baseAmountScale = 1.0;
   private readonly AMOUNT_TIERS = [1.0, 0.85, 0.7, 0.55];
@@ -149,7 +151,8 @@ export class Environment {
         }
       } catch {}
     }
-    this.bindWindowResize();
+  this.bindWindowResize();
+  document.addEventListener('visibilitychange', this.boundOnVisibilityChange);
 
     if (this.renderer) {
         this.startAnimationLoop();
@@ -194,11 +197,13 @@ export class Environment {
   }
 
   public render() {
-    const deltaTime = this.clock.getDelta();
-    const frameMs = deltaTime * 1000;
-    this.frameTimes.push(frameMs);
-    if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
-    if (this.frameTimes.length === this.FRAME_WINDOW) {
+    const rawDt = this.clock.getDelta();
+    const deltaTime = Math.min(rawDt, 0.05); // clamp large dt spikes after tab resume
+    if (this.isPageVisible) {
+      const frameMs = deltaTime * 1000;
+      this.frameTimes.push(frameMs);
+      if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
+      if (this.frameTimes.length === this.FRAME_WINDOW) {
       this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
       if (this.scaleCooldown > 0) this.scaleCooldown--;
       let changed = false;
@@ -216,14 +221,14 @@ export class Environment {
       if (this.createParticles) {
         if (this.amountTierCooldown > 0) this.amountTierCooldown--;
         if (this.amountTierCooldown === 0) {
-          if (this.internalScale <= this.SCALE_FLOOR + 1e-3 && this.avgFrameMs > this.HIGH_THRESHOLD + 1.5) {
+          if (this.internalScale <= this.SCALE_FLOOR + 1e-3 && this.avgFrameMs > this.HIGH_THRESHOLD + 1.0) {
             if (this.amountTierIdx < this.AMOUNT_TIERS.length - 1) {
               this.amountTierIdx++;
               const newAmount = Math.floor(this.createParticles.getAmount() * this.AMOUNT_TIERS[this.amountTierIdx]);
               this.createParticles.rebuildWithAmount(newAmount);
               this.amountTierCooldown = this.AMOUNT_TIER_COOLDOWN_FRAMES;
             }
-          } else if (this.avgFrameMs < this.LOW_THRESHOLD - 1.0) {
+          } else if (this.avgFrameMs < this.LOW_THRESHOLD - 0.7) {
             if (this.amountTierIdx > 0) {
               this.amountTierIdx--;
               const newAmount = Math.floor(this.createParticles.getAmount() / this.AMOUNT_TIERS[this.amountTierIdx+1]);
@@ -232,6 +237,7 @@ export class Environment {
             }
           }
         }
+      }
       }
     }
     // Force stable background
@@ -322,6 +328,7 @@ export class Environment {
   public dispose() {
     this.stopAnimationLoop();
     this.unbindWindowResize();
+  document.removeEventListener('visibilitychange', this.boundOnVisibilityChange);
     if (this.createParticles) {
       this.createParticles.dispose();
     }
@@ -346,6 +353,20 @@ export class Environment {
                 }
             }
         });
+    }
+  }
+
+  private onVisibilityChange() {
+    const visible = document.visibilityState === 'visible';
+    this.isPageVisible = visible;
+    if (visible) {
+      // clear metrics so stale hidden-frame spikes don't cause downscale
+      this.frameTimes = [];
+      this.avgFrameMs = 0;
+      // small cooldown to avoid immediate rescale upon resume
+      this.scaleCooldown = Math.max(this.scaleCooldown, Math.floor(this.SCALE_COOLDOWN_FRAMES / 2));
+      // also pause amount tiering adjustments briefly
+      this.amountTierCooldown = Math.max(this.amountTierCooldown, Math.floor(this.AMOUNT_TIER_COOLDOWN_FRAMES / 4));
     }
   }
 }
@@ -456,8 +477,8 @@ export class CreateParticles {
   };
 
   private readonly RESPONSIVE_PARAMS: Record<ScreenSizeType, Partial<ParticleData>> = {
-    mobile: { amount: 1200, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
-    tablet: { amount: 1800, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
+    mobile: { amount: 2000, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
+    tablet: { amount: 2200, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
     laptop: { amount: 2200, particleSize: 1.5, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
     desktop: { amount: 2400, particleSize: 1.68, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
     large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 8, maxSymbolSize: 11, area: 280 },

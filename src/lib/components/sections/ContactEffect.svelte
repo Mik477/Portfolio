@@ -116,6 +116,10 @@
     private animationFrameId: number | null = null;
     private isLooping = false;
     private boundOnMouseMove: (e: MouseEvent) => void;
+  private boundOnMouseDown: (e: MouseEvent) => void;
+  private boundOnTouchStart: (e: TouchEvent) => void;
+  private boundOnTouchMove: (e: TouchEvent) => void;
+  private boundOnTouchEnd: (e: TouchEvent) => void;
     private boundOnResize: () => void;
     private mousePos = new THREE.Vector2(0.5, 0.5);   // smoothed pointer (for shader)
     private targetMouse = new THREE.Vector2(0.5, 0.5); // raw pointer target
@@ -198,6 +202,10 @@
       this.container = container;
       this.clock = new THREE.Clock();
       this.boundOnMouseMove = this.onMouseMove.bind(this);
+  this.boundOnMouseDown = this.onMouseDown.bind(this);
+  this.boundOnTouchStart = this.onTouchStart.bind(this);
+  this.boundOnTouchMove = this.onTouchMove.bind(this);
+  this.boundOnTouchEnd = this.onTouchEnd.bind(this);
       this.boundOnResize = this.onWindowResize.bind(this);
 
       // prepare typed arrays and params
@@ -236,7 +244,14 @@
       // warm GPU/state
       try { this.finalComposer.render(); } catch (e) { /* noop */ }
 
-      window.addEventListener('mousemove', this.boundOnMouseMove, { passive: true });
+  window.addEventListener('mousemove', this.boundOnMouseMove, { passive: true });
+  // Mouse click locks the position as well (desktop parity with tap)
+  window.addEventListener('mousedown', this.boundOnMouseDown, { passive: true });
+  // Touch support: react continuously while dragging a finger
+  window.addEventListener('touchstart', this.boundOnTouchStart, { passive: true });
+  window.addEventListener('touchmove', this.boundOnTouchMove, { passive: true });
+  window.addEventListener('touchend', this.boundOnTouchEnd, { passive: true });
+  window.addEventListener('touchcancel', this.boundOnTouchEnd, { passive: true });
       window.addEventListener('resize', this.boundOnResize);
     }
 
@@ -632,8 +647,8 @@
     // Interaction
     private onMouseMove(e: MouseEvent) {
       const rect = this.container.getBoundingClientRect();
-      const nx = (e.clientX - rect.left) / rect.width;
-      const ny = 1.0 - (e.clientY - rect.top) / rect.height; // match shader Y orientation
+  const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+  const ny = 1.0 - Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height)); // match shader Y orientation
       this.targetMouse.x = nx;
       this.targetMouse.y = ny;
 
@@ -645,6 +660,45 @@
           mp.y = this.targetMouse.y;
         }
       }
+    }
+
+    private onMouseDown(e: MouseEvent) {
+      const rect = this.container.getBoundingClientRect();
+      const nx = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+      const ny = 1.0 - Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height));
+      this.targetMouse.set(nx, ny);
+      const mp: THREE.Vector2 | undefined = this.material?.uniforms?.uMousePosition?.value as THREE.Vector2 | undefined;
+      if (mp) { mp.set(this.targetMouse.x, this.targetMouse.y); }
+    }
+
+    // Touch handlers to support dragging on mobile/tablet
+    private onTouchStart(e: TouchEvent) {
+      if (!e.touches || e.touches.length === 0) return;
+      const t = e.touches[0];
+      const rect = this.container.getBoundingClientRect();
+  const nx = Math.min(1, Math.max(0, (t.clientX - rect.left) / rect.width));
+  const ny = 1.0 - Math.min(1, Math.max(0, (t.clientY - rect.top) / rect.height));
+      this.targetMouse.set(nx, ny);
+      // immediate uniform push
+      const mp: THREE.Vector2 | undefined = this.material?.uniforms?.uMousePosition?.value as THREE.Vector2 | undefined;
+      if (mp) { mp.set(this.targetMouse.x, this.targetMouse.y); }
+    }
+
+    private onTouchMove(e: TouchEvent) {
+      if (!e.touches || e.touches.length === 0) return;
+      const t = e.touches[0];
+      const rect = this.container.getBoundingClientRect();
+  const nx = Math.min(1, Math.max(0, (t.clientX - rect.left) / rect.width));
+  const ny = 1.0 - Math.min(1, Math.max(0, (t.clientY - rect.top) / rect.height));
+      this.targetMouse.set(nx, ny);
+      // immediate uniform push for responsiveness during drag
+      const mp: THREE.Vector2 | undefined = this.material?.uniforms?.uMousePosition?.value as THREE.Vector2 | undefined;
+      if (mp) { mp.set(this.targetMouse.x, this.targetMouse.y); }
+    }
+
+    private onTouchEnd(_e: TouchEvent) {
+  // Hold last position on touch release (no automatic recenter)
+  // A new tap/drag will move and re-lock the position.
     }
 
     // Resize handling and LOD adjustments
@@ -728,6 +782,11 @@
       this.isDisposed = true;
       this.stopAnimationLoop();
       window.removeEventListener('mousemove', this.boundOnMouseMove);
+  window.removeEventListener('mousedown', this.boundOnMouseDown as any);
+  window.removeEventListener('touchstart', this.boundOnTouchStart as any);
+  window.removeEventListener('touchmove', this.boundOnTouchMove as any);
+  window.removeEventListener('touchend', this.boundOnTouchEnd as any);
+  window.removeEventListener('touchcancel', this.boundOnTouchEnd as any);
       window.removeEventListener('resize', this.boundOnResize);
 
       try {
