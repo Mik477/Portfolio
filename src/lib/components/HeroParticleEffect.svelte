@@ -7,6 +7,7 @@
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
   import { renderProfile } from '$lib/stores/renderProfile';
+  import { prefersReducedMotion as prm } from '$lib/stores/renderProfile';
   import { get } from 'svelte/store';
 
   export let activeSectionIndex: number;
@@ -157,6 +158,12 @@
   export async function onTransitionToHeroStart() {
     console.log("HPE Method: onTransitionToHeroStart triggered.");
     clearTimeout(animationLoopPauseTimeoutId);
+    if ($prm) {
+      _unbindInteractionEvents();
+      _fadeOutVisuals();
+      _pauseThreeJsLoop();
+      return;
+    }
     await _ensureInstanceAndStartLoop();
     _fadeInVisuals();
     _unbindInteractionEvents();
@@ -164,6 +171,7 @@
 
   export function onTransitionToHeroComplete() {
     console.log("HPE Method: onTransitionToHeroComplete triggered.");
+    if ($prm) return;
     _bindInteractionEvents();
   }
 
@@ -185,6 +193,12 @@
     if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) {
       console.log("HPE: Settled on Hero.");
       clearTimeout(animationLoopPauseTimeoutId);
+      if ($prm) {
+        _unbindInteractionEvents();
+        _fadeOutVisuals();
+        _pauseThreeJsLoop();
+        return;
+      }
       await _ensureInstanceAndStartLoop();
       _fadeInVisuals();
       _bindInteractionEvents();
@@ -259,12 +273,28 @@
     }
   }
 
+  // React to reduced-motion preference changes at runtime
+  $: if (isMountedAndInitialized) {
+    if ($prm) {
+      _unbindInteractionEvents();
+      _fadeOutVisuals();
+      _pauseThreeJsLoop();
+    } else {
+      // If user turns reduced-motion off while on hero, ensure visuals are ready on next settle
+      if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX && !isTransitioning) {
+        _handleSettledState();
+      }
+    }
+  }
+
 </script>
 
 <div
   class="hero-particle-container"
   bind:this={threeContainerElement}
   id="magic"
+  aria-hidden="true"
+  role="presentation"
   style="opacity: {initialOpacity}; transition: opacity {transitionDuration}s ease-in-out;"
 >
 </div>

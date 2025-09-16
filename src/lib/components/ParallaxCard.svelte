@@ -167,7 +167,7 @@
   <div class="card" style={cardStyle}>
     <div class="card-bg" style="{cardBgTransform} {cardBgImage}" id="card-bg-{cardData.id}"></div>
     <div class="card-info">
-      <h1 class="card-title">{cardData.title}</h1>
+      <h3 class="card-title">{cardData.title}</h3>
       {#if cardData.description}
         <p class="card-description">{cardData.description}</p>
       {/if}

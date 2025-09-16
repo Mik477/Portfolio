@@ -14,6 +14,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import * as THREE from 'three';
   import { gsap } from 'gsap';
+    import { prefersReducedMotion as prm } from '$lib/stores/renderProfile';
   import { BloomEffect } from '$lib/three/BloomEffect';
 
   export let imageUrl: string;
@@ -100,7 +101,8 @@
   }
   
     export function onTransitionComplete() {
-        if (debug) console.log('[AboutImageEffect] onTransitionComplete() called. isInitialized:', isInitialized, 'hasInstance:', !!effectInstance);
+          if (debug) console.log('[AboutImageEffect] onTransitionComplete() called. isInitialized:', isInitialized, 'hasInstance:', !!effectInstance);
+          if ($prm) { if (debug) console.log('[AboutImageEffect] reduced-motion active, skipping start'); return; }
         if (!effectInstance && !isInitialized) {
             // Safety: ensure initialization happened even if preload didn't call it
             // Non-blocking; we'll poll next frame to start
@@ -561,6 +563,12 @@
     const { targetW, targetH } = this.computeInternalSize(this.width, this.height);
     this.renderer.setSize(targetW, targetH, false);
     const canvas = this.renderer.domElement;
+        // Accessibility: this canvas is purely decorative
+        try {
+            canvas.setAttribute('aria-hidden', 'true');
+            canvas.setAttribute('role', 'presentation');
+            canvas.setAttribute('tabindex', '-1');
+        } catch {}
     canvas.style.width = this.width + 'px';
     canvas.style.height = this.height + 'px';
     canvas.style.position = 'absolute';
@@ -1056,6 +1064,16 @@
         (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true;
     }
   }
+
+    // React to reduced-motion changes at runtime
+    $: if ($prm) {
+        // Stop visuals and ensure container is hidden
+        if (effectInstance) {
+            effectInstance.stop?.();
+        }
+        gsap.killTweensOf(mainContainer);
+        gsap.set(mainContainer, { autoAlpha: 0 });
+    }
 </script>
 
 <div class="main-container gpu-prewarm-target" bind:this={mainContainer}>
@@ -1064,7 +1082,7 @@
   </div>
 </div>
 
-<div class="particle-overlay" bind:this={particleOverlayElement}></div>
+<div class="particle-overlay" bind:this={particleOverlayElement} aria-hidden="true" role="presentation"></div>
 
 <style>
   .main-container {

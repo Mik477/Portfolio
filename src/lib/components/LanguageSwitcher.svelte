@@ -23,12 +23,32 @@
     const current = $page.url;
     const pathname = current.pathname;
     let newPath = '';
-    if (pathname === '/' || pathname === '') {
-      // When on root, direct to target locale root
+
+    // Helper: map special slugs between locales
+    const mapSpecial = (restPath: string): string | null => {
+      if (target === 'de') {
+  if (restPath === '/privacy') return '/de/datenschutz';
+  if (restPath === '/imprint') return '/de/impressum';
+  if (restPath === '/accessibility') return '/de/barrierefreiheit';
+      } else {
+  if (restPath === '/datenschutz') return '/en/privacy';
+  if (restPath === '/impressum') return '/en/imprint';
+  if (restPath === '/barrierefreiheit') return '/en/accessibility';
+      }
+      return null;
+    };
+
+      if (pathname === '/') {
+      // On root, go to target locale root
       newPath = `/${target}`;
     } else if (/^\/(en|de)(\/|$)/.test(pathname)) {
-      newPath = pathname.replace(/^\/(en|de)/, `/${target}`);
+      // Strip current locale and map remainder
+      const rest = pathname.replace(/^\/(en|de)/, '');
+      const restPath = rest === '' ? '/' : rest; // ensure leading slash remains
+      const special = mapSpecial(restPath);
+      newPath = special ?? `/${target}${restPath}`;
     } else {
+      // No locale segment: prefix target and keep rest
       newPath = `/${target}${pathname}`;
     }
   goto(newPath + current.search + current.hash, { keepFocus: true });

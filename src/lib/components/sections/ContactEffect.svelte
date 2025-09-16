@@ -20,6 +20,7 @@
   import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
   import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
   import { gsap } from 'gsap';
+  import { prefersReducedMotion as prm } from '$lib/stores/renderProfile';
   import type { ShaderMaterial } from 'three';
 
   let container: HTMLDivElement;
@@ -45,6 +46,7 @@
   }
 
   export function onTransitionComplete(): void {
+    if ($prm) return;
     if (effectInstance) {
       effectInstance.neutralizeState(0);
       effectInstance.startAnimationLoop();
@@ -92,6 +94,15 @@
   onDestroy(() => {
     onUnload();
   });
+
+  // Runtime reaction to reduced-motion preference
+  $: if ($prm) {
+    if (effectInstance) effectInstance.stopAnimationLoop();
+    if (container) {
+      gsap.killTweensOf(container);
+      gsap.set(container, { autoAlpha: 0 });
+    }
+  }
 
   // -----------------------------
   // RaymarchingEffect class
@@ -295,6 +306,12 @@
       this.container.appendChild(this.renderer.domElement);
       // ensure canvas stretches to container while content rendered at lower res
       const canvas = this.renderer.domElement;
+      // Accessibility: canvas is decorative; hide from AT
+      try {
+        canvas.setAttribute('aria-hidden', 'true');
+        canvas.setAttribute('role', 'presentation');
+        canvas.setAttribute('tabindex', '-1');
+      } catch {}
       canvas.style.width = cssW + 'px';
       canvas.style.height = cssH + 'px';
       canvas.style.objectFit = 'contain';
@@ -820,7 +837,7 @@
 </script>
 
 <!-- container for the canvas. The effect creates and appends the canvas internally -->
-<div class="contact-effect-container" bind:this={container}></div>
+<div class="contact-effect-container" bind:this={container} aria-hidden="true" role="presentation"></div>
 
 <style>
   .contact-effect-container {

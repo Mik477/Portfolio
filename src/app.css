@@ -27,6 +27,13 @@ body {
     color: rgb(245 245 247);
 }
 
+/* Body scroll control: home page (immersive sections) uses a fixed viewport stack; legal and other content pages must scroll */
+/* Home immersive experience locks body scroll inline via layout; other pages default to auto */
+/* Allow vertical scrolling by default (home page script will set body.style.overflow='hidden' when needed) */
+body {
+    overflow-y: auto;
+}
+
 
 @media (max-width: 768px) {
     :root { --keyboard-key-base-size: 3.5rem; }

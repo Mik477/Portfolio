@@ -38,6 +38,15 @@
   onDestroy(() => {
     if (footerForceTimer) clearTimeout(footerForceTimer);
   });
+
+  // Scroll control: lock body only on the immersive home route; all other pages (legal etc.) should scroll normally.
+  $: if (browser) {
+    if (isHome) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+  }
 </script>
 
 <svelte:head>
@@ -45,12 +54,12 @@
     {@const pathname = $page.url.pathname}
     {@const origin = $page.url.origin}
     {@const hrefEn = (() => {
-      if (pathname === '/' || pathname === '') return `/en`;
+      if (pathname === '/') return `/en`;
       if (/^\/(en|de)(\/|$)/.test(pathname)) return pathname.replace(/^\/(en|de)/, `/en`);
       return `/en${pathname}`;
     })()}
     {@const hrefDe = (() => {
-      if (pathname === '/' || pathname === '') return `/de`;
+      if (pathname === '/') return `/de`;
       if (/^\/(en|de)(\/|$)/.test(pathname)) return pathname.replace(/^\/(en|de)/, `/de`);
       return `/de${pathname}`;
     })()}
@@ -71,17 +80,33 @@
 {#if showFooter}
   <div in:fade={fadeIn}>
     <LegalFooter
-      legalLinks={siteConfig.legalLinks.map((l) => ({
-        ...l,
-        name:
-          l.url === '/impressum'
-            ? data.messages?.common?.legal?.impressum ?? l.name
-            : l.url === '/datenschutz'
-            ? data.messages?.common?.legal?.datenschutz ?? l.name
-            : l.url === '/barrierefreiheit'
-            ? data.messages?.common?.legal?.barrierefreiheit ?? l.name
-            : l.name
-      }))}
+      legalLinks={siteConfig.legalLinks.map((l) => {
+        // Map base German slugs to English variants when locale is EN
+        const locale = data.locale;
+        let localizedUrl = l.url;
+        if (locale === 'en') {
+          if (l.url === '/datenschutz') localizedUrl = '/privacy';
+          else if (l.url === '/impressum') localizedUrl = '/imprint';
+          else if (l.url === '/barrierefreiheit') localizedUrl = '/accessibility';
+        }
+        const nameOverride = (() => {
+          if (l.url === '/impressum') return data.messages?.common?.legal?.impressum ?? l.name;
+          if (l.url === '/datenschutz') return data.messages?.common?.legal?.datenschutz ?? l.name;
+          if (l.url === '/barrierefreiheit') return data.messages?.common?.legal?.barrierefreiheit ?? l.name;
+          return l.name;
+        })();
+        // If locale is EN and we swapped slug, optionally override label to English if translations exist
+        const englishLabelMap: Record<string, string | undefined> = {
+          '/privacy': data.messages?.common?.legal?.privacy,
+          '/imprint': data.messages?.common?.legal?.imprint,
+          // Reuse the same translation key used for the DE base name; EN locale maps it to "Accessibility"
+          '/accessibility': data.messages?.common?.legal?.barrierefreiheit
+        };
+        const finalName = locale === 'en' && englishLabelMap[localizedUrl]
+          ? englishLabelMap[localizedUrl]!
+          : nameOverride;
+        return { ...l, url: localizedUrl, name: finalName };
+      })}
     >
       <LanguageSwitcher
         locale={data.locale}

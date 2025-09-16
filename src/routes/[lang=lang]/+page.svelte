@@ -100,6 +100,91 @@
 	const particleFadeInDuration = 1.5;
 	let unsubInitialLoadComplete: (() => void) | undefined;
 	let hasStartedInitialReveal = false;
+
+	// --- Focus management helpers ---
+	function isElementVisible(el: Element): boolean {
+		if (!(el instanceof HTMLElement)) return false;
+		if (el.hidden) return false;
+		if (el.getAttribute('aria-hidden') === 'true') return false;
+		const rect = el.getBoundingClientRect();
+		return rect.width > 0 && rect.height > 0;
+	}
+
+	function findFocusTarget(sectionEl: HTMLElement): HTMLElement | null {
+		// 1) explicit opt-in
+		let candidate = sectionEl.querySelector('[data-focus-first]') as HTMLElement | null;
+		if (candidate && isElementVisible(candidate)) return candidate;
+		// 2) autofocus
+		candidate = sectionEl.querySelector('[autofocus]') as HTMLElement | null;
+		if (candidate && isElementVisible(candidate)) return candidate;
+		// 3) native focusables
+		const focusables = sectionEl.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])');
+		for (const el of Array.from(focusables)) {
+			if (isElementVisible(el) && !el.hasAttribute('disabled')) return el;
+		}
+		// 4) first meaningful heading
+		const headings = sectionEl.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6');
+		for (const h of Array.from(headings)) {
+			if (isElementVisible(h)) {
+				if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1');
+				return h;
+			}
+		}
+		// 5) fallback to the section container
+		if (!sectionEl.hasAttribute('tabindex')) sectionEl.setAttribute('tabindex', '-1');
+		return sectionEl;
+	}
+
+	function setActiveSectionInert(activeIndex: number) {
+		sectionElements.forEach((el, idx) => {
+			if (!el) return;
+			if (idx === activeIndex) {
+				el.removeAttribute('inert');
+			} else {
+				el.setAttribute('inert', '');
+			}
+		});
+	}
+
+	function focusSection(index: number) {
+		const el = sectionElements[index];
+		if (!el) return;
+		const target = findFocusTarget(el);
+		if (target) {
+			// Use rAF to ensure styles/layout are settled post-transition
+			requestAnimationFrame(() => {
+				try { target.focus({ preventScroll: true } as any); } catch {}
+				// move virtual cursor into view without jarring scroll (sections are full-screen)
+				try { target.scrollIntoView({ block: 'nearest' }); } catch {}
+			});
+		}
+	}
+
+	// --- ARIA live region for section announcements ---
+	let liveMessage = '';
+	function computeSectionTitle(index: number): string {
+		const section = allSectionsData[index];
+		if (!section) return '';
+		if (section.id === 'about') return aboutData.title ?? 'About';
+		if (section.id === 'contact') return contactData.title ?? 'Contact';
+		if (section.id === 'hero') {
+			const name = siteConfig?.heroSection?.name ?? '';
+			const greeting = siteConfig?.heroSection?.greeting ?? '';
+			return [greeting, name].filter(Boolean).join(' ').trim() || 'Home';
+		}
+		if (section.id.startsWith('project-')) {
+			try { return (section.data as any)?.headline || 'Project'; } catch { return 'Project'; }
+		}
+		return section.id;
+	}
+
+	function announceSection(index: number) {
+		const title = computeSectionTitle(index);
+		if (!title) return;
+		// Clear then set to ensure screen readers announce changes
+		liveMessage = '';
+		requestAnimationFrame(() => { liveMessage = title; });
+	}
   
 	let particleLayerPointerEvents = 'none';
 	$: particleLayerPointerEvents = ($currentSectionIndex === 0 && !$isInitialReveal) ? 'auto' : 'none';
@@ -251,10 +336,10 @@
 		const mountLogic = async () => {
 			await tick();
       
-			sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
+				sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
 			sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
 
-			sectionElements.forEach((sectionEl, index) => {
+				sectionElements.forEach((sectionEl, index) => {
 				const sectionData = allSectionsData[index];
 				if (sectionData.id.startsWith('project-')) {
 					const bgTarget = sectionEl.querySelector('.background-zoom-target') as HTMLElement;
@@ -262,6 +347,11 @@
 				}
 				gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
 			});
+
+				// Prevent focus from landing in off-screen sections
+				setActiveSectionInert(0);
+				// Optional: announce initial section
+				announceSection(0);
 
 			const setupInitialLoad = async () => {
 				await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
@@ -348,6 +438,10 @@
 				if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
 					 heroSectionInstance.onTransitionToHeroComplete();
 				}
+				// Manage focus and inert after transition completes
+				setActiveSectionInert(newIndex);
+				focusSection(newIndex);
+				announceSection(newIndex);
 			} 
 		}); 
     
@@ -424,6 +518,8 @@
 </svelte:head>
 
 <div>
+	<!-- Visually hidden live region for announcing section changes -->
+	<div aria-live="polite" aria-atomic="true" class="sr-only">{liveMessage}</div>
 	<LoadingScreen /> 
 
 	<div 
@@ -546,6 +642,20 @@
 		}
     
 		* { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+		/* Screen reader only (visually hidden) */
+		.sr-only {
+			border: 0 !important;
+			clip: rect(1px, 1px, 1px, 1px) !important;
+			clip-path: inset(50%) !important;
+			height: 1px !important;
+			margin: -1px !important;
+			overflow: hidden !important;
+			padding: 0 !important;
+			position: absolute !important;
+			width: 1px !important;
+			white-space: nowrap !important;
+		}
 	</style>
 
   

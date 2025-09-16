@@ -288,6 +288,12 @@ export class Environment {
     }
     this.container.appendChild(this.renderer.domElement);
     const canvas = this.renderer.domElement;
+    // Accessibility: mark decorative canvas as hidden from assistive tech
+    try {
+      canvas.setAttribute('aria-hidden', 'true');
+      canvas.setAttribute('role', 'presentation');
+      canvas.setAttribute('tabindex', '-1');
+    } catch {}
     canvas.style.width = cssW + 'px';
     canvas.style.height = cssH + 'px';
     canvas.style.display = 'block';
