@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { transitionStore } from '$lib/stores/transitionStore';
+  import BackButton from '$lib/components/BackButton.svelte';
   // Force English content; if lang param is 'de', we will optionally redirect higher up (handled in datenschutz redirect) or still show EN fallback.
   const lastUpdatedISO = '2025-09-16';
   const lastUpdatedText = 'September 16, 2025';
@@ -16,6 +17,7 @@
 </svelte:head>
 
 <main class="legal-page">
+  <BackButton />
   <article class="legal-article" lang="en" aria-labelledby="privacy-policy-heading">
     <header class="article-header">
       <h1 id="privacy-policy-heading">Privacy Policy</h1>
@@ -62,9 +64,10 @@
       </section>
       <section id="cloudinary" class="sub-section" aria-labelledby="cloudinary-heading">
         <h3 id="cloudinary-heading">b) Cloudinary</h3>
-        <p>The content delivery network Cloudinary (provider: Cloudinary Ltd., USA) is used for performant delivery of image assets. Loading these assets transmits your IP address to Cloudinary servers.</p>
-        <p><strong>Data Transfer to Third Countries:</strong> Cloudinary processes data on servers in the USA. The transfer is legitimized by Cloudinary Inc.'s certification under the EU-U.S. Data Privacy Framework (DPF).</p>
-        <p>The use of Cloudinary is based on the legitimate interest in performance and visual quality (Art. 6(1)(f) GDPR). More information: <a href="https://cloudinary.com/privacy" target="_blank" rel="noopener noreferrer" class="link">Cloudinary Privacy Policy</a>.</p>
+        <p>This site currently loads <strong>one small decorative particle texture</strong> from the CDN of Cloudinary Ltd. (USA) for a visual effect. No other images or user-generated content are delivered via Cloudinary at this time.</p>
+        <p>When that texture is requested, your IP address and standard HTTP request metadata are transmitted to Cloudinary servers solely for content delivery; no profiling or additional tracking is performed by me.</p>
+        <p><strong>Data Transfer to Third Countries:</strong> The request is served from infrastructure that may be located in the USA. The transfer relies on Cloudinary Inc.'s certification under the EU‑U.S. Data Privacy Framework (DPF).</p>
+        <p>Legal basis is the legitimate interest in efficient asset delivery and page performance (Art. 6(1)(f) GDPR). If Cloudinary usage is expanded (e.g. for responsive optimization), this section will be updated accordingly. More information: <a href="https://cloudinary.com/privacy" target="_blank" rel="noopener noreferrer" class="link">Cloudinary Privacy Policy</a>.</p>
       </section>
     </section>
 

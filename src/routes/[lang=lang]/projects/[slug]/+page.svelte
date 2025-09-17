@@ -7,15 +7,21 @@
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
 
   export let data;
-  const { project } = data;
+  // Make project reactive so when locale switches and data changes, text updates without reload
+  let project = data.project;
+  $: project = data.project;
 
   const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
   const isContentLoaded = writable(false);
 
-  const allSubSections = [
-    { id: 'overview', title: project.headline, content: project.summary, background: project.backgrounds[0] },
-    ...project.subPageSections
-  ];
+  // Reactive recomputation of subsections when project changes
+  let allSubSections: any[] = [];
+  $: if (project) {
+    allSubSections = [
+      { id: 'overview', title: project.headline, content: project.summary, background: project.backgrounds[0] },
+      ...project.subPageSections
+    ];
+  }
 
   let sectionElements: HTMLElement[] = [];
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
@@ -26,6 +32,7 @@
   let lastScrollTime = 0;
   const scrollDebounce = 200;
   const transitionDuration = 1.1;
+  let suppressHashUpdate = false; // prevent feedback loop when programmatically updating hash
 
   onMount(() => {
     const runPreloadAndSetup = async () => {
@@ -48,6 +55,7 @@
     return () => {
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('hashchange', handleHashChange);
       sectionContentTimelines.forEach(t => t?.kill());
       sectionBackgroundZooms.forEach(t => t?.kill());
     };
@@ -94,6 +102,7 @@
 
     window.addEventListener('wheel', handleWheel, { passive: false });
     window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('hashchange', handleHashChange);
   }
 
   function navigateToSection(newIndex: number) {
@@ -109,11 +118,36 @@
     sectionBackgroundZooms[oldIndex]?.progress(0).pause();
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
 
-    const masterTl = gsap.timeline({ onComplete: () => { isAnimating = false; currentSectionIndex = newIndex; } });
+    const masterTl = gsap.timeline({ onComplete: () => { 
+      isAnimating = false; 
+      currentSectionIndex = newIndex; 
+      updateHashForSection(newIndex);
+    } });
     masterTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
     masterTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
     masterTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
     masterTl.call(() => { sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
+  }
+
+  function updateHashForSection(index: number) {
+    if (index < 0 || index >= allSubSections.length) return;
+    const targetId = allSubSections[index].id;
+    const currentHash = get(page).url.hash;
+    if (currentHash === `#${targetId}`) return;
+    suppressHashUpdate = true;
+    history.replaceState(null, '', `#${targetId}`);
+    setTimeout(() => (suppressHashUpdate = false), 60);
+  }
+
+  function handleHashChange() {
+    if (suppressHashUpdate) return; // ignore internal updates
+    const urlHash = get(page).url.hash;
+    const clean = urlHash.startsWith('#') ? urlHash.substring(1) : '';
+    if (!clean) return;
+    const idx = allSubSections.findIndex(s => s.id === clean);
+    if (idx !== -1 && idx !== currentSectionIndex) {
+      navigateToSection(idx);
+    }
   }
 
   function handleWheel(event: WheelEvent) {

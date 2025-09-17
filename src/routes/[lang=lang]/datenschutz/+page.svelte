@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { transitionStore } from '$lib/stores/transitionStore';
+  import BackButton from '$lib/components/BackButton.svelte';
 
   // German-only page (English redirects handled in +page.ts)
   const lang: 'de' = 'de';
@@ -19,6 +20,7 @@
 </svelte:head>
 
 <main class="legal-page">
+  <BackButton />
   <article class="legal-article" lang="de" aria-labelledby="privacy-policy-heading-de">
     <header class="article-header">
       <h1 id="privacy-policy-heading-de">Datenschutzerklärung</h1>
@@ -75,9 +77,10 @@
       </section>
       <section id="cloudinary" class="sub-section" aria-labelledby="cloudinary-heading-de">
         <h3 id="cloudinary-heading-de">b) Cloudinary</h3>
-        <p>Für die performante Auslieferung von Bild-Assets nutze ich den Dienst Cloudinary Ltd., 111 W 28th St, New York, NY 10001, USA. Beim Laden dieser Assets wird Ihre IP-Adresse an Server von Cloudinary übertragen.</p>
-        <p><strong>Datenübermittlung in Drittländer:</strong> Cloudinary verarbeitet Daten auf Servern in den USA. Die Datenübermittlung ist durch die Zertifizierung von Cloudinary, Inc. unter dem EU-U.S. Data Privacy Framework (DPF) legitimiert.</p>
-        <p>Die Nutzung von Cloudinary erfolgt im Interesse einer performanten und visuell ansprechenden Gestaltung meiner Webseite (berechtigtes Interesse gemäß Art. 6 Abs. 1 lit. f DSGVO). Weitere Informationen: <a href="https://cloudinary.com/privacy" target="_blank" rel="noopener noreferrer" class="link">Cloudinary Datenschutzerklärung</a>.</p>
+        <p>Aktuell wird über das CDN von Cloudinary Ltd. (USA) <strong>nur eine kleine dekorative Partikel‑Textur</strong> für einen visuellen Effekt geladen. Weitere Bilder oder nutzergenerierte Inhalte werden derzeit nicht über Cloudinary ausgeliefert.</p>
+        <p>Beim Abruf dieser Textur werden Ihre IP-Adresse und übliche HTTP‑Request‑Metadaten ausschließlich zur Auslieferung an Cloudinary übermittelt; es erfolgt keine Profilbildung oder zusätzliche Nachverfolgung durch mich.</p>
+        <p><strong>Datenübermittlung in Drittländer:</strong> Die Anfrage kann über in den USA befindliche Infrastruktur bedient werden. Die Übermittlung stützt sich auf die Zertifizierung von Cloudinary, Inc. unter dem EU‑U.S. Data Privacy Framework (DPF).</p>
+        <p>Rechtsgrundlage ist mein berechtigtes Interesse an einer effizienten Asset‑Auslieferung und Performance (Art. 6 Abs. 1 lit. f DSGVO). Sollte die Nutzung (z.B. für responsive Optimierung) ausgedehnt werden, wird dieser Abschnitt entsprechend aktualisiert. Weitere Informationen: <a href="https://cloudinary.com/privacy" target="_blank" rel="noopener noreferrer" class="link">Cloudinary Datenschutzerklärung</a>.</p>
       </section>
     </section>
 

@@ -98,26 +98,26 @@ export function getProjects(locale: Locale): Project[] {
     subPageSections: [
       {
         id: 'capability',
-        title: isDE ? 'Erweiterte autonome Fähigkeiten' : 'Advanced Autonomous Capabilities',
+        title: isDE ? 'Autonome Fähigkeiten' : 'Advanced Autonomous Capabilities',
         content: isDE
-          ? 'Detaillierte Vorstellung der Sensorsuite mit hochauflösenden Kameras, Wärmebildgebung und Echtzeit-Datenlinks – Grundlage für anspruchsvolle autonome Flüge und Datenerfassung.'
-          : 'Detailed walkthrough of the sensor suite, including high-resolution cameras, thermal imaging, and real-time data links, enabling sophisticated autonomous flight and data collection.',
+          ? 'Detaillierte Vorstellung der Sensorsuite mit hochauflösender Kamera, GPS und Echtzeit-Datenlinks – Grundlage für anspruchsvolle autonome Flüge und Datenerfassung. (Coming soon)'
+          : 'Detailed walkthrough of the sensor suite, including a high-resolution camera, GPS and real-time data links, enabling sophisticated autonomous flight and data collection. (Coming soon)',
         background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' }
       },
       {
         id: '3d-printing',
-        title: isDE ? 'Innovative Fertigung des Luftfahrzeugs' : 'Innovative Airframe Manufacturing',
+        title: isDE ? 'Fertigung' : 'Manufacturing',
         content: isDE
-          ? 'Erläuterung des Designs mit Lightweight PLA (LW‑PLA) für Strukturbauteile und ASA für robuste, witterungsbeständige Oberflächen – optimiert für Festigkeit und Flugzeit.'
-          : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable structural surfaces, optimizing for both strength and flight time.',
+          ? 'Erläuterung des Designs mit Lightweight PLA (LW‑PLA) für Strukturbauteile und ASA für robuste, strukturelle Teile optimiert für Langlebigkeit und optimale Flugzeit. (Coming soon)'
+          : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable structural surfaces, optimizing for both strength and flight time. (Coming soon)',
         background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
       },
       {
         id: 'testing',
-        title: isDE ? 'Umfassende Feldtests & Validierung' : 'Rigorous Field Testing & Validation',
+        title: isDE ? 'Feldtests & Validierung' : 'Field Testing & Validation',
         content: isDE
-          ? 'Präsentation der Flugtestergebnisse, darunter Ausdauer, Reichweite und Nutzlast. Das UAV demonstrierte über 2 Stunden Flugzeit und eine Reichweite von 50 km.'
-          : 'Presentation of flight test data, including endurance, range, and payload capacity metrics. The UAV successfully demonstrated over 2 hours of flight time and a range of 50km.',
+          ? 'Präsentation der Flugtestergebnisse, darunter Ausdauer, Reichweite und Nutzlast (Coming Soon). Das UAV demonstrierte über 2 Stunden Flugzeit und eine Reichweite von über 20 km.'
+          : 'Presentation of flight test data, including endurance, range, and payload capacity metrics (Coming Soon). The UAV successfully demonstrated over 2 hours of flight time and a range of more than 20 km.',
         background: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' }
       }
     ],
@@ -126,23 +126,23 @@ export function getProjects(locale: Locale): Project[] {
 
   const projectTwo: Project = {
     id: 'project-two',
-    slug: 'interactive-data-visualization',
+    slug: 'Project2',
     headline: isDE ? 'Projekt 2' : 'Project 2',
-    summary: isDE ? 'Platzhalterinhalt für ein zweites Projekt (in Kürze)' : 'Filler content for a second project (coming soon)',
+    summary: isDE ? 'Platzhaltertext für ein zweites Projekt (kommt bald)' : 'Placeholder text for a second project (coming soon)',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-two/background.jpg' },
       { type: 'image', value: '/images/projects/project-two/background2.jpg' }
     ],
-    tags: isDE ? ['Datenvisualisierung', 'Tableau', 'JavaScript', 'SQL'] : ['Data Visualization', 'Tableau', 'JavaScript', 'SQL'],
+    tags: isDE ? ['Platzhalter', 'Konzept', 'Demo'] : ['Placeholder', 'Concept', 'Demo'],
     cards: [
-      { id: 'Project_2_Card_1', title: isDE ? 'Karte 1' : 'Card 1', cardImage: '/images/projects/project-two/card-data-small.webp', description: isDE ? 'Inhalt' : 'Content', aspectLink: '#1' },
-      { id: 'Project_2_Card_2', title: isDE ? 'Karte 2' : 'Card 2', cardImage: '/images/projects/project-two/card-design-small.webp', description: isDE ? 'Inhalt' : 'Content', aspectLink: '#2' },
-      { id: 'Project_2_Card_3', title: isDE ? 'Karte 3' : 'Card 3', cardImage: '/images/projects/project-two/card-insights-small.webp', description: isDE ? 'Inhalt' : 'Content', aspectLink: '#3' }
+      { id: 'p2_section_a', title: isDE ? 'Abschnitt A' : 'Section A', cardImage: '/images/projects/project-two/card-data-small.webp', description: isDE ? 'Platzhalter' : 'Placeholder', aspectLink: '#section-a' },
+      { id: 'p2_section_b', title: isDE ? 'Abschnitt B' : 'Section B', cardImage: '/images/projects/project-two/card-design-small.webp', description: isDE ? 'Platzhalter' : 'Placeholder', aspectLink: '#section-b' },
+      { id: 'p2_section_c', title: isDE ? 'Abschnitt C' : 'Section C', cardImage: '/images/projects/project-two/card-insights-small.webp', description: isDE ? 'Platzhalter' : 'Placeholder', aspectLink: '#section-c' }
     ],
     subPageSections: [
-      { id: 'Project_2_Subpage_Section_1', title: '1', content: isDE ? 'Inhalt' : 'Content', background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' } },
-      { id: 'Project_2_Subpage_Section_2', title: '2', content: isDE ? 'Inhalt' : 'Content', background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' } },
-      { id: 'Project_2_Subpage_Section_3', title: '3', content: isDE ? 'Inhalt' : 'Content', background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' } }
+      { id: 'section-a', title: isDE ? 'Abschnitt A' : 'Section A', content: isDE ? 'Platzhalterinhalt A. Lorem ipsum dolor sit amet.' : 'Placeholder content A. Lorem ipsum dolor sit amet.', background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' } },
+      { id: 'section-b', title: isDE ? 'Abschnitt B' : 'Section B', content: isDE ? 'Platzhalterinhalt B. Consectetur adipiscing elit.' : 'Placeholder content B. Consectetur adipiscing elit.', background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' } },
+      { id: 'section-c', title: isDE ? 'Abschnitt C' : 'Section C', content: isDE ? 'Platzhalterinhalt C. Sed do eiusmod tempor.' : 'Placeholder content C. Sed do eiusmod tempor.', background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' } }
     ],
     readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
   };

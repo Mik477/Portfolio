@@ -1,5 +1,6 @@
 <script lang="ts">
   import { transitionStore } from '$lib/stores/transitionStore';
+  import BackButton from '$lib/components/BackButton.svelte';
   // Deutschsprachige Seite (englisches Pendant unter /en/accessibility)
   const lang: 'de' = 'de';
   function backHome() { transitionStore.fadeToBlackAndNavigate(`/${lang}`); }
@@ -15,6 +16,7 @@
 </svelte:head>
 
 <main class="legal-page">
+  <BackButton />
   <article class="legal-article" lang="de" aria-labelledby="a11y-heading-de">
     <header class="article-header">
       <h1 id="a11y-heading-de">Erklärung zur Barrierefreiheit</h1>

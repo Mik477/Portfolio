@@ -46,12 +46,26 @@
       const rest = pathname.replace(/^\/(en|de)/, '');
       const restPath = rest === '' ? '/' : rest; // ensure leading slash remains
       const special = mapSpecial(restPath);
-      newPath = special ?? `/${target}${restPath}`;
+      if (special) {
+        newPath = special;
+      } else {
+        // Project detail pages: /{lang}/projects/{slug}
+        const projectMatch = restPath.match(/^\/projects\/([^/]+)$/);
+        if (projectMatch) {
+          const slug = projectMatch[1];
+          newPath = `/${target}/projects/${slug}`; // slugs assumed identical across locales
+        } else {
+          newPath = `/${target}${restPath}`;
+        }
+      }
     } else {
       // No locale segment: prefix target and keep rest
       newPath = `/${target}${pathname}`;
     }
-  goto(newPath + current.search + current.hash, { keepFocus: true });
+  // Preserve hash (subsection deep link) for project detail pages
+  const isProjectDetail = /\/(en|de)\/projects\//.test(newPath);
+  const finalUrl = newPath + current.search + (isProjectDetail ? current.hash : current.hash);
+  goto(finalUrl, { keepFocus: true });
   }
 </script>
 

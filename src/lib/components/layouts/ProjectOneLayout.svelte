@@ -17,25 +17,20 @@
   export let subPageSections: ProjectSubPageSection[];
 
   function handleCardClick(card: ProjectCard) {
-    const aspectLink = card.aspectLink || '';
-    
-    // --- START OF FIX: Intelligent Preloading Logic ---
-    // 1. Clean the aspect link to get a pure ID (e.g., '#capability' -> 'capability')
-    const targetSectionId = aspectLink.replace(/^#/, '');
-
-    // 2. Find the corresponding sub-section in the project's data.
-    const targetSection = subPageSections.find(s => s.id === targetSectionId);
-    
-    // 3. If found, preload its specific background image.
-    if (targetSection && targetSection.background.type === 'image') {
-      const imageToPreload = new Image();
-      imageToPreload.src = targetSection.background.value;
-      console.log(`[Preloader] Proactively loading background for sub-section '${targetSectionId}': ${targetSection.background.value}`);
+    const lang = $page.params?.lang ?? 'de';
+    let hash = '';
+    if (card.aspectLink) {
+      const targetId = card.aspectLink.replace(/^#/, '');
+      const target = subPageSections.find(s => s.id === targetId);
+      if (target && target.background.type === 'image') {
+        const img = new Image();
+        img.src = target.background.value;
+        console.log(`[Preloader] Preloading background for '${targetId}': ${target.background.value}`);
+      }
+      // Keep hash for deep-linking the subsection
+      hash = `#${targetId}`;
     }
-    // --- END OF FIX ---
-
-  const lang = $page.params?.lang ?? 'de';
-  transitionStore.fadeToBlackAndNavigate(`/${lang}/projects/${slug}${aspectLink}`);
+    transitionStore.fadeToBlackAndNavigate(`/${lang}/projects/${slug}${hash}`);
   }
 
   function handleReadMoreClick() {

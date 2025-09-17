@@ -1,8 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { transitionStore } from '$lib/stores/transitionStore';
+  import BackButton from '$lib/components/BackButton.svelte';
   $: currentLang = $page.params.lang === 'de' ? 'de' : 'en';
-  function backHome() { transitionStore.fadeToBlackAndNavigate(`/${currentLang}`); }
   const lastUpdatedISO = '2025-09-16';
   const lastUpdatedText = 'September 16, 2025';
 </script>
@@ -15,6 +14,7 @@
 </svelte:head>
 
 <main class="legal-page">
+  <BackButton />
   <article class="legal-article" lang="en" aria-labelledby="a11y-heading">
     <header class="article-header">
       <h1 id="a11y-heading">Accessibility Statement</h1>
@@ -96,9 +96,8 @@
         <li>Image alt text and link purpose reviews on new content.</li>
       </ul>
     </section>
-
     <footer class="article-footer">
-      <button class="back" on:click={backHome} aria-label="Back to homepage">Back to homepage</button>
+      <button class="back" on:click={() => (location.href = `/${currentLang}`)} aria-label="Back to homepage">Back to homepage</button>
     </footer>
   </article>
   

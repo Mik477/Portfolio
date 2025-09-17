@@ -128,7 +128,7 @@
 </div>
 
 <style>
-  .about-text-block { max-width: 580px; }
+  .about-text-block { max-width: 860px; }
   .about-text-block > p { 
     font-size: clamp(1rem, 2.2vw, 1.15rem); 
     line-height: 1.8; 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { transitionStore } from '$lib/stores/transitionStore';
+  import BackButton from '$lib/components/BackButton.svelte';
 
   // German-only page (English users are redirected to /en/imprint via +page.ts)
   const lang: 'de' = 'de';
@@ -17,6 +18,7 @@
 </svelte:head>
 
 <main class="legal-page">
+  <BackButton />
   <article class="legal-article" lang="de" aria-labelledby="impressum-heading">
     <header class="article-header">
   <h1 id="impressum-heading">Impressum</h1>
