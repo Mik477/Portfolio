@@ -25,6 +25,18 @@
   let particleSystemInstance: ParticleEnvironment | null = null;
   let loadedFontAsset: Font | null = null;
   let loadedParticleTextureMap: THREE.Texture | null = null;
+  // Lightweight gated logger. Logs only if debug overlay is active (three consecutive 'd' presses) or if FORCE_DEBUG env flag (could be added later).
+  function dlog(level: 'log' | 'warn' | 'error', ...args: any[]) {
+    if (particleSystemInstance?.isDebugOverlayActive()) {
+      // Prefix for easier filtering
+      const prefix = '[HPE]';
+      switch(level) {
+        case 'log': console.log(prefix, ...args); break;
+        case 'warn': console.warn(prefix, ...args); break;
+        case 'error': console.error(prefix, ...args); break;
+      }
+    }
+  }
 
   let isThreeJsLoopRunning = false;
   let areInteractionsBound = false;
@@ -45,7 +57,7 @@
     try {
       await preloadAssets([FONT_ASSET_PATH, PARTICLE_TEXTURE_ASSET_PATH]);
     } catch (error) {
-      console.error("HPE: Asset preloading with preloadAssets failed:", error);
+  dlog('error', 'Asset preloading with preloadAssets failed:', error);
       preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', (error as Error).message);
       return;
     }
@@ -53,7 +65,7 @@
     const manager = new THREE.LoadingManager();
     manager.onLoad = () => preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
     manager.onError = (url) => {
-      console.error(`HPE: Error loading asset for Three.js: ${url}`);
+  dlog('error', `Error loading asset for Three.js: ${url}`);
       preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', `Failed to load ${url}`);
     };
     const fontLoader = new FontLoader(manager);
@@ -67,7 +79,7 @@
       loadedFontAsset = font;
       loadedParticleTextureMap = texture;
     } catch (error) {
-      console.error("HPE: Asset loading promise for Three.js failed:", error);
+  dlog('error', 'Asset loading promise for Three.js failed:', error);
       if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'error') {
         preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading failed.');
       }
@@ -76,12 +88,12 @@
 
   async function _ensureInstanceAndStartLoop() {
     if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'loaded' || !loadedFontAsset || !loadedParticleTextureMap) {
-      console.warn("HPE: Assets not ready for _ensureInstanceAndStartLoop.");
+  dlog('warn', 'Assets not ready for _ensureInstanceAndStartLoop.');
       await _preloadAssets(); 
       if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'loaded') return; 
     }
     if (!threeContainerElement) {
-      console.warn("HPE: DOM container not ready for _ensureInstanceAndStartLoop.");
+  dlog('warn', 'DOM container not ready for _ensureInstanceAndStartLoop.');
       return;
     }
 
@@ -94,9 +106,9 @@
           : { initialInternalScale: 1.0, maxInternalDim: 1440, amountScale: 1.0, antialias: true };
         particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement, options);
         preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
-        console.log("HPE: Created new Three.js instance.");
+  dlog('log', 'Created new Three.js instance.');
       } catch (error) {
-        console.error("HPE: Error during ParticleEnvironment instantiation:", error);
+  dlog('error', 'Error during ParticleEnvironment instantiation:', error);
         preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'Instantiation failed.');
         particleSystemInstance = null;
         return;
@@ -106,7 +118,7 @@
     if (particleSystemInstance && !particleSystemInstance.isLooping()) {
       particleSystemInstance.startAnimationLoop();
       isThreeJsLoopRunning = true;
-      console.log("HPE: Three.js animation loop STARTED.");
+  dlog('log', 'Three.js animation loop STARTED.');
     }
   }
 
@@ -114,7 +126,7 @@
     if (particleSystemInstance && particleSystemInstance.isLooping()) {
       particleSystemInstance.stopAnimationLoop();
       isThreeJsLoopRunning = false;
-      console.log("HPE: Three.js animation loop PAUSED.");
+  dlog('log', 'Three.js animation loop PAUSED.');
     }
   }
 
@@ -123,7 +135,7 @@
       particleSystemInstance.createParticles.bindInteractionEvents();
       particleSystemInstance.createParticles.resetParticleState(); 
       areInteractionsBound = true;
-      console.log("HPE: Interaction events BOUND and particle state RESET.");
+  dlog('log', 'Interaction events BOUND and particle state RESET.');
     }
   }
 
@@ -132,7 +144,7 @@
       particleSystemInstance.createParticles.unbindInteractionEvents();
       particleSystemInstance.createParticles.neutralizeLastMousePosition(); 
       areInteractionsBound = false;
-      console.log("HPE: Interaction events UNBOUND and mouse position neutralized.");
+  dlog('log', 'Interaction events UNBOUND and mouse position neutralized.');
     }
   }
   function _fadeInVisuals() {
@@ -156,7 +168,7 @@
 
   // --- EXPORTED METHODS FOR +page.svelte ---
   export async function onTransitionToHeroStart() {
-    console.log("HPE Method: onTransitionToHeroStart triggered.");
+  dlog('log', 'Method: onTransitionToHeroStart triggered.');
     clearTimeout(animationLoopPauseTimeoutId);
     if ($prm) {
       _unbindInteractionEvents();
@@ -170,20 +182,20 @@
   }
 
   export function onTransitionToHeroComplete() {
-    console.log("HPE Method: onTransitionToHeroComplete triggered.");
+  dlog('log', 'Method: onTransitionToHeroComplete triggered.');
     if ($prm) return;
     _bindInteractionEvents();
   }
 
   export function onTransitionFromHeroStart() {
-    console.log("HPE Method: onTransitionFromHeroStart triggered.");
+  dlog('log', 'Method: onTransitionFromHeroStart triggered.');
     _unbindInteractionEvents();
     _fadeOutVisuals();
     clearTimeout(animationLoopPauseTimeoutId);
     animationLoopPauseTimeoutId = window.setTimeout(() => {
       if (particleSystemInstance?.createParticles) {
         particleSystemInstance.createParticles.resetParticleState();
-        console.log("HPE: Particle state RESET after fade out.");
+  dlog('log', 'Particle state RESET after fade out.');
       }
       _pauseThreeJsLoop();
     }, transitionDuration * 1000);
@@ -191,7 +203,7 @@
 
   async function _handleSettledState() {
     if (activeSectionIndex === HERO_SECTION_LOGICAL_INDEX) {
-      console.log("HPE: Settled on Hero.");
+  dlog('log', 'Settled on Hero.');
       clearTimeout(animationLoopPauseTimeoutId);
       if ($prm) {
         _unbindInteractionEvents();
@@ -203,22 +215,22 @@
       _fadeInVisuals();
       _bindInteractionEvents();
     } else {
-      console.log("HPE: Settled off Hero.");
+  dlog('log', 'Settled off Hero.');
       _unbindInteractionEvents();
       _fadeOutVisuals();
 
       if (isThreeJsLoopRunning && particleSystemInstance?.isLooping() && animationLoopPauseTimeoutId === undefined) {
-        console.log("HPE (SettledOff): Scheduling deferred pause and reset.");
+  dlog('log', '(SettledOff): Scheduling deferred pause and reset.');
         animationLoopPauseTimeoutId = window.setTimeout(() => {
           if (particleSystemInstance?.createParticles) {
             particleSystemInstance.createParticles.resetParticleState();
-            console.log("HPE (SettledOff): Particle state RESET.");
+            dlog('log', '(SettledOff): Particle state RESET.');
           }
           _pauseThreeJsLoop();
           animationLoopPauseTimeoutId = undefined;
         }, transitionDuration * 1000);
       } else if (!isThreeJsLoopRunning && particleSystemInstance?.createParticles) {
-        console.log("HPE (SettledOff): Loop already paused. Ensuring particle state is reset.");
+  dlog('log', '(SettledOff): Loop already paused. Ensuring particle state is reset.');
         particleSystemInstance.createParticles.resetParticleState();
       }
     }
@@ -262,7 +274,7 @@
     if (particleSystemInstance) {
       particleSystemInstance.dispose();
       particleSystemInstance = null;
-      console.log("HPE: Three.js instance disposed.");
+  dlog('log', 'Three.js instance disposed.');
     }
   });
 

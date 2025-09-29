@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import type { Font } from 'three/examples/jsm/loaders/FontLoader.js';
 import { BloomEffect } from './BloomEffect';
+import Stats from 'stats.js';
 
 // Shaders (VERTEX_SHADER and FRAGMENT_SHADER remain the same)
 export const VERTEX_SHADER = `
@@ -67,7 +68,12 @@ export interface EnvironmentOptions {
   maxInternalDim?: number;       // e.g., 960 for mobile
   amountScale?: number;          // e.g., 0.85 to reduce initial particles
   antialias?: boolean;           // default true
+  effectSpeed?: number;          // global speed multiplier
+  referenceFps?: number;         // override reference FPS (default 60)
 }
+
+// Reference FPS baseline for converting legacy per-frame tuned constants
+export const REF_FPS = 60;
 
 export class Environment {
   public font: Font;
@@ -92,19 +98,30 @@ export class Environment {
   private readonly FRAME_WINDOW = 50;
   private readonly HIGH_THRESHOLD = 19.5; // ~51 FPS
   private readonly LOW_THRESHOLD = 16.7;  // ~60 FPS to allow upscaling when stable
-  private scaleCooldown = 0;
-  private readonly SCALE_COOLDOWN_FRAMES = 45;
+  private scaleCooldownSec = 0; // seconds
+  private readonly SCALE_COOLDOWN_SEC = 45 / REF_FPS; // 45 frames originally
   private avgFrameMs = 0;
   // metrics flag
   private metricsEnabled = false;
+  private debugOverlayActive = false;
+  private debugKeyPressTimes: number[] = []; // timestamps of 'd' presses
+  private readonly DEBUG_MULTI_PRESS_WINDOW = 800; // ms
+  private statsInstance: Stats | null = null;
+  private debugDomContainer: HTMLElement | null = null;
+  private lastDomUpdateTime = 0;
+  private readonly DOM_UPDATE_INTERVAL = 0.25; // seconds
+  private boundKeyHandler = this.onKeyDown.bind(this);
   private isPageVisible = true;
   private boundOnVisibilityChange = this.onVisibilityChange.bind(this);
 
   private baseAmountScale = 1.0;
   private readonly AMOUNT_TIERS = [1.0, 0.85, 0.7, 0.55];
   private amountTierIdx = 0;
-  private amountTierCooldown = 0;
-  private readonly AMOUNT_TIER_COOLDOWN_FRAMES = 240;
+  private amountTierCooldownSec = 0; // seconds
+  private readonly AMOUNT_TIER_COOLDOWN_SEC = 240 / REF_FPS; // 240 frames originally
+
+  private effectSpeed: number = 1.0;
+  private readonly referenceFps: number = REF_FPS;
 
   constructor(font: Font, particleTexture: THREE.Texture, container: HTMLElement, options?: EnvironmentOptions) {
     this.font = font;
@@ -117,7 +134,9 @@ export class Environment {
       return;
     }
     
-    this.clock = new THREE.Clock(); 
+  this.clock = new THREE.Clock(); 
+  this.effectSpeed = options?.effectSpeed ?? 1.0;
+  this.referenceFps = options?.referenceFps ?? REF_FPS;
 
     this.scene = new THREE.Scene();
     // Apply initial overrides for mobile or perf
@@ -154,9 +173,11 @@ export class Environment {
   this.bindWindowResize();
   document.addEventListener('visibilitychange', this.boundOnVisibilityChange);
 
-    if (this.renderer) {
-        this.startAnimationLoop();
-    }
+  if (this.renderer) {
+    this.startAnimationLoop();
+  }
+  // bind debug key listener
+  window.addEventListener('keydown', this.boundKeyHandler);
   }
 
   public startAnimationLoop() {
@@ -198,16 +219,18 @@ export class Environment {
 
   public render() {
     const rawDt = this.clock.getDelta();
-    const deltaTime = Math.min(rawDt, 0.05); // clamp large dt spikes after tab resume
+    const deltaTime = Math.min(rawDt, 0.05); // clamp large dt spikes after tab resume (effectSpeed applied inside subsystems)
+    const beforeStats = this.statsInstance ? performance.now() : 0;
+    if (this.statsInstance) this.statsInstance.begin();
     if (this.isPageVisible) {
       const frameMs = deltaTime * 1000;
       this.frameTimes.push(frameMs);
       if (this.frameTimes.length > this.FRAME_WINDOW) this.frameTimes.shift();
       if (this.frameTimes.length === this.FRAME_WINDOW) {
       this.avgFrameMs = this.frameTimes.reduce((a,b)=>a+b,0)/this.frameTimes.length;
-      if (this.scaleCooldown > 0) this.scaleCooldown--;
+      if (this.scaleCooldownSec > 0) this.scaleCooldownSec -= deltaTime;
       let changed = false;
-      if (this.scaleCooldown === 0) {
+      if (this.scaleCooldownSec <= 0) {
         if (this.avgFrameMs > this.HIGH_THRESHOLD && this.internalScale > this.SCALE_FLOOR) {
           this.internalScale = Math.max(this.SCALE_FLOOR, +(this.internalScale - 0.1).toFixed(2));
           changed = true;
@@ -215,25 +238,25 @@ export class Environment {
           this.internalScale = Math.min(this.SCALE_CEIL, +(this.internalScale + 0.1).toFixed(2));
           changed = true;
         }
-        if (changed) { this.scaleCooldown = this.SCALE_COOLDOWN_FRAMES; this.onWindowResize(); }
+        if (changed) { this.scaleCooldownSec = this.SCALE_COOLDOWN_SEC; this.onWindowResize(); }
       }
       // Particle amount tiering: only when at scale floor and still slow OR restore when fast
       if (this.createParticles) {
-        if (this.amountTierCooldown > 0) this.amountTierCooldown--;
-        if (this.amountTierCooldown === 0) {
+        if (this.amountTierCooldownSec > 0) this.amountTierCooldownSec -= deltaTime;
+        if (this.amountTierCooldownSec <= 0) {
           if (this.internalScale <= this.SCALE_FLOOR + 1e-3 && this.avgFrameMs > this.HIGH_THRESHOLD + 1.0) {
             if (this.amountTierIdx < this.AMOUNT_TIERS.length - 1) {
               this.amountTierIdx++;
               const newAmount = Math.floor(this.createParticles.getAmount() * this.AMOUNT_TIERS[this.amountTierIdx]);
               this.createParticles.rebuildWithAmount(newAmount);
-              this.amountTierCooldown = this.AMOUNT_TIER_COOLDOWN_FRAMES;
+              this.amountTierCooldownSec = this.AMOUNT_TIER_COOLDOWN_SEC;
             }
           } else if (this.avgFrameMs < this.LOW_THRESHOLD - 0.7) {
             if (this.amountTierIdx > 0) {
               this.amountTierIdx--;
               const newAmount = Math.floor(this.createParticles.getAmount() / this.AMOUNT_TIERS[this.amountTierIdx+1]);
               this.createParticles.rebuildWithAmount(newAmount);
-              this.amountTierCooldown = this.AMOUNT_TIER_COOLDOWN_FRAMES;
+              this.amountTierCooldownSec = this.AMOUNT_TIER_COOLDOWN_SEC;
             }
           }
         }
@@ -242,11 +265,19 @@ export class Environment {
     }
     // Force stable background
     this.scene.background = new THREE.Color(0x000000);
-  if (this.createParticles) this.createParticles.render(deltaTime); 
+  if (this.createParticles) this.createParticles.render(deltaTime, this.effectSpeed); 
     if (this.bloomEffect) {
       this.bloomEffect.render(deltaTime);
     } else if (this.renderer && this.scene && this.camera) { 
       this.renderer.render(this.scene, this.camera);
+    }
+    if (this.statsInstance) this.statsInstance.end();
+    if (this.debugOverlayActive && this.createParticles) {
+      this.lastDomUpdateTime += deltaTime;
+      if (this.lastDomUpdateTime >= this.DOM_UPDATE_INTERVAL) {
+        this.lastDomUpdateTime = 0;
+        this.updateDebugDom();
+      }
     }
   }
 
@@ -335,6 +366,7 @@ export class Environment {
     this.stopAnimationLoop();
     this.unbindWindowResize();
   document.removeEventListener('visibilitychange', this.boundOnVisibilityChange);
+    window.removeEventListener('keydown', this.boundKeyHandler);
     if (this.createParticles) {
       this.createParticles.dispose();
     }
@@ -360,6 +392,10 @@ export class Environment {
             }
         });
     }
+  if (this.debugDomContainer && this.debugDomContainer.parentNode) {
+    this.debugDomContainer.parentNode.removeChild(this.debugDomContainer);
+    this.debugDomContainer = null;
+  }
   }
 
   private onVisibilityChange() {
@@ -370,10 +406,101 @@ export class Environment {
       this.frameTimes = [];
       this.avgFrameMs = 0;
       // small cooldown to avoid immediate rescale upon resume
-      this.scaleCooldown = Math.max(this.scaleCooldown, Math.floor(this.SCALE_COOLDOWN_FRAMES / 2));
+      this.scaleCooldownSec = Math.max(this.scaleCooldownSec, this.SCALE_COOLDOWN_SEC / 2);
       // also pause amount tiering adjustments briefly
-      this.amountTierCooldown = Math.max(this.amountTierCooldown, Math.floor(this.AMOUNT_TIER_COOLDOWN_FRAMES / 4));
+      this.amountTierCooldownSec = Math.max(this.amountTierCooldownSec, this.AMOUNT_TIER_COOLDOWN_SEC / 4);
     }
+  }
+
+  public setEffectSpeed(v: number) { this.effectSpeed = Math.max(0, v); }
+  public getEffectSpeed() { return this.effectSpeed; }
+  public isDebugOverlayActive() { return this.debugOverlayActive; }
+
+  // --- Debug overlay handling ---
+  private onKeyDown(e: KeyboardEvent) {
+    if (e.key === 'd' || e.key === 'D') {
+      const now = performance.now();
+      // purge old presses
+      this.debugKeyPressTimes = this.debugKeyPressTimes.filter(t => now - t < this.DEBUG_MULTI_PRESS_WINDOW);
+      this.debugKeyPressTimes.push(now);
+      if (!this.debugOverlayActive) {
+        if (this.debugKeyPressTimes.length >= 3) {
+          this.enableDebugOverlay();
+          this.debugKeyPressTimes = [];
+        }
+      } else {
+        // single press to deactivate
+        this.disableDebugOverlay();
+        this.debugKeyPressTimes = [];
+      }
+    }
+  }
+
+  private enableDebugOverlay() {
+    if (this.debugOverlayActive) return;
+    this.debugOverlayActive = true;
+    // stats.js instance
+    if (!this.statsInstance) {
+      this.statsInstance = new Stats();
+      // Panel 0 default: ms
+      // Add FPS panel explicitly for clarity
+      this.statsInstance.showPanel(0);
+      this.statsInstance.dom.style.position = 'absolute';
+      this.statsInstance.dom.style.top = '0';
+      this.statsInstance.dom.style.left = '0';
+    }
+    if (!this.debugDomContainer) {
+      this.debugDomContainer = document.createElement('div');
+      this.debugDomContainer.style.position = 'absolute';
+      this.debugDomContainer.style.top = '0';
+      this.debugDomContainer.style.right = '0';
+      this.debugDomContainer.style.maxWidth = '300px';
+      this.debugDomContainer.style.background = 'rgba(0,0,0,0.6)';
+      this.debugDomContainer.style.font = '12px monospace';
+      this.debugDomContainer.style.color = '#0f0';
+      this.debugDomContainer.style.padding = '6px 8px';
+      this.debugDomContainer.style.lineHeight = '1.35';
+      this.debugDomContainer.style.zIndex = '9999';
+      this.debugDomContainer.style.pointerEvents = 'none';
+      this.debugDomContainer.style.whiteSpace = 'pre';
+    }
+    if (this.container && this.statsInstance && !this.statsInstance.dom.parentNode) {
+      this.container.appendChild(this.statsInstance.dom);
+    }
+    if (this.container && this.debugDomContainer && !this.debugDomContainer.parentNode) {
+      this.container.appendChild(this.debugDomContainer);
+    }
+    this.lastDomUpdateTime = 0;
+    this.updateDebugDom();
+  }
+
+  private disableDebugOverlay() {
+    if (!this.debugOverlayActive) return;
+    this.debugOverlayActive = false;
+    if (this.statsInstance && this.statsInstance.dom.parentNode) {
+      this.statsInstance.dom.parentNode.removeChild(this.statsInstance.dom);
+    }
+    if (this.debugDomContainer && this.debugDomContainer.parentNode) {
+      this.debugDomContainer.parentNode.removeChild(this.debugDomContainer);
+    }
+    this.statsInstance = null; // allow GC
+  }
+
+  private updateDebugDom() {
+    if (!this.debugDomContainer || !this.createParticles) return;
+    const pMetrics = this.createParticles.getMetrics();
+    const envMetrics = this.getMetrics();
+    const lines = [
+      'DEBUG OVERLAY (press d to hide)',
+      `Particles: ${pMetrics.particleCount}`,
+      `Active symbols: ${pMetrics.activeSymbols}`,
+      `Symbol spawn rate: ${pMetrics.spawnRate.toFixed(2)} /s` ,
+      `Avg heat: ${(pMetrics.avgHeat*100).toFixed(1)}%  Max heat: ${(pMetrics.maxHeat*100).toFixed(1)}%`,
+      `Internal scale: ${envMetrics.internalScale.toFixed(2)}`,
+      `Avg frame: ${envMetrics.avgFrameMs.toFixed(2)} ms` ,
+      `Effect speed: ${this.effectSpeed.toFixed(2)}`
+    ];
+    this.debugDomContainer.textContent = lines.join('\n');
   }
 }
 
@@ -428,7 +555,10 @@ export class CreateParticles {
   // Color transition state for non-symbol dots
   private colorProgress: number[] = []; // [0..1], 0=white, 1=final green
   private influenceEMA: number[] = [];  // smoothed influence per particle
-  private whiteCooldownFrames: number[] = []; // frames to wait before allowing pure white
+  private whiteCooldownFrames: number[] = []; // frames to wait before allowing pure white (legacy, will be replaced)
+  private whiteCooldownTimeSec: number[] = []; // time-based replacement
+  private kReturn: number = 0; // exponential return constant
+  private lastEaseFrameValue: number = -1;
   private riseRateMul: number[] = []; // per-particle jitter
   private fallRateMul: number[] = [];
   private readonly colorParams = {
@@ -446,9 +576,18 @@ export class CreateParticles {
   
   private particleStates: number[] = [];
   private heatLevels: number[] = [];
-  private cooldownRates: number[] = [];
+  private cooldownRates: number[] = []; // per-particle heat decay rate (per second)
   private symbolIndicesAttributeValues: number[] = [];
   private fadeOutRates: number[] = [];
+  private fadeOutRatesPerSec: number[] = []; // converted per-second rates
+  private cooldownDurationsSec: number[] = []; // store original durations in seconds for clarity
+
+  // --- Metrics tracking ---
+  private activeSymbolsCount: number = 0;               // currently active symbol particles
+  private symbolsSpawnedInWindow: number = 0;            // spawned within current accumulation window
+  private spawnWindowTime: number = 0;                   // seconds accumulated for spawn rate window
+  private symbolSpawnRate: number = 0;                   // symbols per second (rolling over ~1s windows)
+  private readonly SPAWN_RATE_WINDOW_SEC = 1.0;          // window length to compute symbol spawn rate
 
   private data: ParticleData;
   private symbolsTexture!: THREE.Texture;
@@ -592,23 +731,31 @@ export class CreateParticles {
   private initParticleStates(count: number) { 
     this.particleStates = new Array(count).fill(0);
     this.heatLevels = new Array(count).fill(0);
-    this.cooldownRates = new Array(count);
+  this.cooldownRates = new Array(count); // will become per-second decay rates
     this.symbolIndicesAttributeValues = new Array(count);
     this.fadeOutRates = new Array(count);
+  this.fadeOutRatesPerSec = new Array(count);
+  this.cooldownDurationsSec = new Array(count);
     // initialize color transition state
     this.colorProgress = new Array(count).fill(0);
     this.influenceEMA = new Array(count).fill(0);
-    this.whiteCooldownFrames = new Array(count).fill(0);
+  this.whiteCooldownFrames = new Array(count).fill(0);
+  this.whiteCooldownTimeSec = new Array(count).fill(0);
     this.riseRateMul = new Array(count);
     this.fallRateMul = new Array(count);
     
     for (let i = 0; i < count; i++) {
       this.symbolIndicesAttributeValues[i] = Math.floor(Math.random() * this.matrixSymbols.length);
       
-      const randomDuration = this.data.particleCooldownDurationMin + 
-                             Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
-      this.cooldownRates[i] = 1 / Math.max(1, randomDuration);
-      this.fadeOutRates[i] = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
+  const randomDurationFrames = this.data.particleCooldownDurationMin + 
+             Math.random() * (this.data.particleCooldownDurationMax - this.data.particleCooldownDurationMin);
+  // Convert to seconds baseline at REF_FPS
+  const randomDurationSec = randomDurationFrames / REF_FPS;
+  this.cooldownDurationsSec[i] = randomDurationSec;
+  this.cooldownRates[i] = 1 / randomDurationSec; // per-second heat decay rate
+  const fadePerFrame = this.data.minFadeOutRate + Math.random() * (this.data.maxFadeOutRate - this.data.minFadeOutRate);
+  this.fadeOutRates[i] = fadePerFrame; // legacy storage (optional)
+  this.fadeOutRatesPerSec[i] = fadePerFrame * REF_FPS; // per-second size reduction
       // per-particle jitter multipliers
       const jr = (Math.random() * 2 - 1) * this.colorParams.jitterRise;
       const jf = (Math.random() * 2 - 1) * this.colorParams.jitterFall;
@@ -867,12 +1014,23 @@ export class CreateParticles {
     return variedColor;
   }
 
-  public render(deltaTime?: number) {
+  public render(deltaTime?: number, effectSpeed: number = 1.0) {
     if (!this.particles || !this.planeArea || !this.camera) return; 
 
     const dt = Math.max(0.00001, deltaTime ?? 1/60);
     const clamp01 = (x: number) => x < 0 ? 0 : (x > 1 ? 1 : x);
+    // reset per-frame counters
+    this.activeSymbolsCount = 0;
     
+
+    // recompute exponential return constant if ease changed
+    if (this.lastEaseFrameValue !== this.data.ease) {
+      const ef = Math.min(Math.max(this.data.ease, 0), 0.9999);
+      this.kReturn = -REF_FPS * Math.log(1 - ef);
+      this.lastEaseFrameValue = this.data.ease;
+    }
+
+    const decayFromDt = (t: number) => Math.exp(-this.kReturn * t * effectSpeed);
 
     // cache attributes & typed arrays
     const geo = this.particles.geometry as THREE.BufferGeometry;
@@ -907,17 +1065,18 @@ export class CreateParticles {
         const i3 = i * 3;
         const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
         const px = posArr[i3], py = posArr[i3+1], pz = posArr[i3+2];
-        let npx = px + (initX - px) * this.data.ease;
-        let npy = py + (initY - py) * this.data.ease;
-        let npz = pz + (initZ - pz) * this.data.ease;
+  const decay = decayFromDt(dt);
+  let npx = initX + (px - initX) * decay;
+  let npy = initY + (py - initY) * decay;
+  let npz = initZ + (pz - initZ) * decay;
         if (npx !== px || npy !== py || npz !== pz) {
           posArr[i3] = npx; posArr[i3+1] = npy; posArr[i3+2] = npz; changed = true;
         }
         // Color decay when idle or before activation
         if (this.particleStates[i] === 0) {
           let prog = this.colorProgress[i];
-          if (this.whiteCooldownFrames[i] > 0) {
-            this.whiteCooldownFrames[i]--;
+          if (this.whiteCooldownTimeSec[i] > 0) {
+            this.whiteCooldownTimeSec[i] -= dt * effectSpeed;
             prog = Math.max(0.05, prog - this.colorParams.fallLerpPerSec * this.fallRateMul[i] * dt);
           } else {
             prog = Math.max(0, prog - this.colorParams.fallLerpPerSec * this.fallRateMul[i] * dt);
@@ -975,23 +1134,34 @@ export class CreateParticles {
         const dx = mx - px; const dy = my - py;
         const mouseDistance = Math.hypot(dx, dy);
         const d2 = Math.max(1e-5, dx*dx + dy*dy);
-        const f = -area / d2;
+  const f = -area / d2;
+  // time-normalized scaling so displacement accumulates consistently across FPS
+  const timeScale = dt * REF_FPS * effectSpeed; // REF_FPS keeps original tuning feel
         // color influence will be based on actual distortion from rest position
 
         if (pressed) {
           const t = Math.atan2(dy, dx);
-          px -= f * Math.cos(t); py -= f * Math.sin(t);
-          this.heatLevels[i] = Math.min(this.heatLevels[i] + 0.1, 1.0);
+          px -= f * Math.cos(t) * timeScale; py -= f * Math.sin(t) * timeScale;
+          // Heat gain originally 0.1 per frame => 0.1 * REF_FPS per second
+          const heatGainPerSec = 0.1 * REF_FPS;
+          this.heatLevels[i] = Math.min(this.heatLevels[i] + heatGainPerSec * dt * effectSpeed, 1.0);
           attributesNeedUpdate = true;
         } else if (mouseDistance < area) {
           const t = Math.atan2(dy, dx);
-          px += f * Math.cos(t); py += f * Math.sin(t);
+          px += f * Math.cos(t) * timeScale; py += f * Math.sin(t) * timeScale;
           attributesNeedUpdate = true;
           const distortion = Math.hypot(px - initX, py - initY);
           if (distortion > this.data.distortionThreshold) {
-            this.heatLevels[i] = Math.min(this.heatLevels[i] + Math.min(distortion / 50, 0.1), 1.0);
+            const perFrameAdd = Math.min(distortion / 50, 0.1);
+            const perSecAdd = perFrameAdd * REF_FPS;
+            this.heatLevels[i] = Math.min(this.heatLevels[i] + perSecAdd * dt * effectSpeed, 1.0);
             if (this.particleStates[i] === 0 && this.heatLevels[i] > this.data.symbolHeatRequirement) {
-              if (Math.random() < this.getSymbolProbability(distortion)) {
+              // Convert original per-frame probability into per-second lambda approximation
+              const pFrame = this.getSymbolProbability(distortion); // tuned for ~REF_FPS
+              // For small probabilities: lambda ≈ pFrame * REF_FPS
+              const lambdaPerSec = -Math.log(Math.max(1e-6, 1 - pFrame)) * REF_FPS; // stable even if pFrame larger
+              const pThisFrame = 1 - Math.exp(-lambdaPerSec * dt * effectSpeed);
+              if (Math.random() < pThisFrame) {
                 this.particleStates[i] = 1;
                 stateArr[i] = 1.0;
                 const randomSymbolSize = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
@@ -1002,16 +1172,20 @@ export class CreateParticles {
                 const ci3 = i3;
                 colArr[ci3] = c.r; colArr[ci3+1] = c.g; colArr[ci3+2] = c.b;
                 colorsNeedUpdate = true; attributesNeedUpdate = true;
+                // metrics: count spawn
+                this.symbolsSpawnedInWindow++;
               }
             }
           }
         }
 
         if (this.particleStates[i] === 1) {
+          this.activeSymbolsCount++;
           const currentSize = sizeArr[i];
-          const newSize = Math.max(baseSize, currentSize - this.fadeOutRates[i]);
+          const newSize = Math.max(baseSize, currentSize - this.fadeOutRatesPerSec[i] * dt * effectSpeed);
           if (currentSize !== newSize) { sizeArr[i] = newSize; attributesNeedUpdate = true; }
-          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier));
+          // heat decay while symbol active
+          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - (this.cooldownRates[i] * this.data.symbolCooldownSpeedMultiplier) * dt * effectSpeed);
           const fadeThreshold = baseSize + 0.01;
           if (newSize <= fadeThreshold) {
             this.particleStates[i] = 0;
@@ -1031,10 +1205,10 @@ export class CreateParticles {
           const step = Math.min(Math.abs(target - prog), rate * dt);
           prog += Math.sign(target - prog) * step;
           if (increasing) {
-            this.whiteCooldownFrames[i] = Math.max(this.whiteCooldownFrames[i], Math.floor(this.colorParams.minTimeToWhite / dt));
-          } else if (target <= 0 && this.whiteCooldownFrames[i] > 0) {
+            this.whiteCooldownTimeSec[i] = Math.max(this.whiteCooldownTimeSec[i], this.colorParams.minTimeToWhite);
+          } else if (target <= 0 && this.whiteCooldownTimeSec[i] > 0) {
             prog = Math.max(0.05, prog);
-            this.whiteCooldownFrames[i]--;
+            this.whiteCooldownTimeSec[i] -= dt * effectSpeed;
           }
           prog = clamp01(prog);
           this.colorProgress[i] = prog;
@@ -1049,13 +1223,14 @@ export class CreateParticles {
         }
 
         if (this.heatLevels[i] > 0 && this.particleStates[i] === 0) {
-          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i]);
+          this.heatLevels[i] = Math.max(0, this.heatLevels[i] - this.cooldownRates[i] * dt * effectSpeed);
         }
 
         const prevPx = px, prevPy = py, prevPz = pz;
-        px += (initX - px) * this.data.ease;
-        py += (initY - py) * this.data.ease;
-        pz += (initZ - pz) * this.data.ease;
+  const decayFollow = decayFromDt(dt);
+  px = initX + (px - initX) * decayFollow;
+  py = initY + (py - initY) * decayFollow;
+  pz = initZ + (pz - initZ) * decayFollow;
         if (px !== prevPx || py !== prevPy || pz !== prevPz) {
           posArr[i3] = px; posArr[i3+1] = py; posArr[i3+2] = pz; attributesNeedUpdate = true;
         }
@@ -1067,9 +1242,10 @@ export class CreateParticles {
         const i3 = i * 3;
         const initX = copyArr[i3], initY = copyArr[i3+1], initZ = copyArr[i3+2];
         const px = posArr[i3], py = posArr[i3+1], pz = posArr[i3+2];
-        const npx = px + (initX - px) * this.data.ease;
-        const npy = py + (initY - py) * this.data.ease;
-        const npz = pz + (initZ - pz) * this.data.ease;
+  const decay = decayFromDt(dt);
+  const npx = initX + (px - initX) * decay;
+  const npy = initY + (py - initY) * decay;
+  const npz = initZ + (pz - initZ) * decay;
         if (npx !== px || npy !== py || npz !== pz) {
           posArr[i3] = npx; posArr[i3+1] = npy; posArr[i3+2] = npz; attributesNeedUpdate = true;
         }
@@ -1084,10 +1260,10 @@ export class CreateParticles {
           const step = Math.min(Math.abs(target - prog), rate * dt);
           prog += Math.sign(target - prog) * step;
           if (increasing) {
-            this.whiteCooldownFrames[i] = Math.max(this.whiteCooldownFrames[i], Math.floor(this.colorParams.minTimeToWhite / dt));
-          } else if (target <= 0 && this.whiteCooldownFrames[i] > 0) {
+            this.whiteCooldownTimeSec[i] = Math.max(this.whiteCooldownTimeSec[i], this.colorParams.minTimeToWhite);
+          } else if (target <= 0 && this.whiteCooldownTimeSec[i] > 0) {
             prog = Math.max(0.05, prog);
-            this.whiteCooldownFrames[i]--;
+            this.whiteCooldownTimeSec[i] -= dt * effectSpeed;
           }
           prog = clamp01(prog);
           this.colorProgress[i] = prog;
@@ -1112,6 +1288,14 @@ export class CreateParticles {
     }
     if (!attributesNeedUpdate && colorsNeedUpdate) {
       colors.needsUpdate = true;
+    }
+
+    // Update spawn rate window
+    this.spawnWindowTime += dt;
+    if (this.spawnWindowTime >= this.SPAWN_RATE_WINDOW_SEC) {
+      this.symbolSpawnRate = this.symbolsSpawnedInWindow / this.spawnWindowTime; // average over window
+      this.spawnWindowTime = 0;
+      this.symbolsSpawnedInWindow = 0;
     }
   }
   
@@ -1276,5 +1460,25 @@ export class CreateParticles {
       if (Array.isArray(material)) { material.forEach(m => m.dispose()); } else { material.dispose(); }
     }
     this.createText();
+  }
+
+  // --- Public metrics API ---
+  public getMetrics() {
+    const count = this.particles ? (this.particles.geometry as THREE.BufferGeometry).attributes.position.count : 0;
+    // compute heat stats lazily
+    let heatSum = 0; let heatMax = 0;
+    for (let i = 0; i < this.heatLevels.length; i++) {
+      const h = this.heatLevels[i];
+      heatSum += h;
+      if (h > heatMax) heatMax = h;
+    }
+    const avgHeat = this.heatLevels.length > 0 ? heatSum / this.heatLevels.length : 0;
+    return {
+      particleCount: count,
+      activeSymbols: this.activeSymbolsCount,
+      spawnRate: this.symbolSpawnRate, // per second
+      avgHeat,
+      maxHeat: heatMax
+    };
   }
 }
