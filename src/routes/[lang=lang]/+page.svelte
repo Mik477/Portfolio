@@ -101,6 +101,17 @@
 	let unsubInitialLoadComplete: (() => void) | undefined;
 	let hasStartedInitialReveal = false;
 
+	// --- HASH NAVIGATION STATE (declared early so usable everywhere) ---
+	let initialHashFragment: string | null = null; // raw fragment captured on first mount
+	let initialHashTargetIndex: number | null = null; // resolved index once sections known
+	let suppressNextHashUpdate = false; // guard to avoid loops when we programmatically set hash
+	let onHashChange: (() => void) | null = null; // reference for cleanup
+
+	// --- DEEP LINK / LOADING CONTROL ---
+	let startOnHero = true; // becomes false if deep link to non-hero
+	let isDeepLinkStart = false;
+	let showLoadingScreen = true; // controls LoadingScreen rendering
+
 	// --- Focus management helpers ---
 	function isElementVisible(el: Element): boolean {
 		if (!(el instanceof HTMLElement)) return false;
@@ -111,26 +122,14 @@
 	}
 
 	function findFocusTarget(sectionEl: HTMLElement): HTMLElement | null {
-		// 1) explicit opt-in
-		let candidate = sectionEl.querySelector('[data-focus-first]') as HTMLElement | null;
+		// New priority: dedicated invisible sentinel to avoid visual focus ring on buttons
+		let candidate = sectionEl.querySelector('.section-focus-sentinel') as HTMLElement | null;
+		if (candidate) return candidate;
+		// fallback to previous logic (reduced) for robustness
+		candidate = sectionEl.querySelector('[data-focus-first]') as HTMLElement | null;
 		if (candidate && isElementVisible(candidate)) return candidate;
-		// 2) autofocus
 		candidate = sectionEl.querySelector('[autofocus]') as HTMLElement | null;
 		if (candidate && isElementVisible(candidate)) return candidate;
-		// 3) native focusables
-		const focusables = sectionEl.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])');
-		for (const el of Array.from(focusables)) {
-			if (isElementVisible(el) && !el.hasAttribute('disabled')) return el;
-		}
-		// 4) first meaningful heading
-		const headings = sectionEl.querySelectorAll<HTMLElement>('h1, h2, h3, h4, h5, h6');
-		for (const h of Array.from(headings)) {
-			if (isElementVisible(h)) {
-				if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1');
-				return h;
-			}
-		}
-		// 5) fallback to the section container
 		if (!sectionEl.hasAttribute('tabindex')) sectionEl.setAttribute('tabindex', '-1');
 		return sectionEl;
 	}
@@ -335,6 +334,25 @@
 	onMount(() => {
 		const mountLogic = async () => {
 			await tick();
+			// --- HASH NAVIGATION: capture initial hash (without leading '#') ---
+			if (typeof window !== 'undefined') {
+				const raw = window.location.hash?.trim();
+				if (raw && raw.length > 1) {
+					const fragment = decodeURIComponent(raw.substring(1));
+					// Store temporarily; we'll map to index after sections array is ready
+					initialHashFragment = fragment;
+				}
+			}
+
+			// Determine deep link target before preparing sections
+			if (initialHashFragment && initialHashFragment !== 'hero') {
+				initialHashTargetIndex = allSectionsData.findIndex(s => s.id === initialHashFragment);
+				if (initialHashTargetIndex !== -1 && initialHashTargetIndex !== 0) {
+					startOnHero = false;
+					isDeepLinkStart = true;
+					showLoadingScreen = false; // suppress overlay
+				}
+			}
       
 				sectionStatesStore.set(new Array(allSectionsData.length).fill('IDLE'));
 			sectionElements = allSectionsData.map(section => document.getElementById(section.id) as HTMLElement);
@@ -345,21 +363,71 @@
 					const bgTarget = sectionEl.querySelector('.background-zoom-target') as HTMLElement;
 					sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.08, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
 				}
-				gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
+					// Default positioning assumes hero start; override later for deep link
+					gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
 			});
 
-				// Prevent focus from landing in off-screen sections
-				setActiveSectionInert(0);
-				// Optional: announce initial section
-				announceSection(0);
+				if (!isDeepLinkStart) {
+					// Standard hero start
+					setActiveSectionInert(0);
+					announceSection(0);
+				} else if (initialHashTargetIndex && initialHashTargetIndex > 0) {
+					// Deep link fast path: position target section immediately
+					const targetIdx = initialHashTargetIndex;
+					sectionElements.forEach((el, idx) => {
+						if (!el) return;
+						if (idx === targetIdx) {
+							gsap.set(el, { yPercent: 0, autoAlpha: 1 });
+						} else {
+							gsap.set(el, { yPercent: 100, autoAlpha: 0 });
+						}
+					});
+					currentSectionIndex.set(targetIdx);
+					navActiveIndex.set(targetIdx);
+					setActiveSectionInert(targetIdx);
+					announceSection(targetIdx);
+					// Kick section instance lifecycle
+					const secId = allSectionsData[targetIdx].id;
+					const inst = sectionInstances.get(secId);
+					inst?.onEnterSection();
+					requestAnimationFrame(() => inst?.onTransitionComplete?.());
+				}
 
 			const setupInitialLoad = async () => {
-				await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
-				preloadManager.updateNeighborStates(0);
-				initialSiteLoadComplete.set(true);
+				if (!isDeepLinkStart) {
+					await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
+					preloadManager.updateNeighborStates(0);
+					initialSiteLoadComplete.set(true);
+				} else if (initialHashTargetIndex && initialHashTargetIndex > 0) {
+					// Preload neighbors of target section instead of hero neighbors
+					const t = initialHashTargetIndex;
+					const preloadPromises: Promise<void>[] = [];
+					if (t - 1 >= 0) preloadPromises.push(preloadManager.prepareSection(t - 1));
+					if (t + 1 < allSectionsData.length) preloadPromises.push(preloadManager.prepareSection(t + 1));
+					await Promise.all(preloadPromises);
+					preloadManager.updateNeighborStates(t);
+					initialSiteLoadComplete.set(true);
+					// Immediately end initial reveal state
+					isInitialReveal.set(false);
+				}
 			};
 
 			setupInitialLoad();
+
+			onHashChange = () => {
+				if (suppressNextHashUpdate) { suppressNextHashUpdate = false; return; }
+				if (get(isInitialReveal) || get(isAnimating)) return; // ignore during reveal/animation
+				const raw = window.location.hash?.trim();
+				if (raw && raw.length > 1) {
+					const fragment = decodeURIComponent(raw.substring(1));
+					const idx = allSectionsData.findIndex(s => s.id === fragment);
+					if (idx >= 0) navigateToSection(idx);
+				} else {
+					// Empty hash -> go back to hero
+					if (get(currentSectionIndex) !== 0) navigateToSection(0);
+				}
+			};
+			window.addEventListener('hashchange', onHashChange);
 
 			if (!get(renderProfile).isMobile) {
 				window.addEventListener('wheel', handleWheel, { passive: false });
@@ -371,6 +439,7 @@
 		mountLogic();
     
 	unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
+		if (!startOnHero) return; // deep link path handles its own reveal
 		if (complete && !hasStartedInitialReveal) startInitialReveal();
 	});
 
@@ -380,6 +449,7 @@
 				window.removeEventListener('keydown', handleKeyDown);
 			}
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			if (onHashChange) window.removeEventListener('hashchange', onHashChange);
 			if (unsubInitialLoadComplete) unsubInitialLoadComplete();
 			sectionBackgroundZooms.forEach(tween => tween?.kill());
 			clearTimeout(visibilityHideTimeoutId);
@@ -460,6 +530,21 @@
 
 		gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
 			isAnimating.set(false); 
+			// After animation complete, update hash (avoid doing for hero index 0 to keep URL clean?)
+			const id = allSectionsData[newIndex].id;
+			if (typeof window !== 'undefined') {
+				// Option: keep hero clean; only set when not hero
+				if (id === 'hero') {
+					suppressNextHashUpdate = true;
+					if (window.location.hash) history.replaceState(null, '', window.location.pathname + window.location.search);
+				} else {
+					suppressNextHashUpdate = true;
+					const newHash = '#' + encodeURIComponent(id);
+					if (window.location.hash !== newHash) {
+						history.replaceState(null, '', newHash);
+					}
+				}
+			}
 		}); 
 	}
 
@@ -565,7 +650,9 @@
 <div>
 	<!-- Visually hidden live region for announcing section changes -->
 	<div aria-live="polite" aria-atomic="true" class="sr-only">{liveMessage}</div>
-	<LoadingScreen /> 
+	{#if showLoadingScreen}
+		<LoadingScreen />
+	{/if}
 
 	<div 
 		class="particle-effect-layer" 
@@ -591,13 +678,17 @@
 			on:touchstart|passive={onTouchStart}
 			on:touchend|passive={onTouchEnd}
 		>
-		<section id="hero" class="full-screen-section hero-section-container"></section>
+		<section id="hero" class="full-screen-section hero-section-container">
+			<div class="section-focus-sentinel sr-only" tabindex="-1" aria-label="Start of hero section"></div>
+		</section>
 
 		{#each allSectionsData.slice(1) as section, i (section.id)}
 			<section 
 				id={section.id} 
 				class="full-screen-section"
 			>
+				<!-- Invisible sentinel for accessible, non-distracting programmatic focus -->
+				<div class="section-focus-sentinel sr-only" tabindex="-1" aria-label={`Start of ${section.id} section`}></div>
 				{#if section.id === 'about'}
 					<AboutSection
 						bind:this={sectionInstancesArray[i + 1]}
@@ -701,6 +792,9 @@
 			width: 1px !important;
 			white-space: nowrap !important;
 		}
+
+		/* Focus sentinel inherits sr-only; ensure no outline flicker */
+		.section-focus-sentinel:focus { outline: none; }
 	</style>
 
   

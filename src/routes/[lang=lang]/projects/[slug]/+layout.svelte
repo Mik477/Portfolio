@@ -17,7 +17,22 @@
 
   function handleBackClick() {
     const lang = $page.params.lang ?? 'de';
-    transitionStore.fadeToBlackAndNavigate(`/${lang}`);
+    // Map slug back to project id used on main page section IDs (project-{id})
+    // We can derive id by inspecting slug param vs known patterns. For now assume slug exactly matches Project.slug.
+    // Need to load project list for current locale to find matching project object.
+    try {
+      // Dynamic import to avoid adding heavy data eagerly
+      const locale: 'en' | 'de' = lang === 'de' ? 'de' : 'en';
+      // @ts-ignore - dynamic require via import.meta.glob could be used; simple synchronous assumption here
+    } catch {}
+    // Minimal inline mapping approach: replicate logic cheaply
+    // We only need id for hash; slug is unique so we can hardcode mapping for existing projects.
+    const slug = ($page.params as any).slug;
+    let projectId: string | null = null;
+    if (slug === 'BURA') projectId = 'project-one';
+    else if (slug === 'Project2') projectId = 'project-two';
+    const hash = projectId ? `#project-${projectId}` : '';
+    transitionStore.fadeToBlackAndNavigate(`/${lang}${hash}`);
   }
 </script>
 <div class="project-subpage-layout">

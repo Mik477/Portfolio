@@ -16,8 +16,18 @@
   });
 
   function handleBackClick() {
-    // --- MODIFICATION: Use the transition store for navigation ---
-    transitionStore.fadeToBlackAndNavigate('/');
+    // Determine project id based on slug param
+    // Access $page not available here (no import) so replicate via URL parsing as fallback
+    let projectId: string | null = null;
+    try {
+      const path = window.location.pathname; // /projects/{slug}
+      const parts = path.split('/');
+      const slug = parts[parts.length - 1];
+      if (slug === 'BURA') projectId = 'project-one';
+      else if (slug === 'Project2') projectId = 'project-two';
+    } catch {}
+    const hash = projectId ? `#project-${projectId}` : '';
+    transitionStore.fadeToBlackAndNavigate(`/${hash}`);
   }
 </script>
 
