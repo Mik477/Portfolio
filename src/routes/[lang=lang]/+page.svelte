@@ -383,6 +383,11 @@
 			if (unsubInitialLoadComplete) unsubInitialLoadComplete();
 			sectionBackgroundZooms.forEach(tween => tween?.kill());
 			clearTimeout(visibilityHideTimeoutId);
+			if (wheelUnlockTimer !== null) {
+				clearTimeout(wheelUnlockTimer);
+				wheelUnlockTimer = null;
+				wheelGestureLocked = false;
+			}
 		};
 	});
 
@@ -449,7 +454,7 @@
 		masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
 		masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
     
-		masterTransitionTl.call(() => {
+    masterTransitionTl.call(() => {
 				sectionBackgroundZooms[newIndex]?.restart();
 		}, [], `slide+=${transitionDuration * 0.1}`);
 
@@ -471,12 +476,52 @@
 	function mobileNavigateTo(newIndex: number, _cause: 'swipe'|'dot') {
 		if (!get(renderProfile).isMobile) return navigateToSection(newIndex);
 		tryVibrate(15);
-		navigateToSection(newIndex);
+	    navigateToSection(newIndex);
 	}
 
-	let lastScrollTime = 0;
-	const scrollDebounce = 200;
-	function handleWheel(event: WheelEvent) { event.preventDefault(); if (get(isInitialReveal)) return; const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce || get(isAnimating)) return; lastScrollTime = currentTime; navigateToSection(get(currentSectionIndex) + (event.deltaY > 0 ? 1 : -1)); }
+		let lastScrollTime = 0; // still used for keyboard debounce
+		const scrollDebounce = 200;
+
+		// Touchpad-friendly wheel gesture lock: one move per gesture
+		const WHEEL_NOISE_THRESH = 2; // ignore tiny deltas/noise
+		const WHEEL_LOCK_DURATION = Math.max(transitionDuration, minSectionDisplayDuration) * 1000 + 150; // ~1.35s
+		// After unlock, briefly require higher delta to allow a second transition from the same ongoing gesture
+		const SECONDARY_MIN_DELTA = 30; // px, only for a potential second transition
+		const SECONDARY_WINDOW_MS = 600; // window right after unlock
+		let wheelGestureLocked = false;
+		let wheelUnlockTimer: number | null = null;
+		let unlockAt = 0; // timestamp when wheel unlocks
+		let lastWheelDir = 0; // direction of last triggered transition
+		function handleWheel(event: WheelEvent) {
+			event.preventDefault();
+			if (get(isInitialReveal)) return;
+			// Respect active animation; otherwise use our gesture lock
+			if (get(isAnimating)) return;
+			if (wheelGestureLocked) return;
+
+			const now = Date.now();
+			const dir = event.deltaY > 0 ? 1 : -1;
+			const absDelta = Math.abs(event.deltaY);
+
+			// Dynamic threshold: right after unlock, require a much larger delta (same direction)
+			const withinSecondaryWindow = unlockAt && (now - unlockAt < SECONDARY_WINDOW_MS);
+			const needsHigherThreshold = withinSecondaryWindow && dir === lastWheelDir;
+			const minDelta = needsHigherThreshold ? Math.max(WHEEL_NOISE_THRESH, SECONDARY_MIN_DELTA) : WHEEL_NOISE_THRESH;
+			if (absDelta < minDelta) return;
+
+			// Lock for the duration of the transition
+			wheelGestureLocked = true;
+			if (wheelUnlockTimer === null) {
+				wheelUnlockTimer = window.setTimeout(() => {
+					wheelGestureLocked = false;
+					wheelUnlockTimer = null;
+					unlockAt = Date.now();
+				}, WHEEL_LOCK_DURATION);
+			}
+
+			lastWheelDir = dir;
+			navigateToSection(get(currentSectionIndex) + dir);
+		}
 	function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
 
 	// --- Mobile swipe detection (no drag-follow, swipe triggers only) ---
