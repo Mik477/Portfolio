@@ -47,6 +47,70 @@ export interface Project {
 
 export type Locale = 'en' | 'de';
 
+// ---- NEW: Localized About & Contact Content (moved from siteConfig) ----
+export interface AboutContent {
+  title: string;
+  introduction: string;
+  imageUrl: string;
+  imageParticleEffect: { type: string }; // minimal ParticleEffectConfig reference
+  socialLinks: { name: string; url: string; icon?: string }[];
+}
+
+export interface ContactContent {
+  title: string;
+  outroMessage: string;
+  email: string;
+  additionalLinks: { name: string; url: string }[];
+}
+
+const aboutContentByLocale: Record<Locale, AboutContent> = {
+  en: {
+    title: 'About Me',
+    introduction: "I am a data scientist specializing in building end-to-end systems that derive actionable intelligence from real-world sensor data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
+    imageUrl: '/images/profile.webp',
+    imageParticleEffect: { type: 'imageAuraParticles' },
+    socialLinks: [
+      { name: 'GitHub', url: 'https://github.com/coming_soon' },
+      { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
+      { name: 'Email', url: 'mailto:mika38159@gmail.com' }
+    ]
+  },
+  de: {
+    title: 'Über Mich',
+    introduction: 'Ich bin Data Scientist und entwickle Ende-zu-Ende Systeme, die aus realen Sensordaten verwertbare Erkenntnisse gewinnen. Die folgenden Projekte zeigen meine Fähigkeit, maßgeschneiderte Hardware, stabile Software und fortgeschrittene Wahrnehmungs-Modelle zu integrieren, um komplexe operative Herausforderungen zu lösen.',
+    imageUrl: '/images/profile.webp',
+    imageParticleEffect: { type: 'imageAuraParticles' },
+    socialLinks: [
+      { name: 'GitHub', url: 'https://github.com/coming_soon' },
+      { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
+      { name: 'Email', url: 'mailto:mika38159@gmail.com' }
+    ]
+  }
+};
+
+const contactContentByLocale: Record<Locale, ContactContent> = {
+  en: {
+    title: 'Get in Touch',
+    outroMessage: "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
+    email: 'youremail@example.com',
+    additionalLinks: [{ name: 'View My Resume', url: '/resume.pdf' }]
+  },
+  de: {
+    title: 'Kontakt',
+    outroMessage: 'Ich freue mich über neue Projekte, Kooperationen oder Austausch – schreib mir gern!',
+    email: 'youremail@example.com',
+    additionalLinks: [{ name: 'Lebenslauf ansehen', url: '/resume.pdf' }]
+  }
+};
+
+export function getAboutContent(locale: Locale): AboutContent {
+  return aboutContentByLocale[locale] ?? aboutContentByLocale.en;
+}
+
+export function getContactContent(locale: Locale): ContactContent {
+  return contactContentByLocale[locale] ?? contactContentByLocale.en;
+}
+
 export function getProjects(locale: Locale): Project[] {
   const isDE = locale === 'de';
 

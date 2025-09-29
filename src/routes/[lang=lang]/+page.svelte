@@ -4,7 +4,7 @@
 	import { writable, get } from 'svelte/store';
 		import { siteConfig } from '$lib/data/siteConfig';
 		import { page } from '$app/stores';
-	import { getProjects, type Project, type Locale } from '$lib/data/projectsData';
+	import { getProjects, getAboutContent, getContactContent, type Project, type Locale, type AboutContent } from '$lib/data/projectsData';
 	import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
 	import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
 	import { renderProfile } from '$lib/stores/renderProfile';
@@ -34,32 +34,35 @@
 	let currentLocale: Locale;
 	$: currentLocale = ((($page.params as any)?.lang === 'de') ? 'de' : 'en');
 	$: localizedProjects = getProjects(currentLocale);
+	// Pull localized static content for About & Contact from projectsData (recently moved)
+	const baseAboutContent = getAboutContent(currentLocale);
+	const baseContactContent = getContactContent(currentLocale);
 	$: allSectionsData = [
 		{ id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
-		{ id: 'about', component: AboutSection, data: siteConfig.aboutSection, layout: null },
+		{ id: 'about', component: AboutSection, data: baseAboutContent, layout: null },
 		{ id: `project-${localizedProjects[0].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[0] },
 		{ id: `project-${localizedProjects[1].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[1] },
-		{ id: 'contact', component: ContactSection, data: siteConfig.contactSection, layout: null }
+		{ id: 'contact', component: ContactSection, data: baseContactContent, layout: null }
 	];
 	const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
 
-		// Localized data overrides for About and Contact
-		let aboutData: typeof siteConfig.aboutSection = siteConfig.aboutSection;
-		let contactData: typeof siteConfig.contactSection = siteConfig.contactSection;
+		// Localized data overrides for About and Contact ( now based on baseAboutContent/baseContactContent )
+		let aboutData = { ...baseAboutContent };
+		let contactData = { ...baseContactContent };
 		$: {
 			const common = ($page.data as any)?.messages?.common;
 			if (common?.about) {
 				aboutData = {
-					...siteConfig.aboutSection,
-					title: common.about.title ?? siteConfig.aboutSection.title,
-					introduction: common.about.introduction ?? siteConfig.aboutSection.introduction
+					...aboutData,
+					title: common.about.title ?? aboutData.title,
+					introduction: common.about.introduction ?? aboutData.introduction
 				};
 			}
 			if (common?.contact) {
 				contactData = {
-					...siteConfig.contactSection,
-					title: common.contact.title ?? siteConfig.contactSection.title,
-					outroMessage: common.contact.outroMessage ?? siteConfig.contactSection.outroMessage
+					...contactData,
+					title: common.contact.title ?? contactData.title,
+					outroMessage: common.contact.outroMessage ?? contactData.outroMessage
 				};
 			}
 		}
@@ -281,7 +284,7 @@
 			const section = allSectionsData[index];
 			let urls: string[] = [];
 			if (section.id === 'about') {
-				urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
+				urls.push((section.data as AboutContent).imageUrl);
 			} else if (section.id.startsWith('project-')) {
 				const p = section.data as Project;
 				if (p.backgrounds && p.backgrounds.length > 0) {
@@ -386,9 +389,12 @@
 					navActiveIndex.set(targetIdx);
 					setActiveSectionInert(targetIdx);
 					announceSection(targetIdx);
-					// Kick section instance lifecycle
+					// Eagerly initialize heavy effect (todo 20) before lifecycle enter/complete to avoid first-frame pop-in
 					const secId = allSectionsData[targetIdx].id;
 					const inst = sectionInstances.get(secId);
+					if (inst?.initializeEffect) {
+						try { await inst.initializeEffect(); } catch {}
+					}
 					inst?.onEnterSection();
 					requestAnimationFrame(() => inst?.onTransitionComplete?.());
 				}
@@ -484,6 +490,13 @@
 		if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
 		// Update dots immediately to animate grow/shrink during transition
 		navActiveIndex.set(newIndex);
+
+		// Ensure target section is at least initialized if preload state was skipped (robustness)
+		const targetId = allSectionsData[newIndex].id;
+		const targetInstance = sectionInstances.get(targetId);
+		if (targetInstance && targetInstance.initializeEffect) {
+			try { targetInstance.initializeEffect(); } catch {}
+		}
     
 		isAnimating.set(true); 
 		isTransitioning.set(true); 

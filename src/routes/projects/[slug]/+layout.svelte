@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ArrowLeft } from 'lucide-svelte';
-  // --- MODIFICATION: Import the new transition store ---
+  import { page } from '$app/stores';
   import { transitionStore } from '$lib/stores/transitionStore';
 
   let showButton = false;
@@ -16,16 +16,7 @@
   });
 
   function handleBackClick() {
-    // Determine project id based on slug param
-    // Access $page not available here (no import) so replicate via URL parsing as fallback
-    let projectId: string | null = null;
-    try {
-      const path = window.location.pathname; // /projects/{slug}
-      const parts = path.split('/');
-      const slug = parts[parts.length - 1];
-      if (slug === 'BURA') projectId = 'project-one';
-      else if (slug === 'Project2') projectId = 'project-two';
-    } catch {}
+    const projectId = ($page.data as any).projectId as string | null;
     const hash = projectId ? `#project-${projectId}` : '';
     transitionStore.fadeToBlackAndNavigate(`/${hash}`);
   }

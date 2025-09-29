@@ -11,7 +11,7 @@
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { siteConfig } from '$lib/data/siteConfig';
+  import type { AboutContent } from '$lib/data/projectsData';
 
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
@@ -21,8 +21,7 @@
 
   const dispatch = createEventDispatcher();
 
-  type AboutSectionData = typeof siteConfig.aboutSection;
-  export let data: AboutSectionData;
+  export let data: AboutContent;
   export let contactSectionIndex: number;
   export let navigateToSection: (index: number) => void;
 
@@ -43,6 +42,11 @@
       keyboardButtonsInstance.onEnterSection();
     }
     if (aboutImageEffectInstance) {
+      // Lazy init safeguard: if preloading was skipped for some reason, initialize now (non-blocking)
+      // @ts-ignore best-effort check
+      if ((aboutImageEffectInstance as any).initializeEffect && !(aboutImageEffectInstance as any).isInitialized) {
+        try { (aboutImageEffectInstance as any).initializeEffect(); } catch {}
+      }
       // The image effect's onEnterSection just starts a simple fade-in.
       aboutImageEffectInstance.onEnterSection();
     }

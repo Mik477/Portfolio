@@ -13,7 +13,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
-  import { siteConfig } from '$lib/data/siteConfig';
+  import type { ContactContent } from '$lib/data/projectsData';
   
   // 1. Import the new effect component and its instance type.
   import ContactEffect from './ContactEffect.svelte';
@@ -21,8 +21,7 @@
 
   const dispatch = createEventDispatcher();
 
-  type ContactSectionData = typeof siteConfig.contactSection;
-  export let data: ContactSectionData;
+  export let data: ContactContent;
   export let emailLabel: string | undefined;
 
   // 2. Create a binding for the child component instance.
@@ -49,7 +48,15 @@
 
   export function onEnterSection(): void {
     // A. Trigger the fade-in of the background effect.
-    contactEffectInstance?.onEnterSection();
+    if (contactEffectInstance) {
+      // If effect not yet initialized (preload may have been skipped), try initializing lazily
+      // initializeEffect is async; we don't await to avoid blocking UI. It will set up and then fade.
+      // @ts-ignore optional presence
+      if ((contactEffectInstance as any).initializeEffect && !(contactEffectInstance as any).isInitialized) {
+        try { (contactEffectInstance as any).initializeEffect(); } catch {}
+      }
+      contactEffectInstance.onEnterSection();
+    }
 
     // B. Animate the surrounding UI elements in parallel.
     if (animatableUiElements.length === 0) return;
