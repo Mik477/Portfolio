@@ -12,13 +12,9 @@
     "switchToDe": "Switch to German"
   },
   "about": {
-    "title": "About Me",
-  "introduction": "I am a data scientist specializing in building end-to-end systems that derive actionable intelligence from real-world sensor data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
-  "contactMe": "Contact Me"
+    "contactMe": "Contact Me"
   },
   "contact": {
-    "title": "Get in Touch",
-    "outroMessage": "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
     "emailLabel": "Email me",
     "resumeLabel": "View my resume"
   },

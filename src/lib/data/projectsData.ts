@@ -56,8 +56,14 @@ export interface AboutContent {
   socialLinks: { name: string; url: string; icon?: string }[];
 }
 
+// Feature flags (simple manual toggles)
+export const featureFlags = {
+  showInstagram: false
+};
+
 export interface ContactContent {
   title: string;
+  // Supports optional line break token [[br]] which will render as a <br> in ContactSection
   outroMessage: string;
   email: string;
   additionalLinks: { name: string; url: string }[];
@@ -69,37 +75,51 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
     introduction: "I am a data science student specializing in building end-to-end systems that derive actionable intelligence from real-world data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
     imageUrl: '/images/profile.webp',
     imageParticleEffect: { type: 'imageAuraParticles' },
-    socialLinks: [
-      { name: 'GitHub', url: 'https://github.com/coming_soon' },
-      { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
-  { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
-    ]
+    socialLinks: (() => {
+      const links = [
+        { name: 'GitHub', url: 'https://github.com/coming_soon' },
+        { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
+        { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
+      ];
+      if (featureFlags.showInstagram) {
+        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/coming_soon/' });
+      }
+      return links;
+    })()
   },
   de: {
     title: 'Über Mich',
     introduction: 'Ich bin Data Science Student und entwickle Ende-zu-Ende Systeme, die aus realen Daten verwertbare Erkenntnisse gewinnen. Die folgenden Projekte zeigen meine Fähigkeit, maßgeschneiderte Hardware, robuste Software und hoch moderne Wahrnehmungs-Modelle zu integrieren, um komplexe operative Herausforderungen zu lösen.',
     imageUrl: '/images/profile.webp',
     imageParticleEffect: { type: 'imageAuraParticles' },
-    socialLinks: [
-      { name: 'GitHub', url: 'https://github.com/coming_soon' },
-      { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
-      { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
-    ]
+    socialLinks: (() => {
+      const links = [
+        { name: 'GitHub', url: 'https://github.com/coming_soon' },
+        { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
+        { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
+      ];
+      if (featureFlags.showInstagram) {
+        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/coming_soon/' });
+      }
+      return links;
+    })()
   }
 };
 
 const contactContentByLocale: Record<Locale, ContactContent> = {
   en: {
     title: 'Get in Touch',
-    outroMessage: "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
+    // Insert [[br]] wherever you want a manual line break in the contact text
+    outroMessage: "I'm always excited to discuss new projects, [[br]] collaborations, or opportunities. Feel free to reach out!",
   email: 'mika.mueller.work@gmail.com',
     additionalLinks: [{ name: 'View My Resume', url: '/resume.pdf' }]
   },
   de: {
     title: 'Kontakt',
-    outroMessage: 'Ich freue mich über neue Projekte, Kooperationen oder Austausch – schreib mir gern!',
+    // Beispiel für Zeilenumbruch: 'Ich freue mich über neue Projekte[[br]]Kooperationen oder Austausch – schreib mir gern!'
+    outroMessage: 'Ich freue mich über neue Projekte, Kooperationen oder Austausch. [[br]]Schreiben Sie mir gerne!',
   email: 'mika.mueller.work@gmail.com',
-    additionalLinks: [{ name: 'Lebenslauf ansehen', url: '/resume.pdf' }]
+    additionalLinks: [{ name: 'Lebenslauf', url: '/resume.pdf' }]
   }
 };
 

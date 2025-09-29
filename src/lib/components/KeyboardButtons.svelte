@@ -89,6 +89,18 @@
   const handleContactClick = () => {
     if (typeof navigateToSection === 'function' && contactSectionIndex !== -1) {
       navigateToSection(contactSectionIndex);
+      // Also update hash for sharable URL (mirrors core navigate logic behavior)
+      try {
+        if (contactSectionIndex >= 0 && typeof window !== 'undefined') {
+          const newHash = '#contact';
+            if (window.location.hash !== newHash) {
+              history.replaceState(null, '', newHash);
+            }
+        }
+      } catch {}
+    } else {
+      // Fallback: direct hash navigation triggers hashchange listener
+      try { window.location.hash = '#contact'; } catch {}
     }
   };
 </script>
@@ -112,6 +124,13 @@
       </a>
     </div>
     {/if}
+    {#if socialLinks.find(l => l.name.toLowerCase() === 'instagram')}
+  <div class="key-position gpu-prewarm-target">
+    <a aria-label="Instagram" class="key" target="_blank" rel="noopener noreferrer" href={getLink('Instagram')}>
+      <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><rect width="18" height="18" x="3" y="3" rx="4"/><circle cx="12" cy="12" r="5"/><path d="M16 7h.01"/></g></svg>
+    </a>
+  </div>
+    {/if}
     {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
   <div class="key-position gpu-prewarm-target">
       <a aria-label="Email" class="key" target="_blank" rel="noopener noreferrer" href={getLink('Email')}>
@@ -120,7 +139,13 @@
     </div>
     {/if}
   <div class="key-position key-position-cta gpu-prewarm-target">
-      <button type="button" id="about-contact-me-btn" class="key call-to-action peer" on:click={handleContactClick}>
+      <button
+        type="button"
+        id="about-contact-me-btn"
+        class="key call-to-action peer"
+        aria-controls="contact"
+        on:click={handleContactClick}
+      >
         <span class="call-to-action-content">{(($page.data as any)?.messages?.common?.about?.contactMe) ?? 'Contact Me'}</span>
       </button>
     </div>

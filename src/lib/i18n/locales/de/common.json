@@ -12,13 +12,9 @@
     "switchToDe": "Zu Deutsch wechseln"
   },
   "about": {
-    "title": "Über mich",
-    "introduction": "Ich bin Data Scientist, spezialisiert auf die Entwicklung von End-to-End-Systemen, die aus realen Sensordaten handlungsrelevante Informationen gewinnen. Die nachfolgenden Projekte demonstrieren meine Kompetenz in der Integration von maßgeschneiderter Hardware, robuster Software und fortschrittlichen Wahrnehmungsmodellen zur Lösung komplexer operativer Herausforderungen.",
     "contactMe": "Kontakt aufnehmen"
   },
   "contact": {
-    "title": "Kontakt",
-    "outroMessage": "Ich freue mich über neue Projekte, Kooperationen oder Möglichkeiten. Melden Sie sich gern!",
     "emailLabel": "E-Mail senden",
     "resumeLabel": "Lebenslauf ansehen"
   },

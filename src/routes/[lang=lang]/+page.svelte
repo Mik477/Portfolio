@@ -34,9 +34,13 @@
 	let currentLocale: Locale;
 	$: currentLocale = ((($page.params as any)?.lang === 'de') ? 'de' : 'en');
 	$: localizedProjects = getProjects(currentLocale);
-	// Pull localized static content for About & Contact from projectsData (recently moved)
-	const baseAboutContent = getAboutContent(currentLocale);
-	const baseContactContent = getContactContent(currentLocale);
+	// Pull localized static content for About & Contact (must be reactive for language switch)
+	let baseAboutContent = getAboutContent(currentLocale);
+	let baseContactContent = getContactContent(currentLocale);
+	$: if (currentLocale) {
+		baseAboutContent = getAboutContent(currentLocale);
+		baseContactContent = getContactContent(currentLocale);
+	}
 	$: allSectionsData = [
 		{ id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
 		{ id: 'about', component: AboutSection, data: baseAboutContent, layout: null },
@@ -44,13 +48,16 @@
 		{ id: `project-${localizedProjects[1].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[1] },
 		{ id: 'contact', component: ContactSection, data: baseContactContent, layout: null }
 	];
-	const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
+	let contactSectionIndex: number = allSectionsData.findIndex(s => s.id === 'contact');
+	$: contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
 
-		// Localized data overrides for About and Contact ( now based on baseAboutContent/baseContactContent )
+		// Localized data overrides (recompute when base content or translation messages change)
 		let aboutData = { ...baseAboutContent };
 		let contactData = { ...baseContactContent };
-		$: {
+		$: if (baseAboutContent && baseContactContent) {
 			const common = ($page.data as any)?.messages?.common;
+			aboutData = { ...baseAboutContent };
+			contactData = { ...baseContactContent };
 			if (common?.about) {
 				aboutData = {
 					...aboutData,
@@ -484,10 +491,20 @@
 		}, initialRevealDelay);
 	}
   
-	function navigateToSection(newIndex: number) { 
+	async function navigateToSection(newIndex: number) { 
 		if (get(isInitialReveal)) return; 
 		const oldIndex = get(currentSectionIndex); 
 		if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
+		// If jumping more than one section ahead/behind, proactively preload target before animating
+		if (Math.abs(newIndex - oldIndex) > 1) {
+			const targetId = allSectionsData[newIndex].id;
+			const targetInstance = sectionInstances.get(targetId);
+			try { await preloadManager.prepareSection(newIndex); } catch {}
+			// Make sure instance map has updated (in rare cases of dynamic data)
+			if (targetInstance && targetInstance.initializeEffect) {
+				try { await targetInstance.initializeEffect(); } catch {}
+			}
+		}
 		// Update dots immediately to animate grow/shrink during transition
 		navActiveIndex.set(newIndex);
 
@@ -536,8 +553,7 @@
 		gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
 		masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
 		masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
-    
-    masterTransitionTl.call(() => {
+		masterTransitionTl.call(() => {
 				sectionBackgroundZooms[newIndex]?.restart();
 		}, [], `slide+=${transitionDuration * 0.1}`);
 
@@ -726,7 +742,7 @@
 								<ContactSection
 						bind:this={sectionInstancesArray[i + 1]}
 									data={contactData}
-								emailLabel={(($page.data as any)?.messages?.common?.contact?.emailLabel) ?? undefined}
+										socialLinks={aboutData.socialLinks}
 						on:animationComplete={handleAnimationComplete}
 					/>
 				{/if}

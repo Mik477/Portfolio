@@ -300,8 +300,9 @@
       this.renderer.setSize(targetW, targetH, false);
       this.renderer.setClearColor(0x000000, 0);
       try {
+        // Prefer modern SRGBColorSpace constant.
         // @ts-ignore
-        this.renderer.outputColorSpace = (THREE as any).SRGBColorSpace ?? (THREE as any).sRGBEncoding;
+        this.renderer.outputColorSpace = (THREE as any).SRGBColorSpace;
       } catch (e) { /* ignore */ }
       this.container.appendChild(this.renderer.domElement);
       // ensure canvas stretches to container while content rendered at lower res
