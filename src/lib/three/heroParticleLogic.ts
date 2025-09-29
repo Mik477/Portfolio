@@ -358,6 +358,8 @@ export class Environment {
         if (this.createParticles.checkScreenSizeChange()) {
           this.createParticles.regenerateParticles();
         }
+        // Always update symbol sizes to match new viewport height scaling
+        this.createParticles.updateSymbolSizesForViewport();
       }
     }
   }
@@ -581,6 +583,7 @@ export class CreateParticles {
   private fadeOutRates: number[] = [];
   private fadeOutRatesPerSec: number[] = []; // converted per-second rates
   private cooldownDurationsSec: number[] = []; // store original durations in seconds for clarity
+  private activeSymbolFactors: number[] = []; // store raw random factor (with modifiers) for active symbol resizing
 
   // --- Metrics tracking ---
   private activeSymbolsCount: number = 0;               // currently active symbol particles
@@ -594,6 +597,8 @@ export class CreateParticles {
   private planeArea!: THREE.Mesh; 
   public particles!: THREE.Points;
   private geometryCopy!: THREE.BufferGeometry;
+  private referenceTextHeight: number | null = null; // first measured text height (world units)
+  private textBoundingHeight: number | null = null;  // current text height after latest generation
 
   private boundOnMouseDown: (event: MouseEvent) => void;
   private boundOnMouseMove: (event: MouseEvent) => void;
@@ -622,15 +627,41 @@ export class CreateParticles {
   };
 
   private readonly RESPONSIVE_PARAMS: Record<ScreenSizeType, Partial<ParticleData>> = {
-    mobile: { amount: 2000, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 11, area: 150 },
-    tablet: { amount: 2200, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 11, area: 200 },
-    laptop: { amount: 2200, particleSize: 1.5, textSize: 15, minSymbolSize: 6.5, maxSymbolSize: 11, area: 230 },
-    desktop: { amount: 2400, particleSize: 1.68, textSize: 16, minSymbolSize: 7, maxSymbolSize: 11, area: 250 },
-    large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 8, maxSymbolSize: 11, area: 280 },
-    ultrawide: { amount: 2900, particleSize: 1.6, textSize: 20, minSymbolSize: 9, maxSymbolSize: 16, area: 300 }
+    // Symbol min/max now unified; actual on-screen size is scaled by viewport height for consistency across resolutions.
+    mobile: { amount: 2000, particleSize: 1.0, textSize: 12, minSymbolSize: 7, maxSymbolSize: 12, area: 150 },
+    tablet: { amount: 2200, particleSize: 1.1, textSize: 14, minSymbolSize: 7, maxSymbolSize: 12, area: 200 },
+    laptop: { amount: 2200, particleSize: 1.5, textSize: 15, minSymbolSize: 7, maxSymbolSize: 12, area: 230 },
+    desktop: { amount: 2400, particleSize: 1.68, textSize: 16, minSymbolSize: 7, maxSymbolSize: 10, area: 250 },
+    large: { amount: 2700, particleSize: 1.55, textSize: 18, minSymbolSize: 7, maxSymbolSize: 12, area: 280 },
+    ultrawide: { amount: 2900, particleSize: 1.6, textSize: 20, minSymbolSize: 8, maxSymbolSize: 140, area: 300 }
+  };
+  private readonly SYMBOL_SIZE_MODIFIERS: Record<ScreenSizeType, { minMul: number; maxMul: number }> = {
+    mobile: { minMul: 0.95, maxMul: 0.95 },
+    tablet: { minMul: 1.0, maxMul: 1.0 },
+    laptop: { minMul: 1.0, maxMul: 1.0 },
+    desktop: { minMul: 0.9,maxMul: 0.9},
+    large: { minMul: 1.07, maxMul: 1.08 },
+    ultrawide: { minMul: 13, maxMul: 19 }
   };
 
   private symbolTextureRows: number = 6;
+  // Global hard override multiplier (debug) applied after all other scaling (min/max, modifiers, text scale)
+  private globalSymbolSizeMul: number = 1.0;
+  // Instrumentation for debugging size issues
+  private lastSpawnComputedSize: number = 0; // final size written to attribute on last spawn
+  private lastSpawnRawRandom: number = 0;    // randomSymbolSize before global multiplier
+  private lastSpawnSymbolScale: number = 0;  // symbolScale at spawn
+  private lastSpawnScreenType: ScreenSizeType = 'desktop';
+  // Per-screen additional ratio to gently scale symbols on higher resolutions
+  private readonly SCREEN_SYMBOL_RATIO: Record<ScreenSizeType, number> = {
+    mobile: 1.0,
+    tablet: 1.0,
+    laptop: 1.0,
+    desktop: 1.0,
+    large: 1.03,
+    ultrawide: 1.12
+  };
+  private pointSizeMax: number | null = null; // GPU max point size (caps gl_PointSize)
 
   constructor(scene: THREE.Scene, font: Font, particleImg: THREE.Texture, camera: THREE.PerspectiveCamera, renderer: THREE.WebGLRenderer, hostContainer: HTMLElement) {
     this.scene = scene;
@@ -702,6 +733,43 @@ export class CreateParticles {
     this.createMatrixSymbolsTexture();
     this.setupPlaneArea();
     this.createText();
+
+    // Query GPU point size cap (helps explain lack of visual change when exceeding)
+    try {
+      const gl = this.renderer.getContext();
+      const range = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE);
+      if (Array.isArray(range) || (range && range.length === 2)) {
+        this.pointSizeMax = range[1];
+        // console.log('GPU point size range', range); // optional dev log
+      }
+    } catch {}
+  }
+
+  // --- Public debug helpers ---
+  public setGlobalSymbolSizeMultiplier(m: number) {
+    this.globalSymbolSizeMul = Math.max(0.01, m);
+    // Rescale currently active symbols immediately
+    this.updateSymbolSizesForTextScale();
+  }
+  public setScreenSymbolRatio(screen: ScreenSizeType, ratio: number) {
+    if (ratio > 0 && screen in this.SCREEN_SYMBOL_RATIO) {
+      this.SCREEN_SYMBOL_RATIO[screen] = ratio;
+      this.updateSymbolSizesForTextScale();
+    }
+  }
+  public getSymbolDebugInfo() {
+    return {
+      globalMul: this.globalSymbolSizeMul,
+      lastSpawnComputedSize: this.lastSpawnComputedSize,
+      lastSpawnRawRandom: this.lastSpawnRawRandom,
+      lastSpawnSymbolScale: this.lastSpawnSymbolScale,
+      screenType: this.lastSpawnScreenType,
+      minSymbolSize: this.data.minSymbolSize,
+      maxSymbolSize: this.data.maxSymbolSize,
+      modifiers: this.SYMBOL_SIZE_MODIFIERS[this.currentScreenSizeType],
+      screenRatio: this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType],
+      gpuPointSizeMax: this.pointSizeMax
+    };
   }
 
   private getMatrixColor(heatLevel: number): THREE.Color {
@@ -728,6 +796,46 @@ export class CreateParticles {
     }
   }
 
+  // Symbol scale anchored to initial text height so symbols keep consistent proportion relative to text across devices.
+  private getSymbolScale(): number {
+    if (this.referenceTextHeight && this.textBoundingHeight && this.textBoundingHeight > 0) {
+      const raw = this.referenceTextHeight / this.textBoundingHeight; // if text got larger, scale symbols up proportionally
+  // Optionally: blend with a viewport factor if reintroducing hybrid behavior in future.
+      // Clamp to avoid extreme jumps when fonts/rendering differ slightly.
+      return Math.min(1.6, Math.max(0.65, raw));
+    }
+    // Fallback: no text metrics yet, neutral scale
+    return 1.0;
+  }
+
+  // Recalculate current symbol point sizes so that active symbols maintain consistent proportion to text after resize.
+  public updateSymbolSizesForTextScale(): void {
+    if (!this.particles) return;
+    const geo = this.particles.geometry as THREE.BufferGeometry;
+    const sizes = geo.getAttribute('size') as THREE.BufferAttribute;
+    const symbolStates = geo.getAttribute('symbolState') as THREE.BufferAttribute;
+    const sizeArr = sizes.array as Float32Array;
+    const stateArr = symbolStates.array as Float32Array;
+    const count = sizes.count;
+    const symbolScale = this.getSymbolScale();
+    const baseSize = this.data.particleSize;
+    const ratio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType] ?? 1.0;
+    for (let i = 0; i < count; i++) {
+      if (stateArr[i] === 1) {
+        const factor = this.activeSymbolFactors[i];
+        if (factor > 0) {
+          sizeArr[i] = baseSize * factor * symbolScale * ratio * this.globalSymbolSizeMul;
+        }
+      }
+    }
+    sizes.needsUpdate = true;
+  }
+
+  // Backwards compatibility alias (can remove once all call sites updated)
+  public updateSymbolSizesForViewport(): void {
+    this.updateSymbolSizesForTextScale();
+  }
+
   private initParticleStates(count: number) { 
     this.particleStates = new Array(count).fill(0);
     this.heatLevels = new Array(count).fill(0);
@@ -736,6 +844,7 @@ export class CreateParticles {
     this.fadeOutRates = new Array(count);
   this.fadeOutRatesPerSec = new Array(count);
   this.cooldownDurationsSec = new Array(count);
+   this.activeSymbolFactors = new Array(count).fill(0);
     // initialize color transition state
     this.colorProgress = new Array(count).fill(0);
     this.influenceEMA = new Array(count).fill(0);
@@ -846,8 +955,17 @@ export class CreateParticles {
     
     const tempShapeGeometry = new THREE.ShapeGeometry(mainShapes); 
     tempShapeGeometry.computeBoundingBox();
-    const xMid = -0.5 * (tempShapeGeometry.boundingBox!.max.x - tempShapeGeometry.boundingBox!.min.x);
-    const yMid = (tempShapeGeometry.boundingBox!.max.y - tempShapeGeometry.boundingBox!.min.y) / 2.85; 
+    const bb = tempShapeGeometry.boundingBox!;
+    const bboxWidth = bb.max.x - bb.min.x;
+    const bboxHeight = bb.max.y - bb.min.y;
+    // Center offset
+    const xMid = -0.5 * bboxWidth;
+    const yMid = bboxHeight / 2.85; 
+    // Update text height tracking (world units)
+    this.textBoundingHeight = bboxHeight;
+    if (this.referenceTextHeight === null) {
+      this.referenceTextHeight = bboxHeight; // anchor
+    }
     tempShapeGeometry.dispose();
 
     let totalLength = 0;
@@ -1164,9 +1282,22 @@ export class CreateParticles {
               if (Math.random() < pThisFrame) {
                 this.particleStates[i] = 1;
                 stateArr[i] = 1.0;
-                const randomSymbolSize = this.data.minSymbolSize + Math.random() * (this.data.maxSymbolSize - this.data.minSymbolSize);
+                const symbolScale = this.getSymbolScale();
+                const mods = this.SYMBOL_SIZE_MODIFIERS[this.currentScreenSizeType];
+                const minAdj = this.data.minSymbolSize * mods.minMul;
+                const maxAdj = this.data.maxSymbolSize * mods.maxMul;
+                const randomSymbolSize = minAdj + Math.random() * (maxAdj - minAdj);
                 const randomSymbolIndex = Math.floor(Math.random() * this.matrixSymbols.length);
-                sizeArr[i] = baseSize * randomSymbolSize;
+                // Apply text-anchored scaling so symbols maintain proportion to text PLUS global debug multiplier.
+                const ratio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType] ?? 1.0;
+                const finalSize = baseSize * randomSymbolSize * symbolScale * ratio * this.globalSymbolSizeMul;
+                sizeArr[i] = finalSize;
+                // Debug instrumentation capture
+                this.lastSpawnComputedSize = finalSize;
+                this.lastSpawnRawRandom = randomSymbolSize;
+                this.lastSpawnSymbolScale = symbolScale;
+                this.lastSpawnScreenType = this.currentScreenSizeType;
+                this.activeSymbolFactors[i] = randomSymbolSize;
                 indexArr[i] = randomSymbolIndex;
                 const c = this.getVariedSymbolColor();
                 const ci3 = i3;
@@ -1191,6 +1322,8 @@ export class CreateParticles {
             this.particleStates[i] = 0;
             stateArr[i] = 0.0;
             sizeArr[i] = baseSize;
+            this.activeSymbolFactors[i] = 0;
+            this.activeSymbolFactors[i] = 0;
             attributesNeedUpdate = true;
           }
         } else {

@@ -224,6 +224,40 @@
     private renderer!: THREE.WebGLRenderer;
     private bloomEffect!: BloomEffect;
 
+    // ================= Symbol Scaling System (hero parity) =================
+    private readonly SCREEN_SIZES = {
+        mobile: { maxWidth: 640 },
+        tablet: { minWidth: 641, maxWidth: 900 },
+        laptop: { minWidth: 901, maxWidth: 1200 },
+        desktop: { minWidth: 1201, maxWidth: 1800 },
+        large: { minWidth: 1801, maxWidth: 2900 },
+        ultrawide: { minWidth: 2901 }
+    } as const;
+    private currentScreenSizeType: 'mobile' | 'tablet' | 'laptop' | 'desktop' | 'large' | 'ultrawide' = 'desktop';
+    private readonly SCREEN_SYMBOL_RATIO: Record<'mobile' | 'tablet' | 'laptop' | 'desktop' | 'large' | 'ultrawide', number> = {
+        mobile: 1.00,
+        tablet: 1.00,
+        laptop: 1.00,
+        desktop: 1.04,
+        large: 0.8,
+        ultrawide: 1.12
+    };
+    private globalSymbolSizeMul: number = 1.0;
+    private referenceContainerHeight: number | null = null;
+    private lastMeasuredContainerHeight: number = 0;
+    private baseSizeFactors: Float32Array | null = null;
+    private lastSpawnComputedSize: number = 0;
+    private lastSpawnRawBase: number = 0;
+    private lastSpawnScreenRatio: number = 1;
+    private lastSpawnScale: number = 1;
+    // Density & GPU handling additions
+    private enableDensityCompensation: boolean = true;
+    private densityExponent: number = 0.45; // 0=no effect, 1=linear inverse DPR scaling
+    private densityBaseDPR: number = 1.0; // reference baseline DPR
+    private cachedDPR: number = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+    private gpuPointSizeRange: [number, number] | null = null; // queried from GL
+    private lastClampOccurred: boolean = false;
+
     // Internal resolution scaling (DRS)
     private internalScale: number = 1.0; // dynamic internal resolution scale
     private readonly MAX_INTERNAL_DIM = 1440; // cap for larger dimension
@@ -431,6 +465,13 @@
     // Update point-size scale so symbols remain visually consistent
         this.updatePointScale(this.width, this.height);
     if (!this.isMobileMode) this.setupGrid();
+        // Update scaling anchors and recompute sizes
+        this.lastMeasuredContainerHeight = this.height;
+        if (this.referenceContainerHeight === null && this.height > 0) {
+            this.referenceContainerHeight = this.height;
+        }
+        this.currentScreenSizeType = this.getScreenSizeType();
+        this.updateSymbolSizesForScale();
         this.dlog('onWindowResize(): css', { w: this.width, h: this.height }, 'internal', { targetW, targetH }, 'pointScale', (this.particleSystem.material as THREE.ShaderMaterial).uniforms.uPointScale.value);
     }
     
@@ -708,6 +749,9 @@
         geometry.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
         geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
 
+    // Allocate intrinsic size factors array for unified scaling recomputation
+    this.baseSizeFactors = new Float32Array(cap);
+
         const material = new THREE.ShaderMaterial({
             uniforms: {
                 symbolsTexture: { value: this.symbolsTexture },
@@ -790,6 +834,7 @@
             if (this.particles.pool.length <= 0) { this.dlog('initMobileParticles(): pool empty; cannot spawn'); return; }
             toSpawn = Math.min(toSpawn, this.particles.pool.length);
             const rightX = this.width / 2 - 2; // place just inside the screen for immediate visibility
+            const unifiedScale = this.getUnifiedSymbolScale(); // retained for debug instrumentation
             for (let i = 0; i < toSpawn; i++) {
                 const p = this.particles.pool.pop();
                 if (!p) { this.dlog('initMobileParticles(): pool underflow at i=', i); break; }
@@ -804,7 +849,10 @@
                 p.speed = baseSpeed * this.mobileParams.speedFactor * jitter; // px/sec
                 p.amplitude = this.mobileParams.amplitude.min + Math.random() * (this.mobileParams.amplitude.max - this.mobileParams.amplitude.min); // vertical drift amplitude
                 p.timeOffset = Math.random() * Math.PI * 2;
-                p.size = this.mobileParams.size.min + Math.random() * (this.mobileParams.size.max - this.mobileParams.size.min);
+                const rawBase = this.mobileParams.size.min + Math.random() * (this.mobileParams.size.max - this.mobileParams.size.min);
+                const { size: finalSize } = this.computeFinalSize(rawBase);
+                p.size = finalSize;
+                if (this.baseSizeFactors) this.baseSizeFactors[p.index] = rawBase;
                 p.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
                 p.color.copy(this.getSymbolColor());
                 p.lastSymbolChange = 0;
@@ -815,6 +863,10 @@
                 positions[p.index * 3 + 2] = 1;
                 colors[p.index * 3] = p.color.r; colors[p.index * 3 + 1] = p.color.g; colors[p.index * 3 + 2] = p.color.b;
                 sizes[p.index] = p.size;
+                this.lastSpawnComputedSize = p.size;
+                this.lastSpawnRawBase = rawBase;
+                this.lastSpawnScreenRatio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType];
+                this.lastSpawnScale = unifiedScale;
                 opacities[p.index] = 0;
             }
             (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
@@ -876,8 +928,16 @@
                     p.speed = baseSpeed2 * this.mobileParams.speedFactor * jitter2;
                     p.amplitude = this.mobileParams.amplitude.min + Math.random() * (this.mobileParams.amplitude.max - this.mobileParams.amplitude.min);
                     p.timeOffset = Math.random() * Math.PI * 2;
-                    p.size = this.mobileParams.size.min + Math.random() * (this.mobileParams.size.max - this.mobileParams.size.min);
+                    const rawBase2 = this.mobileParams.size.min + Math.random() * (this.mobileParams.size.max - this.mobileParams.size.min);
+                    const unifiedScale2 = this.getUnifiedSymbolScale();
+                    const { size: finalSize2 } = this.computeFinalSize(rawBase2);
+                    p.size = finalSize2;
+                    if (this.baseSizeFactors) this.baseSizeFactors[p.index] = rawBase2;
                     sizes[p.index] = p.size;
+                    this.lastSpawnComputedSize = p.size;
+                    this.lastSpawnRawBase = rawBase2;
+                    this.lastSpawnScreenRatio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType];
+                    this.lastSpawnScale = unifiedScale2;
                     opacities[p.index] = 0;
                     needsUpdate = true;
                 } else {
@@ -969,7 +1029,15 @@
         particle.timeOffset = Math.random() * Math.PI * 2;
         particle.lifetime = this.PARTICLE_LIFETIME.min + Math.random() * (this.PARTICLE_LIFETIME.max - this.PARTICLE_LIFETIME.min);
         particle.age = 0;
-        particle.size = this.CELL_SIZE * (1 + 1.1 * Math.random());
+    const rawBase = this.CELL_SIZE * (1 + 1.1 * Math.random());
+    const unifiedScale = this.getUnifiedSymbolScale();
+    const { size: finalSize } = this.computeFinalSize(rawBase);
+    particle.size = finalSize;
+    if (this.baseSizeFactors) this.baseSizeFactors[particle.index] = rawBase;
+    this.lastSpawnComputedSize = particle.size;
+    this.lastSpawnRawBase = rawBase;
+    this.lastSpawnScreenRatio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType];
+    this.lastSpawnScale = unifiedScale;
         particle.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
         particle.color.copy(this.getSymbolColor());
         particle.lastSymbolChange = 0;
@@ -1062,6 +1130,99 @@
         this.blackoutMesh.count = instanceIdx;
         this.blackoutMesh.instanceMatrix.needsUpdate = true;
         (this.blackoutMesh.geometry.attributes.instanceOpacity as THREE.InstancedBufferAttribute).needsUpdate = true;
+    }
+    // ================= Symbol Scaling Helpers =================
+    private getScreenSizeType(): typeof this.currentScreenSizeType {
+        const width = this.overlayContainer.clientWidth;
+        if (width <= this.SCREEN_SIZES.mobile.maxWidth) return 'mobile';
+        if (width >= this.SCREEN_SIZES.tablet.minWidth && width <= this.SCREEN_SIZES.tablet.maxWidth) return 'tablet';
+        if (width >= this.SCREEN_SIZES.laptop.minWidth && width <= this.SCREEN_SIZES.laptop.maxWidth) return 'laptop';
+        if (width >= this.SCREEN_SIZES.desktop.minWidth && width <= this.SCREEN_SIZES.desktop.maxWidth) return 'desktop';
+        if (width >= this.SCREEN_SIZES.large.minWidth && width <= this.SCREEN_SIZES.large.maxWidth) return 'large';
+        return 'ultrawide';
+    }
+    private getAnchoredScale(): number {
+        if (this.referenceContainerHeight && this.lastMeasuredContainerHeight > 0) {
+            const raw = this.referenceContainerHeight / this.lastMeasuredContainerHeight; // inverse so if container grows symbols scale up
+            return Math.min(1.6, Math.max(0.65, raw));
+        }
+        return 1.0;
+    }
+    private getUnifiedSymbolScale(): number {
+        const anchored = this.getAnchoredScale();
+        const ratio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType] ?? 1.0;
+        this.cachedDPR = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+        // We want higher devicePixelRatio screens (denser) to allow modest enlargement so perceived size matches large low-DPI displays.
+        // densityExponent controls curve aggression. Clamp overall effect.
+        let densityScale = 1.0;
+        if (this.enableDensityCompensation) {
+            densityScale = Math.pow(this.cachedDPR / this.densityBaseDPR, this.densityExponent);
+            densityScale = Math.min(1.8, Math.max(0.7, densityScale));
+        }
+        return anchored * ratio * this.globalSymbolSizeMul * densityScale;
+    }
+    private computeFinalSize(rawBase: number): { size: number; clamped: boolean } {
+        const unifiedScale = this.getUnifiedSymbolScale();
+        let size = rawBase * unifiedScale;
+        let clamped = false;
+        if (this.gpuPointSizeRange && this.particleSystem) {
+            const maxPoint = this.gpuPointSizeRange[1];
+            const uPointScale = (this.particleSystem.material as THREE.ShaderMaterial).uniforms.uPointScale.value || 1.0;
+            const maxAttr = maxPoint / Math.max(0.0001, uPointScale);
+            if (size > maxAttr) { size = maxAttr; clamped = true; }
+        }
+        this.lastClampOccurred = clamped;
+        return { size, clamped };
+    }
+    private updateSymbolSizesForScale(): void {
+        if (!this.particleSystem || !this.baseSizeFactors) return;
+        const sizesAttr = this.particleSystem.geometry.getAttribute('size') as THREE.BufferAttribute;
+        const sizes = sizesAttr.array as Float32Array;
+        this.particles.active.forEach(p => {
+            const base = this.baseSizeFactors![p.index];
+            if (base > 0) {
+                const { size } = this.computeFinalSize(base);
+                p.size = size;
+                sizes[p.index] = size;
+            }
+        });
+        sizesAttr.needsUpdate = true;
+    }
+    public setGlobalSymbolSizeMultiplier(m: number) {
+        this.globalSymbolSizeMul = Math.max(0.05, m);
+        this.updateSymbolSizesForScale();
+    }
+    public setScreenSymbolRatio(screen: typeof this.currentScreenSizeType, ratio: number) {
+        if (ratio > 0 && screen in this.SCREEN_SYMBOL_RATIO) {
+            this.SCREEN_SYMBOL_RATIO[screen] = ratio;
+            this.updateSymbolSizesForScale();
+        }
+    }
+    public setDensityCompensation(enabled: boolean) {
+        this.enableDensityCompensation = enabled;
+        this.updateSymbolSizesForScale();
+    }
+    public setDensityExponent(exp: number) {
+        this.densityExponent = Math.max(0, Math.min(2, exp));
+        this.updateSymbolSizesForScale();
+    }
+    public getSymbolDebugInfo() {
+        return {
+            currentScreen: this.currentScreenSizeType,
+            ratio: this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType],
+            anchoredScale: this.getAnchoredScale(),
+            unifiedScale: this.getUnifiedSymbolScale(),
+            globalMul: this.globalSymbolSizeMul,
+            dpr: this.cachedDPR,
+            densityComp: this.enableDensityCompensation,
+            densityExponent: this.densityExponent,
+            gpuPointSizeRange: this.gpuPointSizeRange,
+            lastClampOccurred: this.lastClampOccurred,
+            lastSpawnComputedSize: this.lastSpawnComputedSize,
+            lastSpawnRawBase: this.lastSpawnRawBase,
+            lastSpawnScreenRatio: this.lastSpawnScreenRatio,
+            lastSpawnScale: this.lastSpawnScale
+        };
     }
   }
 
