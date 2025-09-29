@@ -66,24 +66,24 @@ export interface ContactContent {
 const aboutContentByLocale: Record<Locale, AboutContent> = {
   en: {
     title: 'About Me',
-    introduction: "I am a data scientist specializing in building end-to-end systems that derive actionable intelligence from real-world sensor data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
+    introduction: "I am a data science student specializing in building end-to-end systems that derive actionable intelligence from real-world data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
     imageUrl: '/images/profile.webp',
     imageParticleEffect: { type: 'imageAuraParticles' },
     socialLinks: [
       { name: 'GitHub', url: 'https://github.com/coming_soon' },
       { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
-      { name: 'Email', url: 'mailto:mika38159@gmail.com' }
+  { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
     ]
   },
   de: {
     title: 'Über Mich',
-    introduction: 'Ich bin Data Scientist und entwickle Ende-zu-Ende Systeme, die aus realen Sensordaten verwertbare Erkenntnisse gewinnen. Die folgenden Projekte zeigen meine Fähigkeit, maßgeschneiderte Hardware, stabile Software und fortgeschrittene Wahrnehmungs-Modelle zu integrieren, um komplexe operative Herausforderungen zu lösen.',
+    introduction: 'Ich bin Data Science Student und entwickle Ende-zu-Ende Systeme, die aus realen Daten verwertbare Erkenntnisse gewinnen. Die folgenden Projekte zeigen meine Fähigkeit, maßgeschneiderte Hardware, robuste Software und hoch moderne Wahrnehmungs-Modelle zu integrieren, um komplexe operative Herausforderungen zu lösen.',
     imageUrl: '/images/profile.webp',
     imageParticleEffect: { type: 'imageAuraParticles' },
     socialLinks: [
       { name: 'GitHub', url: 'https://github.com/coming_soon' },
       { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
-      { name: 'Email', url: 'mailto:mika38159@gmail.com' }
+      { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
     ]
   }
 };
@@ -92,13 +92,13 @@ const contactContentByLocale: Record<Locale, ContactContent> = {
   en: {
     title: 'Get in Touch',
     outroMessage: "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
-    email: 'youremail@example.com',
+  email: 'mika.mueller.work@gmail.com',
     additionalLinks: [{ name: 'View My Resume', url: '/resume.pdf' }]
   },
   de: {
     title: 'Kontakt',
     outroMessage: 'Ich freue mich über neue Projekte, Kooperationen oder Austausch – schreib mir gern!',
-    email: 'youremail@example.com',
+  email: 'mika.mueller.work@gmail.com',
     additionalLinks: [{ name: 'Lebenslauf ansehen', url: '/resume.pdf' }]
   }
 };

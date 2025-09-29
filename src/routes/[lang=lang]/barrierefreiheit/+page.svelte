@@ -83,7 +83,7 @@
     <section id="feedback" class="legal-section" aria-labelledby="feedback-heading">
       <h2 id="feedback-heading">Feedback und Kontakt</h2>
   <p>Wenn Sie auf Barrieren stoßen, die hier nicht aufgeführt sind, melden Sie sich bitte:</p>
-  <p>E‑Mail: <a class="link" href="mailto:mika38159@gmail.com">mika38159@gmail.com</a>. Ich versuche, innerhalb von 5 Werktagen zu antworten.</p>
+  <p>E‑Mail: <a class="link" href="mailto:mika.mueller.work@gmail.com">mika.mueller.work@gmail.com</a>. Ich versuche, innerhalb von 5 Werktagen zu antworten.</p>
     </section>
 
     <section id="technisch" class="legal-section" aria-labelledby="technisch-heading">

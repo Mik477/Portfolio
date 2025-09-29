@@ -28,7 +28,7 @@
         <span>Weinbergstraße 16a</span><br />
         <span>38159 Vechelde</span><br />
         <span>Germany</span></p>
-        <p>Email: <a href="mailto:mika38159@gmail.com" class="link">mika38159@gmail.com</a></p>
+  <p>Email: <a href="mailto:mika.mueller.work@gmail.com" class="link">mika.mueller.work@gmail.com</a></p>
       </address>
     </header>
 

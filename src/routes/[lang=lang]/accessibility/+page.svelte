@@ -79,7 +79,7 @@
     <section id="feedback" class="legal-section" aria-labelledby="feedback-heading">
       <h2 id="feedback-heading">Feedback and contact</h2>
   <p>If you encounter any accessibility barriers not listed here, please contact me:</p>
-  <p>Email: <a class="link" href="mailto:mika38159@gmail.com">mika38159@gmail.com</a>. I aim to respond within 5 business days.</p>
+  <p>Email: <a class="link" href="mailto:mika.mueller.work@gmail.com">mika.mueller.work@gmail.com</a>. I aim to respond within 5 business days.</p>
     </section>
 
     <section id="technical" class="legal-section" aria-labelledby="technical-heading">

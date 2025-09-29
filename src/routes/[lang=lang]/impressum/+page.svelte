@@ -37,7 +37,7 @@
 
     <section id="kontakt" class="legal-section" aria-labelledby="kontakt-heading">
       <h2 id="kontakt-heading">Kontakt</h2>
-  <p>E‑Mail: <a href="mailto:mika38159@gmail.com" class="link">mika38159@gmail.com</a></p>
+  <p>E‑Mail: <a href="mailto:mika.mueller.work@gmail.com" class="link">mika.mueller.work@gmail.com</a></p>
     </section>
 
     
