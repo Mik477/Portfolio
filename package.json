@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
+		"postbuild": "node scripts/postbuild-locale-indexes.cjs",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
@@ -41,10 +42,6 @@
 	"dependencies": {
 		"gsap": "^3.13.0",
 		"stats.js": "^0.17.0",
-		"svelte-particles": "^2.12.0",
-		"three": "^0.176.0",
-		"tsparticles": "^3.8.1",
-		"tsparticles-engine": "^2.12.0",
-		"tsparticles-slim": "^2.12.0"
+		"three": "^0.176.0"
 	}
 }

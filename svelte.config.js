@@ -2,6 +2,11 @@
 import adapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
+// Notes for IONOS static hosting:
+// - No Node runtime: everything must be prerendered.
+// - Prefer absolute URLs (relative:false) because site is served from root.
+// - Keep build output small and cache-friendly.
+
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	// Consult https://svelte.dev/docs/kit/integrations
@@ -12,14 +17,24 @@ const config = {
 		adapter: adapter({
 			pages: 'build',
 			assets: 'build',
-			fallback: null, // no SPA fallback; all needed routes are prerendered as static files
-			precompress: false,
-			relative: false // absolute URLs; required for typical shared hosting root setups like IONOS
+			fallback: null,
+			precompress: false, // Disabled for now to rule out host issues with compressed variants
+			strict: true
 		}),
+		paths: {
+			relative: false // Force absolute /_app/... asset URLs instead of ./_app for IONOS root hosting
+		},
+		alias: {
+			$components: 'src/lib/components',
+			$stores: 'src/lib/stores',
+			$three: 'src/lib/three'
+		},
+		// trailingSlash and inlineStyleThreshold not supported in current SvelteKit version; removed.
 		prerender: {
-			handleUnseenRoutes: 'ignore', // ignore dynamic placeholders like /projects/[slug]
+			concurrency: 4, // Avoid overwhelming shared hosting during local prerender
+			handleUnseenRoutes: 'ignore',
 			handleHttpError: ({ path, status, message }) => {
-				if (status === 405) return null; // ignore method not allowed (stale endpoints removed for static build)
+				if (status === 405) return null; // Ignore method mismatch for removed endpoints
 				return { path, status, message };
 			},
 			entries: [
