@@ -1,0 +1,16 @@
+diff --git a/node_modules/svelte-particles/package.json b/node_modules/svelte-particles/package.json
+index 0000000..0000000 100644
+--- a/node_modules/svelte-particles/package.json
++++ b/node_modules/svelte-particles/package.json
+@@
+ "types": "src/index.d.ts",
++  "exports": {
++    ".": {
++      "types": "./src/index.d.ts",
++      "svelte": "./src/index.ts",
++      "import": "./dist/es/svelte-particles.js",
++      "require": "./dist/umd/svelte-particles.js",
++      "default": "./dist/es/svelte-particles.js"
++    }
++  },
+ "prettier": "@tsparticles/prettier-config",

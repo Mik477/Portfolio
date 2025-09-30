@@ -12,7 +12,6 @@ const { subscribe, update } = writable<TransitionState>({
   color: '#000000', // Default to black for our fade effect
 });
 
-// --- MODIFICATION: Reduced transition duration for a "snappier" feel ---
 const TRANSITION_DURATION = 90; // ms
 
 export const transitionStore = {

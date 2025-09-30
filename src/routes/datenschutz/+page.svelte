@@ -1,6 +1,16 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import BackButton from '$lib/components/BackButton.svelte';
+  if (browser) {
+    // German canonical route lives at /de/datenschutz now; fallback to /en/privacy for non-German
+    const nav = (navigator.language || '').toLowerCase();
+    const locale: 'de' | 'en' = nav.startsWith('de') ? 'de' : 'en';
+    location.replace(locale === 'de' ? '/de/datenschutz' : '/en/privacy');
+  }
 </script>
+<noscript>
+  <p>Redirecting... <a href="/de/datenschutz">/de/datenschutz</a> | <a href="/en/privacy">/en/privacy</a></p>
+</noscript>
 
 <svelte:head>
   <title>Datenschutz</title>

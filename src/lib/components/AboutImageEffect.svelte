@@ -239,7 +239,7 @@
         tablet: 1.00,
         laptop: 1.00,
         desktop: 1.04,
-        large: 0.8,
+        large: 0.55,
         ultrawide: 1.12
     };
     private globalSymbolSizeMul: number = 1.0;

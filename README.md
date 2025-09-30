@@ -37,16 +37,78 @@ You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
 
-## Locale resolution and GeoIP (i18n)
+## Locale resolution (i18n) — Static Mode
 
-This app supports English (`/en`) and German (`/de`) routes. The server resolves the locale in this priority:
+The site is now fully statically prerendered (no Node runtime). Locale selection logic moved client‑side:
 
-1) URL prefix (e.g. `/en/...`) — always wins
-2) `locale` cookie (set when a user picks a language)
-3) `Accept-Language` header
-4) GeoIP country header (e.g. Cloudflare `CF-IPCountry`, Vercel `x-vercel-ip-country`, Fastly `Fastly-GeoIP-Country-Code`, Netlify `x-nf-geo`)
-5) Default: `en`
+Priority on first visit to root `/`:
 
-Cache/Vary: responses include a `Vary` header for `Accept-Language, Cookie, CF-IPCountry, X-Country-Code, X-Geo-Country, X-Vercel-IP-Country, Fastly-GeoIP-Country-Code, X-Fastly-Country-Code, X-NF-Geo` so CDNs can cache per-language/geo correctly.
+1. Existing `locale` cookie (`en` or `de`)
+2. `navigator.language` (German -> `de`, otherwise `en`)
+3. Default fallback `en`
 
-To enable GeoIP-based defaulting on your host/CDN, ensure one of the supported country headers is injected. No external IP API is required.
+Explicit language URL prefixes ( `/en/...` or `/de/...` ) always define the active locale. A lightweight script sets a `locale` cookie (non-HTTP only) for future direct root visits.
+
+GeoIP and `Accept-Language` headers were removed to allow simple static hosting (IONOS). If you later move to a platform with edge functions, you can restore the former server logic from git history.
+
+## Deployment: IONOS Webhosting (Static)
+
+IONOS Webhosting Plus does not run Node.js processes, so we use `@sveltejs/adapter-static`.
+
+Build output location: `build/`
+
+Steps:
+
+1. Install dependencies (one time or after changes):
+
+```bash
+npm install
+```
+
+2. Generate static site:
+
+```bash
+npm run build
+```
+
+3. Upload the contents of the `build` folder to your IONOS web space `htdocs` (or the target subdirectory). Preserve the folder hierarchy.
+4. Ensure these are present after upload:
+	- `index.html` (root redirect bootstrap; performs client locale redirect)
+	- `200.html` (fallback for direct deep links / SPA style navigation)
+	- `_app/` assets under `build/_app/...`
+	- Image and font assets (e.g. `/images`, `/fonts`)
+5. Optional: If IONOS does not automatically serve `200.html` for unknown paths, create an `.htaccess` with a rewrite fallback (Apache example):
+
+```apache
+RewriteEngine On
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ /200.html [L]
+```
+
+Place this `.htaccess` at the site root (same directory as `index.html`).
+6. Browser caching: IONOS may set default cache headers. Because files are content‑hashed, long caching of `/_app/immutable/*` is safe. You can optionally add rules in `.htaccess` to leverage far‑future expiry.
+7. Verify by visiting:
+	- `https://your-domain/` (should redirect to `/en` or `/de` based on browser language / cookie)
+	- `https://your-domain/en/imprint` & `.../de/impressum`
+	- Project pages: `https://your-domain/en/projects/BURA`
+
+### Adding a new project (static)
+
+1. Add project data to `src/lib/data/projectsData.ts`.
+2. Add its slugs to the `prerender.entries` array in `svelte.config.js` for both locales if needed.
+3. Rebuild & upload changed files.
+
+### Common Pitfalls
+
+| Issue | Fix |
+|-------|-----|
+| 404 on deep link refresh | Ensure `200.html` exists and `.htaccess` rewrite added. |
+| Old assets still served | Clear browser cache or use hard reload; hashed filenames guarantee freshness. |
+| Locale redirect loops | Delete stale `locale` cookie and retest. |
+| Missing images | Confirm you uploaded `images/` folder preserving nested directories. |
+
+
+### Dev vs Production Differences
+
+In dev (`npm run dev`) SvelteKit still simulates SSR for convenience, but production output is purely static; server load files were neutralized to no‑ops.

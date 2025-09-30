@@ -708,7 +708,8 @@
 			on:touchend|passive={onTouchEnd}
 		>
 		<section id="hero" class="full-screen-section hero-section-container">
-			<div class="section-focus-sentinel sr-only" tabindex="-1" aria-label="Start of hero section"></div>
+			<!-- Focus sentinel: remove invalid aria-label on generic div; hide from AT but keep focusable -->
+			<div class="section-focus-sentinel sr-only" tabindex="-1" aria-hidden="true"></div>
 		</section>
 
 		{#each allSectionsData.slice(1) as section, i (section.id)}
@@ -716,8 +717,8 @@
 				id={section.id} 
 				class="full-screen-section"
 			>
-				<!-- Invisible sentinel for accessible, non-distracting programmatic focus -->
-				<div class="section-focus-sentinel sr-only" tabindex="-1" aria-label={`Start of ${section.id} section`}></div>
+				<!-- Invisible focus target (no aria-label on generic element) -->
+				<div class="section-focus-sentinel sr-only" tabindex="-1" aria-hidden="true"></div>
 				{#if section.id === 'about'}
 					<AboutSection
 						bind:this={sectionInstancesArray[i + 1]}

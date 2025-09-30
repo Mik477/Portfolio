@@ -9,7 +9,7 @@
     "en": "EN",
     "de": "DE",
     "switchToEn": "Zu Englisch wechseln",
-    "switchToDe": "Zu Deutsch wechseln"
+    "switchToDe": "Deutsch"
   },
   "about": {
     "contactMe": "Kontakt aufnehmen"
@@ -24,8 +24,8 @@
   },
   "hero": {
     "greeting": "Hallo, ich bin",
-    "name": "Ihr Name",
-    "introduction": "Ein Data Scientist mit Leidenschaft für Erkenntnisse und intelligente Lösungen."
+    "name": "Miká",
+    "introduction": "Ein Data Scientist mit Leidenschaft für intelligente Lösungen."
   },
   "projects": {
     "readMore": "Mehr erfahren",

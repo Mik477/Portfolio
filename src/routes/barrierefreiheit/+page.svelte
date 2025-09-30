@@ -1,6 +1,16 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import BackButton from '$lib/components/BackButton.svelte';
+  if (browser) {
+    // Canonical German page /de/barrierefreiheit; English -> /en/accessibility
+    const nav = (navigator.language || '').toLowerCase();
+    const locale: 'de' | 'en' = nav.startsWith('de') ? 'de' : 'en';
+    location.replace(locale === 'de' ? '/de/barrierefreiheit' : '/en/accessibility');
+  }
 </script>
+<noscript>
+  <p>Redirecting... <a href="/de/barrierefreiheit">/de/barrierefreiheit</a> | <a href="/en/accessibility">/en/accessibility</a></p>
+</noscript>
 
 <svelte:head>
   <title>Barrierefreiheit</title>

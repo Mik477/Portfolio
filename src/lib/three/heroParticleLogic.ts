@@ -4,7 +4,7 @@ import type { Font } from 'three/examples/jsm/loaders/FontLoader.js';
 import { BloomEffect } from './BloomEffect';
 import Stats from 'stats.js';
 
-// Shaders (VERTEX_SHADER and FRAGMENT_SHADER remain the same)
+// Shaders
 export const VERTEX_SHADER = `
 attribute float size;
 attribute vec3 customColor;
@@ -641,7 +641,7 @@ export class CreateParticles {
     laptop: { minMul: 1.0, maxMul: 1.0 },
     desktop: { minMul: 0.9,maxMul: 0.9},
     large: { minMul: 1.07, maxMul: 1.08 },
-    ultrawide: { minMul: 13, maxMul: 19 }
+    ultrawide: { minMul: 1.3, maxMul: 1.3 }
   };
 
   private symbolTextureRows: number = 6;

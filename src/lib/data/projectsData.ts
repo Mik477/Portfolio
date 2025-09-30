@@ -1,6 +1,6 @@
 // src/lib/data/projectsData.ts
 
-// --- MODIFICATION START: The ProjectCard no longer holds the sub-section's background. ---
+// The ProjectCard no longer holds the sub-section's background.
 // It is now only responsible for its own appearance and linking.
 export interface ProjectCard {
   id: string; // Unique ID for this card, e.g., 'p1_capability'
@@ -9,13 +9,12 @@ export interface ProjectCard {
   description?: string; // Short description for the card
   aspectLink?: string; // Anchor link for the subpage section, e.g., '#capability'
 }
-// --- MODIFICATION END ---
 
 // This interface is the definitive source for a sub-section's content and background.
 export interface ProjectSubPageSection {
     id: string; // Corresponds to aspectLink from a card, used for scrolling
     title: string;
-    content: string; // Can be HTML or Markdown, we'll decide how to render it
+    content: string;
     background: {
       type: 'image' | 'video' | 'color';
       value: string; // The URL for this specific section's background
@@ -109,14 +108,13 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
 const contactContentByLocale: Record<Locale, ContactContent> = {
   en: {
     title: 'Get in Touch',
-    // Insert [[br]] wherever you want a manual line break in the contact text
+    // Insert [[br]] for a manual line break
     outroMessage: "I'm always excited to discuss new projects, [[br]] collaborations, or opportunities. Feel free to reach out!",
   email: 'mika.mueller.work@gmail.com',
     additionalLinks: [{ name: 'View My Resume', url: '/resume.pdf' }]
   },
   de: {
     title: 'Kontakt',
-    // Beispiel für Zeilenumbruch: 'Ich freue mich über neue Projekte[[br]]Kooperationen oder Austausch – schreib mir gern!'
     outroMessage: 'Ich freue mich über neue Projekte, Kooperationen oder Austausch. [[br]]Schreiben Sie mir gerne!',
   email: 'mika.mueller.work@gmail.com',
     additionalLinks: [{ name: 'Lebenslauf', url: '/resume.pdf' }]
@@ -214,8 +212,7 @@ export function getProjects(locale: Locale): Project[] {
     headline: isDE ? 'Projekt 2' : 'Project 2',
     summary: isDE ? 'Platzhaltertext für ein zweites Projekt (kommt bald)' : 'Placeholder text for a second project (coming soon)',
     backgrounds: [
-      { type: 'image', value: '/images/projects/project-two/background.jpg' },
-      { type: 'image', value: '/images/projects/project-two/background2.jpg' }
+      { type: 'image', value: '/images/projects/project-two/Vio.webp' }
     ],
     tags: isDE ? ['Platzhalter', 'Konzept', 'Demo'] : ['Placeholder', 'Concept', 'Demo'],
     cards: [
@@ -224,9 +221,9 @@ export function getProjects(locale: Locale): Project[] {
       { id: 'p2_section_c', title: isDE ? 'Abschnitt C' : 'Section C', cardImage: '/images/projects/project-two/card-insights-small.webp', description: isDE ? 'Platzhalter' : 'Placeholder', aspectLink: '#section-c' }
     ],
     subPageSections: [
-      { id: 'section-a', title: isDE ? 'Abschnitt A' : 'Section A', content: isDE ? 'Platzhalterinhalt A. Lorem ipsum dolor sit amet.' : 'Placeholder content A. Lorem ipsum dolor sit amet.', background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' } },
-      { id: 'section-b', title: isDE ? 'Abschnitt B' : 'Section B', content: isDE ? 'Platzhalterinhalt B. Consectetur adipiscing elit.' : 'Placeholder content B. Consectetur adipiscing elit.', background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' } },
-      { id: 'section-c', title: isDE ? 'Abschnitt C' : 'Section C', content: isDE ? 'Platzhalterinhalt C. Sed do eiusmod tempor.' : 'Placeholder content C. Sed do eiusmod tempor.', background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' } }
+      { id: 'section-a', title: isDE ? 'Abschnitt A' : 'Section A', content: isDE ? 'Platzhalterinhalt A. Lorem ipsum dolor sit amet.' : 'Placeholder content A. Lorem ipsum dolor sit amet.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } },
+      { id: 'section-b', title: isDE ? 'Abschnitt B' : 'Section B', content: isDE ? 'Platzhalterinhalt B. Consectetur adipiscing elit.' : 'Placeholder content B. Consectetur adipiscing elit.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } },
+      { id: 'section-c', title: isDE ? 'Abschnitt C' : 'Section C', content: isDE ? 'Platzhalterinhalt C. Sed do eiusmod tempor.' : 'Placeholder content C. Sed do eiusmod tempor.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } }
     ],
     readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
   };

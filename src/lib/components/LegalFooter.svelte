@@ -112,6 +112,8 @@
 			.legal-link .measure {
 				visibility: hidden; /* not visible but participates in layout sizing */
 				pointer-events: none;
+				/* Add Safari prefix for user-select */
+				-webkit-user-select: none;
 				user-select: none;
 				white-space: nowrap;
 				font-weight: var(--legal-link-hover-weight);

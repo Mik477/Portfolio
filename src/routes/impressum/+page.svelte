@@ -1,6 +1,16 @@
 <script lang="ts">
+  import { browser } from '$app/environment';
   import BackButton from '$lib/components/BackButton.svelte';
+  if (browser) {
+    // Canonical German page /de/impressum; English users go to /en/imprint
+    const nav = (navigator.language || '').toLowerCase();
+    const locale: 'de' | 'en' = nav.startsWith('de') ? 'de' : 'en';
+    location.replace(locale === 'de' ? '/de/impressum' : '/en/imprint');
+  }
 </script>
+<noscript>
+  <p>Redirecting... <a href="/de/impressum">/de/impressum</a> | <a href="/en/imprint">/en/imprint</a></p>
+</noscript>
 
 <svelte:head>
   <title>Impressum</title>
