@@ -1,6 +1,6 @@
-# Immersive Data Scientist Portfolio
+# Data Scientist Portfolio
 
-An immersive, single-page-style portfolio website built with SvelteKit, GSAP, and Three.js. It features a section-scrolling experience with a focus on high-quality animations, WebGL-powered visual effects, and a robust, extensible architecture.
+Single-page style portfolio built with SvelteKit, GSAP, and Three.js. It offers a section-scrolling experience with WebGL effects and a modular architecture.
 
 **Live Deployment URL:** `TODO`
 
@@ -14,6 +14,7 @@ An immersive, single-page-style portfolio website built with SvelteKit, GSAP, an
   - [Software Stack](#software-stack)
   - [Architectural Patterns](#architectural-patterns)
   - [Key Design Decisions](#key-design-decisions)
+- [Effect Adaptations](#effect-adaptations)
 - [Frontend](#frontend)
   - [Structure and Responsibilities](#structure-and-responsibilities)
   - [Views and Interactions](#views-and-interactions)
@@ -30,40 +31,37 @@ An immersive, single-page-style portfolio website built with SvelteKit, GSAP, an
 
 ### Abstract
 
-This project is a highly interactive and visually rich personal portfolio for a Data Scientist. The core idea is to move beyond traditional, static web pages and create an immersive, memorable user experience that showcases both technical skill and creative vision. The primary user group includes potential employers, recruiters, and peers in the technology industry. Key use cases involve: (1) presenting complex projects in an engaging, story-driven format; (2) demonstrating proficiency in modern web technologies like SvelteKit and WebGL; and (3) providing a central, professional hub for contact information and credentials. The application achieves this through a full-screen, section-scrolling interface on its main page, where each section is a self-contained, animated "scene." This approach turns the act of browsing a portfolio into a seamless, cinematic journey.
+This is a single-page portfolio for a Data Scientist. Audience: employers, recruiters, and peers. Core goals: (1) present projects clearly, (2) demonstrate use of SvelteKit, GSAP, and WebGL, (3) centralize profile and contact details. The main page uses a full-screen, section-scrolling layout; each section is an isolated animated scene managed through a standard lifecycle. The design focuses on predictable transitions, controlled resource usage, and accessibility.
 
 ### Key Features
 
-- **Immersive Section Scrolling:** A full-screen, SPA-like main page navigated via mouse wheel, keyboard, or touch gestures.
-- **Advanced WebGL Effects:**
-  - An interactive, generative particle system on the hero section built with Three.js.
-  - A "digital decay" particle effect on the "About" section image, also using Three.js.
-  - A raymarching-based metaball effect for the "Contact" section background.
-- **Robust Animation System:**
-  - Animations are orchestrated using GSAP for precise, interrupt-safe control.
-  - A standardized Animation Lifecycle API (`onEnterSection`, `onTransitionComplete`, etc.) ensures components behave predictably and manage resources efficiently.
-- **Sophisticated Resource Management:**
-  - A predictive preloading scheduler warms up assets for upcoming sections to ensure seamless transitions.
-  - A global asset cache (`preloadingStore`) prevents re-downloading images and fonts.
-  - WebGL scenes are properly initialized and disposed of (`onUnload`) to manage GPU memory.
-- **Internationalization (i18n):** Fully localized for English (`en`) and German (`de`), including a language switcher that maps corresponding URLs (e.g., `/en/privacy` to `/de/datenschutz`).
-- **Modular Project Showcase:**
-  - Project sections feature a continuous background zoom and cross-fade effect.
-  - The "Wrapper + Layout" pattern allows for distinct content layouts to be injected into a generic, functional wrapper, promoting code reuse and extensibility.
-  - Dedicated, scrollable sub-pages for detailed project deep-dives.
-- **Responsive Design:** The layout and effects adapt gracefully to various screen sizes, from mobile to ultra-wide desktops.
-- **Comprehensive Accessibility:** Strong focus on keyboard navigation, focus management, ARIA roles, and support for `prefers-reduced-motion`.
+- **Section Scrolling:** Full-screen, SPA-like navigation via wheel, keyboard, and touch.
+- **WebGL Effects:**
+  - Hero: interactive particle system (Three.js)
+  - About: image particle decay effect
+  - Contact: raymarching metaball background
+- **Animation System:**
+  - GSAP timelines with interrupt safety
+  - Standard lifecycle API (`onEnterSection`, `onTransitionComplete`, etc.)
+- **Resource Management:**
+  - Predictive preload scheduler
+  - Asset cache (`preloadingStore`) for images and fonts
+  - WebGL scenes initialised and disposed (`onUnload`) to control GPU memory
+- **Internationalization:** English (`en`) and German (`de`) with URL mapping (e.g. `/en/privacy` ↔ `/de/datenschutz`).
+- **Project Showcase:** Background zoom + cross-fade, wrapper + layout composition, deep-dive sub-pages.
+- **Responsive:** Scales from mobile to ultra-wide.
+- **Accessibility:** Keyboard navigation, focus management, ARIA roles, `prefers-reduced-motion` support.
 
 ### Architecture
 
 #### System Overview
 
-The portfolio behaves like a miniature runtime platform that runs entirely in the browser. All subsystems cooperate around a single source of truth: the **section orchestration loop**, which turns any navigation intent into a coordinated sequence of data fetches, effect warmups, motion timelines, and accessibility updates.
+Runs fully in the browser. Subsystems coordinate around a **section orchestration loop** that converts navigation intent into store updates, asset preparation, animations, and accessibility changes.
 
 ```text
 User Input (scroll / keyboard / deep link / language change)
   ↓
-[Orchestrator +page.svelte] ──▶ updates writable stores (`currentSectionIndex`, `sectionStates`, `renderProfile`)
+[Orchestrator +page.svelte] ──▶ updates writable stores
   ↓                                    │
   ├─▶ Schedules work via `LegacySectionScheduler`
   │       ├─▶ queues asset downloads through `preloadingStore`
@@ -74,7 +72,7 @@ Section Components (`sections/*.svelte`) execute GSAP/Three.js timelines and sur
 Stores & Metrics (`preloadingStore`, `sectionStateStore`, `schedulerMetricsStore`) provide feedback
 ```
 
-The result is a deterministic, interrupt-safe transition pipeline where each move to a new section has already warmed the required assets, primed the relevant WebGL context, and prepared assists for accessibility users.
+Result: deterministic transitions; required assets and WebGL contexts are prepared before activation; accessibility state is updated at each step.
 
 #### Software Stack
 
@@ -87,9 +85,9 @@ The result is a deterministic, interrupt-safe transition pipeline where each mov
 
 #### Architectural Patterns
 
-The application is a **Statically Generated Site (SSG)** built with SvelteKit's `adapter-static`. There is no traditional runtime backend server.
+The site is a **Statically Generated Site (SSG)** using SvelteKit `adapter-static`; no runtime backend.
 
-The core architectural pattern on the main page is the **Orchestrator Pattern**. The root page (`src/routes/[lang=lang]/+page.svelte`) acts as a master controller. It keeps the global navigation state, coordinates animations, and delegates lifecycle calls to the active section components while staying free of presentation logic itself. The orchestrator cooperates with a **predictive scheduling layer** that opportunistically downloads assets and instantiates effects ahead of time based on recent navigation direction.
+Main page uses an **Orchestrator Pattern**. Root page (`src/routes/[lang=lang]/+page.svelte`) owns navigation state, coordinates animation timelines, and delegates lifecycle calls. A predictive scheduler warms likely next sections.
 
 #### Core subsystems and responsibilities
 
@@ -104,132 +102,155 @@ The core architectural pattern on the main page is the **Orchestrator Pattern**.
 
 #### Runtime interaction flow
 
-The transition system runs in four tightly-coupled phases, each feeding the next through shared stores:
+Four phases:
 
-1. **Intent capture** – Mouse wheel, touch, keyboard, or hash-change events update `currentSectionIndex`. The orchestrator immediately records navigation with `LegacySectionScheduler.recordNavigation` and writes accessibility guards (`inert`, focus, live region) for the target section.
-2. **Preparation** – The scheduler consults `sectionStateStore` to decide which indices require work. It enqueues asset fetches via `preloadAssets`, which uses `preloadingStore` to deduplicate URLs and report progress to the loading screen. When assets finish, the scheduler runs each section’s `initializeEffect` so GPU resources are ready before the user sees the section.
-3. **Transition execution** – Once prerequisites resolve (or timeouts expire during the initial reveal), the orchestrator plays the GSAP master timeline. The outgoing section receives `onLeaveSection`, background zoom tweens are paused, and the incoming section is positioned. Throughout the timeline, `sectionStates` marks READY → ACTIVE transitions so other observers stay in sync.
-4. **Post-transition stewardship** – `onTransitionComplete` lets sections start long-running effects (hero particles, project card loops). The scheduler reevaluates neighbors to warm the next candidate, while distant sections beyond the configured `unloadDistance` receive `onUnload` to release WebGL buffers and textures.
+1. **Intent capture** – Wheel, touch, keyboard, hash-change update `currentSectionIndex`; orchestrator records navigation and updates accessibility (`inert`, focus, live region).
+2. **Preparation** – Scheduler checks `sectionStateStore`, queues asset fetches via `preloadAssets` (deduped by `preloadingStore`), then calls `initializeEffect` when ready.
+3. **Transition** – GSAP master timeline runs; outgoing section `onLeaveSection`; incoming positioned; `sectionStates` updates READY → ACTIVE.
+4. **Post-transition** – `onTransitionComplete` starts longer-running effects; scheduler warms neighbors; distant sections past `unloadDistance` get `onUnload`.
 
-This flow is complemented by the **Wrapper + Layout Pattern** for project sections. `ProjectSection.svelte` is a functional wrapper that owns the animated backdrop and exposes the lifecycle hooks; dedicated layout components (e.g., `ProjectOneLayout.svelte`) focus purely on content composition. The orchestrator interacts only with the wrapper, while the wrapper composes its layout via `<slot>`, making the system both modular and easily extensible.
+The **Wrapper + Layout Pattern**: `ProjectSection.svelte` owns backdrop + lifecycle; layout components supply content via slot. This keeps orchestration logic separate from presentation.
 
 #### Preloading and asset lifecycle
 
-- **Task tracking:** `preloadingStore` keeps a map of asset URLs and task descriptors so image/font downloads never fire twice. It also drives the initial loading screen through derived progress values.
-- **Concurrency control:** `LegacySectionScheduler` throttles work with a configurable queue (`maxConcurrent`). Every fetch updates `schedulerMetricsStore`, making bottlenecks visible during diagnostics.
-- **Warm vs cold paths:** Prediction strategies (direction-aware by default) differentiate between **warmup candidates** (download + `initializeEffect`) and **preload-only candidates** (download but defer initialisation). This avoids burning GPU cycles for content the user might never reach.
-- **Cooldown & unload:** Sections that drift beyond the active window transition to `COOLDOWN`; once safe, the scheduler invokes `onUnload` and flips them to `IDLE`, freeing textures, GSAP timelines, and event listeners.
+- **Task tracking:** `preloadingStore` maps URLs to task descriptors; prevents duplicate image/font fetches; feeds loading progress.
+- **Concurrency:** `LegacySectionScheduler` throttles with `maxConcurrent`; updates `schedulerMetricsStore` for diagnostics.
+- **Warm vs. cold:** Prediction strategy marks warmup candidates (download + `initializeEffect`) vs preload-only (download only) to save GPU work.
+- **Cooldown + unload:** Distant sections move to `COOLDOWN`, then `onUnload` frees textures, timelines, listeners → `IDLE`.
 
 #### Observability and tuning
 
-- `schedulerMetricsStore` records per-section timing (fetch, init, ready) and queue depth, enabling quick correlation with network traces.
-- `renderProfile` exposes device capabilities (mobile, reduced motion) so sections and the scheduler can short-circuit heavy effects.
-- Debug builds can enable verbose scheduler logs, making it easy to trace why a section was (or wasn’t) warmed before the user arrived.
+- `schedulerMetricsStore`: timings (fetch, init, ready), queue depth.
+- `renderProfile`: device capability flags (mobile, reduced motion) used to skip heavy work.
+- Debug logs: optional verbose tracing of scheduling decisions.
 
 #### Key Design Decisions
 
-1. **Why SvelteKit?** Chosen for its exceptional performance (compiling to vanilla JS), excellent developer experience, and first-class support for SSG. This is ideal for a portfolio that needs to be fast, SEO-friendly, and hostable on any static provider.
-2. **Why GSAP?** For complex, sequenced, and interactive animations, GSAP provides far more power and control than CSS transitions/animations. Its timeline features are essential for orchestrating the section transitions, and its robustness ensures animations are smooth and interrupt-safe.
-3. **Why Three.js?** The immersive, generative visual effects are a core part of the site's identity. Three.js is the industry standard for creating high-performance, custom WebGL experiences directly in the browser.
-4. **Why the Custom Animation Lifecycle API?** A pre-built library might not have handled the specific requirements for interrupt-safety and resource management (especially for WebGL). A custom, standardized API ensures every component integrates perfectly into the orchestrator's state machine, allowing for complex effects to be started, stopped, and cleaned up reliably.
+1. **SvelteKit:** Fast builds, SSG support, good DX, static hosting friendly.
+2. **GSAP:** Needed fine-grained, interrupt-safe timeline control beyond CSS.
+3. **Three.js:** Standard library for custom WebGL effects.
+4. **Custom Lifecycle API:** Ensures predictable start/stop/dispose semantics for animation + WebGL; off‑the‑shelf libs did not cover these resource constraints.
 
-The chosen stack and architecture are a perfect fit. They enable the creation of a visually stunning, app-like experience while retaining the performance, SEO, and deployment benefits of a static website.
+Stack supports an app-like feel while keeping static deploy advantages (performance, SEO, portability).
+
+### Effect Adaptations
+
+#### Hero Particle Effect
+
+Original inspiration: mouse‑repulsion concept by **Luis San Prieto** ([CodePen](https://codepen.io/sanprieto/pen/XWNjBdb)). The idea was extended into a stateful generative system:
+
+- Per‑particle state (dot vs. symbol) with heat/distortion tracking feeding a probability function for symbol spawn.
+- Interaction‑driven colour ramp (white → green spectrum) plus cooldown back to neutral.
+- Adaptive performance: dynamic resolution scaling; parameter tiers (particle count, size, influence radius) based on device profile; fallback particle reduction.
+- Frame‑rate independent timing and lifecycle hooks (`initializeEffect`, `onEnterSection`, `onUnload`).
+- Modular shaders (separate GLSL sources) and TypeScript rewrite integrated with SvelteKit cleanup semantics.
+- Debug overlay (triple 'd') exposing counts, spawn rate, resolution scale, frame time.
+- Symbol sizing derived from initial text geometry for consistent appearance across viewports.
+
+#### Contact Section Raymarching Effect
+
+Visual concept based on **Filip Zawada**'s metaballs ([CodePen](https://codepen.io/filipz/pen/RNNbYaK)). Implemented as a production component with these changes:
+
+- CPU updates sphere transforms each frame; GPU shader focuses on raymarch + shading (original performed animation logic per‑pixel via time uniform).
+- Adaptive pipeline: dynamic resolution scaling, adjustable raymarch step budget, sphere count tiering.
+- Improved smooth‑union blending with normal blending to remove seam artifacts.
+- Post‑processing chain (EffectComposer, bloom, FXAA, correct colour space) for stable output.
+- Frame‑rate independent smoothing for motion and interaction (orbital scale influenced by cursor proximity).
+- Encapsulated `RaymarchingEffect` TypeScript class implementing lifecycle + `dispose` to free Three.js resources.
 
 ### Frontend
 
 #### Structure and Responsibilities
 
-The frontend is structured as a standard SvelteKit application and is responsible for **100% of the application's logic and presentation**.
+Frontend is a SvelteKit app responsible for all logic and presentation.
 
 - `src/routes/`: Contains all pages and defines the application's routing structure.
 - `src/lib/components/`: Contains all reusable UI components, broken down into layouts, sections, and utilities.
 - `src/lib/stores/`: Holds global application state using Svelte stores (e.g., for page transitions and asset preloading).
 - `src/lib/three/`: Contains the complex, self-contained Three.js logic for the WebGL effects.
 
-The frontend's responsibilities include:
+Responsibilities:
 
-- Rendering all UI and content.
-- Managing application state (active section, animation states, etc.).
-- Executing all animation logic via GSAP and Three.js.
-- Handling all user interactions (mouse, keyboard, touch).
-- Orchestrating the preloading and disposal of assets and effects.
+- Render UI and content
+- Manage state (active section, animation states)
+- Run GSAP and Three.js effects
+- Handle input (mouse, keyboard, touch)
+- Preload and dispose assets/effects
 
 #### Views and Interactions
 
 - **Views:**
-    1. **Main View (`/[lang]/`):** The immersive, full-screen scrolling experience containing the Hero, About, Projects, and Contact sections.
-    2. **Project Sub-pages (`/[lang]/projects/[slug]`):** Detailed project pages with their own internal vertical scrolling logic.
-    3. **Legal Pages (`/[lang]/imprint`, etc.):** Standard, static content pages with native browser scrolling.
+  1. **Main (`/[lang]/`):** Full-screen scrolling (Hero, About, Projects, Contact)
+  2. **Project sub-pages (`/[lang]/projects/[slug]`):** Detail pages with vertical scroll
+  3. **Legal (`/[lang]/imprint`, etc.):** Static pages with native scroll
 - **User Interactions:**
-  - **Navigation:** Users navigate the main page via mouse wheel, keyboard (arrow keys, Home, End), and touch swipes.
-  - **Direct Interaction:** Users can click on project cards and links, use the language switcher, and interact with the hero section's particle effect using their mouse.
-  - **Passive Interaction:** The "About" and "Contact" section effects react to mouse movement.
+  - **Navigation:** Wheel, arrow keys, Home/End, touch
+  - **Direct:** Project cards, links, language switcher, hero particle interaction
+  - **Passive:** About + Contact effects respond to mouse movement
 
 #### Technical Implementation
 
-- **HTML Generation:** HTML is generated at build time by the Svelte compiler. `.svelte` files, which combine HTML-like syntax with JavaScript and CSS, are compiled into highly efficient JavaScript that creates and manipulates the DOM. No virtual DOM is used at runtime.
-- **Styling:** Styling is primarily achieved with **scoped CSS** inside each Svelte component. This prevents style collisions and promotes modularity. Global styles, CSS variables, and font imports are defined in `src/app.css`. No external CSS frameworks like Bootstrap or Tailwind are used, allowing for a fully custom and optimized design.
+- **HTML Generation:** Build-time compiled `.svelte` files produce DOM-manipulating JS; no virtual DOM.
+- **Styling:** Scoped CSS per component; global variables and fonts in `src/app.css`; no external CSS framework.
 
 #### Challenges
 
-- **Primary Challenge:** The main conceptual challenge was to balance a highly dynamic, animation-heavy, WebGL-driven experience with the need for high performance, fast loading, and robust accessibility.
-- **Unexpected Challenges:**
-    1. **Interrupt-Safety:** Early prototypes broke when users scrolled back and forth quickly. This led to the development of the rigorous Animation Lifecycle API, which ensures animations can be safely started, stopped, and reset at any point.
-    2. **Resource Management:** The multiple Three.js scenes consumed significant GPU memory. This was solved by adding an `onUnload` method to the lifecycle API, allowing the orchestrator to explicitly command a component to dispose of its WebGL context and free up resources when it is no longer needed.
-    3. **Accessible "Scroll-Jacking":** Creating a custom navigation model that feels like scrolling while remaining accessible was difficult. The solution involved a combination of `inert` attributes to hide off-screen content from screen readers, programmatic focus management, and ARIA live regions to announce section changes.
+- **Primary Challenge:** Balance animation/WebGL complexity with performance and accessibility.
+- **Other Challenges:**
+  1. **Interrupt safety:** Rapid direction changes required lifecycle API enforcing start/stop/reset.
+  2. **Resource usage:** Multiple WebGL scenes → added `onUnload` to release GPU memory.
+  3. **Accessible custom scrolling:** Solved with `inert`, focus control, ARIA live announcements.
 
 ### Backend
 
 #### Backend Approach: Static Site Generation
 
-This project **does not have a traditional runtime backend server**. It is a statically generated site (SSG).
+This project **does not have a runtime backend**. It is statically generated (SSG).
 
-- **Structure:** The SvelteKit `adapter-static` is used to pre-render the entire website into a set of static HTML, CSS, JavaScript, and image files during the build process (`npm run build`).
-- **Responsibilities:** The "backend" logic exists only at build time. This process is responsible for:
-  - Generating HTML pages for every route.
-  - Reading project and site data from local TypeScript files (`src/lib/data/`).
-  - Bundling and optimizing all code and assets.
-- **Deployment:** The resulting output folder can be deployed to any static web host (e.g., Vercel, Netlify, GitHub Pages).
+- **Structure:** `adapter-static` pre-renders routes into HTML/CSS/JS/images (`npm run build`).
+- **Build-time responsibilities:**
+  - Generate HTML per route
+  - Read data from `src/lib/data/`
+  - Bundle + optimize assets
+- **Deployment:** Output deployable to any static host (Vercel, Netlify, GitHub Pages, etc.).
 
 #### Communication and APIs
 
-- **Internal Communication:** As a static site, there are no internal API calls between a frontend and backend. After the initial page load, the application runs entirely in the browser.
-- **External APIs:** The application makes requests to two external services:
-    1. **Google Fonts:** To download the `Space Grotesk`, `Playfair Display`, and `Source Code Pro` web fonts.
-    2. **Cloudinary:** To load a single particle texture used in the hero section's Three.js effect.
+- **Internal Communication:** None; everything runs client-side post load.
+- **External APIs:**
+
+  1. **Google Fonts:** `Space Grotesk`, `Playfair Display`, `Source Code Pro`
+  1. **Cloudinary:** Particle texture for hero Three.js effect
 
 There is no authentication, authorization, or database, as the site is purely informational and public.
 
 ### Accessibility
 
-Accessibility was a primary consideration throughout development, especially given the site's dynamic nature.
+Accessibility decisions:
 
-- **Extent of Accessibility:** The site is designed to be highly usable for keyboard-only and screen reader users.
-  - **`prefers-reduced-motion`:** All major WebGL effects and complex transitions are disabled or simplified when this OS-level setting is detected.
-  - **Keyboard Navigation:** All interactive elements are focusable, and main page navigation is fully keyboard-operable.
-  - **Focus Management:** The `inert` attribute is used to trap focus within the active section, and focus is programmatically managed during transitions.
-  - **ARIA Live Regions:** An `aria-live` region announces the title of the new section to screen reader users after each transition.
-  - **Semantic HTML:** The site uses a logical heading structure and semantic elements.
-- **Standards:** The site aims for conformance with **WCAG 2.1 Level AA**.
-- **Testing:** Accessibility was tested manually using:
-  - Keyboard-only navigation in Chrome and Firefox.
-  - VoiceOver on macOS.
-  - Browser developer tools (Lighthouse, Accessibility Inspector).
+- `prefers-reduced-motion`: disables/simplifies major effects
+- Keyboard: all interactive elements focusable; navigation operable
+- Focus management: `inert` on inactive sections; programmatic focus
+- ARIA live region: announces new section titles
+- Semantic HTML: logical headings and landmarks
+- Target: WCAG 2.1 AA
+- Testing: keyboard-only (Chrome/Firefox), macOS VoiceOver, Lighthouse/Accessibility Inspector
 
-A dedicated Accessibility Statement is available at `/en/accessibility` and `/de/barrierefreiheit`.
+Accessibility Statement: `/en/accessibility`, `/de/barrierefreiheit`.
 
 ### Data Privacy
 
-- **Privacy by Design:** The system was designed from the ground up to collect the absolute minimum data required for functionality. There are no analytics, tracking scripts, or advertising networks.
-- **Personal Data Processed:**
-  - **IP Address:** Processed by the hosting provider (e.g., Vercel) as part of standard server logs for security and operational purposes. This is unavoidable.
-  - **`locale` Cookie:** A single, non-tracking cookie is used to store the user's preferred language (`en` or `de`). This is for user convenience and falls under technically necessary cookies.
-  - No special categories of personal data are processed.
-- **Data Subject Rights:** As no user-specific personal data is stored in an application database, rights such as data access or deletion are handled via the contact information provided in the Privacy Policy. The site provides a comprehensive, GDPR-compliant Privacy Policy at `/en/privacy` and `/de/datenschutz`.
+Privacy:
+
+- No analytics, tracking scripts, or ads.
+- **IP address:** handled by host (e.g., Vercel) in standard logs.
+- **`locale` cookie:** stores preferred language (`en` / `de`), non-tracking, necessary.
+- No special categories of data.
+- Rights (access, deletion): handled via contact in Privacy Policy (`/en/privacy`, `/de/datenschutz`).
 
 ### Development Setup
 
-This project is built with SvelteKit and requires Node.js.
+Built with SvelteKit; requires Node.js.
 
 #### System-wide Dependencies
 
@@ -251,9 +272,7 @@ This project is built with SvelteKit and requires Node.js.
   npm install
   ```
 
-1. **Run the development server:**
-
-  This will start a local server, typically at `http://localhost:5173`, with Hot Module Replacement (HMR).
+1. **Run the development server:** (typically `http://localhost:5173`, with HMR)
 
   ```bash
   npm run dev
@@ -261,7 +280,7 @@ This project is built with SvelteKit and requires Node.js.
 
 #### Building for Production
 
-To create a production version of the app (generates static files in the `/build` directory):
+Create a production build (static files in `/build`):
 
 ```bash
 npm run build
