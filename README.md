@@ -52,6 +52,8 @@ This is a single-page portfolio for a Data Scientist. Audience: employers, recru
 - **Responsive:** Scales from mobile to ultra-wide.
 - **Accessibility:** Keyboard navigation, focus management, ARIA roles, `prefers-reduced-motion` support.
 
+---
+
 ### Architecture
 
 #### System Overview
@@ -133,6 +135,8 @@ The **Wrapper + Layout Pattern**: `ProjectSection.svelte` owns backdrop + lifecy
 
 Stack supports an app-like feel while keeping static deploy advantages (performance, SEO, portability).
 
+---
+
 ### Effect Adaptations
 
 #### Hero Particle Effect
@@ -157,6 +161,8 @@ Visual concept based on **Filip Zawada**'s metaballs ([CodePen](https://codepen.
 - Post‑processing chain (EffectComposer, bloom, FXAA, correct colour space) for stable output.
 - Frame‑rate independent smoothing for motion and interaction (orbital scale influenced by cursor proximity).
 - Encapsulated `RaymarchingEffect` TypeScript class implementing lifecycle + `dispose` to free Three.js resources.
+
+---
 
 ### Frontend
 
@@ -203,6 +209,8 @@ Responsibilities:
 
 ### Backend
 
+---
+
 #### Backend Approach: Static Site Generation
 
 This project **does not have a runtime backend**. It is statically generated (SSG).
@@ -223,6 +231,8 @@ This project **does not have a runtime backend**. It is statically generated (SS
   1. **Cloudinary:** Particle texture for hero Three.js effect
 
 There is no authentication, authorization, or database, as the site is purely informational and public.
+
+---
 
 ### Accessibility
 
