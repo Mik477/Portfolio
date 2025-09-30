@@ -5,7 +5,7 @@
 		import { siteConfig } from '$lib/data/siteConfig';
 		import { page } from '$app/stores';
 	import { getProjects, getAboutContent, getContactContent, type Project, type Locale, type AboutContent } from '$lib/data/projectsData';
-	import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
+	import { initialSiteLoadComplete } from '$lib/stores/preloadingStore';
 	import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
 	import { renderProfile } from '$lib/stores/renderProfile';
 	import { gsap } from 'gsap';
@@ -208,109 +208,32 @@
 		heroReadyResolver = resolve;
 	});
 
-	// The HYBRID Preload Manager
-	const preloadManager = {
-		async updateNeighborStates(activeIndex: number) {
-			const currentStates = get(sectionStatesStore);
-			const desiredStates: SectionState[] = allSectionsData.map((_, i) => {
-				if (i === activeIndex) return 'ACTIVE';
-				if (i === activeIndex - 1 || i === activeIndex + 1) return 'READY';
-				return 'COOLDOWN';
+	// Phase 1: extracted legacy preload manager -> LegacySectionScheduler
+	import { LegacySectionScheduler } from '$lib/preload/sectionScheduler';
+	let legacyScheduler: LegacySectionScheduler | null = null;
+
+	function ensureScheduler() {
+		if (!legacyScheduler) {
+			legacyScheduler = new LegacySectionScheduler({
+				sections: allSectionsData as any,
+				sectionElements,
+				sectionInstances,
+				contactSectionIndex
+			}, { debug: false });
+		} else {
+			legacyScheduler.updateEnv({
+				sections: allSectionsData as any,
+				sectionElements,
+				sectionInstances,
+				contactSectionIndex
 			});
-
-			const tasks: Promise<void>[] = [];
-
-			for (let i = 0; i < allSectionsData.length; i++) {
-				const currentState = currentStates[i];
-				const desiredState = desiredStates[i];
-
-				if (currentState !== desiredState) {
-					if ((currentState === 'IDLE' || currentState === 'COOLDOWN') && desiredState === 'READY') {
-						tasks.push(this.prepareSection(i));
-					}
-					if (currentState === 'READY' && desiredState === 'COOLDOWN') {
-						tasks.push(this.coolDownSection(i));
-					}
-				}
-			}
-      
-			sectionStatesStore.update(states => {
-				states[activeIndex] = 'ACTIVE';
-				return states;
-			});
-
-			await Promise.all(tasks);
-		},
-    
-		async prepareSection(index: number) {
-			const currentState = get(sectionStatesStore)[index];
-			if (currentState !== 'IDLE' && currentState !== 'COOLDOWN') return;
-      
-			const sectionInfo = allSectionsData[index];
-			const instance = sectionInstances.get(sectionInfo.id);
-			const element = sectionElements[index];
-
-			if (!instance || !element) return;
-
-			sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
-
-			const urls = this.getSectionAssetUrls(index);
-			if (urls.length > 0) await preloadAssets(urls);
-      
-			if (instance.initializeEffect) await instance.initializeEffect();
-      
-			if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
-				gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
-				instance.onEnterSection();
-				instance.onTransitionComplete?.();
-				await new Promise(resolve => setTimeout(resolve, 200));
-				instance.onLeaveSection();
-				gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-			} else if (sectionInfo.id.startsWith('project-')) {
-				gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
-				await new Promise(resolve => requestAnimationFrame(resolve));
-				await new Promise(resolve => requestAnimationFrame(resolve));
-				gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-			}
-      
-			sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
-		},
-
-		async coolDownSection(index: number) {
-			const sectionId = allSectionsData[index].id;
-			sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
-      
-			const instance = sectionInstances.get(sectionId);
-			instance?.onUnload?.();
-      
-			sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
-		},
-
-		getSectionAssetUrls(index: number): string[] {
-			if (index < 0 || index >= allSectionsData.length) return [];
-			const section = allSectionsData[index];
-			let urls: string[] = [];
-			if (section.id === 'about') {
-				urls.push((section.data as AboutContent).imageUrl);
-			} else if (section.id.startsWith('project-')) {
-				const p = section.data as Project;
-				if (p.backgrounds && p.backgrounds.length > 0) {
-					urls.push(p.backgrounds[0].value);
-					if (p.backgrounds.length > 1) urls.push(p.backgrounds[1].value);
-				}
-				p.cards.forEach(card => {
-					if (card.cardImage) urls.push(card.cardImage);
-				});
-			}
-			return urls.filter(Boolean);
-		},
-	};
+		}
+		return legacyScheduler;
+	}
 
 	function handleAnimationComplete() {
-		const nextNeighborIndex = get(currentSectionIndex) + 2;
-		if(nextNeighborIndex < allSectionsData.length) {
-			preloadManager.prepareSection(nextNeighborIndex);
-		}
+		// Phase 2: use predictive warmup instead of static +2 preload
+		ensureScheduler().predictiveWarmup(get(currentSectionIndex));
 	}
 
 	async function handleVisibilityChange() {
@@ -336,7 +259,8 @@
 					currentInstance.onTransitionComplete?.();
 				});
 				isTabHiddenAndPaused = false;
-				preloadManager.updateNeighborStates(currentIndex);
+				ensureScheduler().updateNeighborStates(currentIndex);
+				ensureScheduler().predictiveWarmup(currentIndex);
 			}
 		}
 	}
@@ -408,17 +332,19 @@
 
 			const setupInitialLoad = async () => {
 				if (!isDeepLinkStart) {
-					await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
-					preloadManager.updateNeighborStates(0);
+					await Promise.all([heroReadyPromise, ensureScheduler().prepareSection(1)]);
+					ensureScheduler().updateNeighborStates(0);
+					ensureScheduler().predictiveWarmup(0);
 					initialSiteLoadComplete.set(true);
 				} else if (initialHashTargetIndex && initialHashTargetIndex > 0) {
 					// Preload neighbors of target section instead of hero neighbors
 					const t = initialHashTargetIndex;
 					const preloadPromises: Promise<void>[] = [];
-					if (t - 1 >= 0) preloadPromises.push(preloadManager.prepareSection(t - 1));
-					if (t + 1 < allSectionsData.length) preloadPromises.push(preloadManager.prepareSection(t + 1));
+					if (t - 1 >= 0) preloadPromises.push(ensureScheduler().prepareSection(t - 1));
+					if (t + 1 < allSectionsData.length) preloadPromises.push(ensureScheduler().prepareSection(t + 1));
 					await Promise.all(preloadPromises);
-					preloadManager.updateNeighborStates(t);
+					ensureScheduler().updateNeighborStates(t);
+					ensureScheduler().predictiveWarmup(t);
 					initialSiteLoadComplete.set(true);
 					// Immediately end initial reveal state
 					isInitialReveal.set(false);
@@ -485,7 +411,7 @@
 		setTimeout(() => {
 			if (heroSectionInstance) {
 				heroSectionInstance.onTransitionToHeroComplete();
-				preloadManager.prepareSection(2);
+				ensureScheduler().predictiveWarmup(0);
 			}
 			setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
 		}, initialRevealDelay);
@@ -499,7 +425,7 @@
 		if (Math.abs(newIndex - oldIndex) > 1) {
 			const targetId = allSectionsData[newIndex].id;
 			const targetInstance = sectionInstances.get(targetId);
-			try { await preloadManager.prepareSection(newIndex); } catch {}
+			try { await ensureScheduler().prepareSection(newIndex); } catch {}
 			// Make sure instance map has updated (in rare cases of dynamic data)
 			if (targetInstance && targetInstance.initializeEffect) {
 				try { await targetInstance.initializeEffect(); } catch {}
@@ -536,9 +462,12 @@
 		const masterTransitionTl = gsap.timeline({ 
 			onComplete: () => { 
 				currentSectionIndex.set(newIndex); 
+				// Record navigation for direction-aware prediction
+				ensureScheduler().recordNavigation(newIndex);
 				isTransitioning.set(false);
 				isLeavingHero.set(false);
-				preloadManager.updateNeighborStates(newIndex);
+				ensureScheduler().updateNeighborStates(newIndex);
+				ensureScheduler().predictiveWarmup(newIndex);
 				requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
 				if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
 					 heroSectionInstance.onTransitionToHeroComplete();

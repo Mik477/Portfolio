@@ -346,7 +346,7 @@ export {};
         tablet: 1.00,
         laptop: 1.00,
         desktop: 1.04,
-        large: 0.8,
+        large: 0.55,
         ultrawide: 1.12
     };
     private globalSymbolSizeMul: number = 1.0;
@@ -1853,6 +1853,18 @@ export {};
   const handleContactClick = () => {
     if (typeof navigateToSection === 'function' && contactSectionIndex !== -1) {
       navigateToSection(contactSectionIndex);
+      // Also update hash for sharable URL (mirrors core navigate logic behavior)
+      try {
+        if (contactSectionIndex >= 0 && typeof window !== 'undefined') {
+          const newHash = '#contact';
+            if (window.location.hash !== newHash) {
+              history.replaceState(null, '', newHash);
+            }
+        }
+      } catch {}
+    } else {
+      // Fallback: direct hash navigation triggers hashchange listener
+      try { window.location.hash = '#contact'; } catch {}
     }
   };
 </script>
@@ -1876,6 +1888,13 @@ export {};
       </a>
     </div>
     {/if}
+    {#if socialLinks.find(l => l.name.toLowerCase() === 'instagram')}
+  <div class="key-position gpu-prewarm-target">
+    <a aria-label="Instagram" class="key" target="_blank" rel="noopener noreferrer" href={getLink('Instagram')}>
+      <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><rect width="18" height="18" x="3" y="3" rx="4"/><circle cx="12" cy="12" r="5"/><path d="M16 7h.01"/></g></svg>
+    </a>
+  </div>
+    {/if}
     {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
   <div class="key-position gpu-prewarm-target">
       <a aria-label="Email" class="key" target="_blank" rel="noopener noreferrer" href={getLink('Email')}>
@@ -1884,7 +1903,13 @@ export {};
     </div>
     {/if}
   <div class="key-position key-position-cta gpu-prewarm-target">
-      <button type="button" id="about-contact-me-btn" class="key call-to-action peer" on:click={handleContactClick}>
+      <button
+        type="button"
+        id="about-contact-me-btn"
+        class="key call-to-action peer"
+        aria-controls="contact"
+        on:click={handleContactClick}
+      >
         <span class="call-to-action-content">{(($page.data as any)?.messages?.common?.about?.contactMe) ?? 'Contact Me'}</span>
       </button>
     </div>
@@ -2220,6 +2245,8 @@ export {};
 			.legal-link .measure {
 				visibility: hidden; /* not visible but participates in layout sizing */
 				pointer-events: none;
+				/* Add Safari prefix for user-select */
+				-webkit-user-select: none;
 				user-select: none;
 				white-space: nowrap;
 				font-weight: var(--legal-link-hover-weight);
@@ -3163,7 +3190,7 @@ export {};
 
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { siteConfig } from '$lib/data/siteConfig';
+  import type { AboutContent } from '$lib/data/projectsData';
 
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
   import AboutImageEffect from '$lib/components/AboutImageEffect.svelte';
@@ -3173,8 +3200,7 @@ export {};
 
   const dispatch = createEventDispatcher();
 
-  type AboutSectionData = typeof siteConfig.aboutSection;
-  export let data: AboutSectionData;
+  export let data: AboutContent;
   export let contactSectionIndex: number;
   export let navigateToSection: (index: number) => void;
 
@@ -3195,6 +3221,11 @@ export {};
       keyboardButtonsInstance.onEnterSection();
     }
     if (aboutImageEffectInstance) {
+      // Lazy init safeguard: if preloading was skipped for some reason, initialize now (non-blocking)
+      // @ts-ignore best-effort check
+      if ((aboutImageEffectInstance as any).initializeEffect && !(aboutImageEffectInstance as any).isInitialized) {
+        try { (aboutImageEffectInstance as any).initializeEffect(); } catch {}
+      }
       // The image effect's onEnterSection just starts a simple fade-in.
       aboutImageEffectInstance.onEnterSection();
     }
@@ -3604,8 +3635,9 @@ export {};
       this.renderer.setSize(targetW, targetH, false);
       this.renderer.setClearColor(0x000000, 0);
       try {
+        // Prefer modern SRGBColorSpace constant.
         // @ts-ignore
-        this.renderer.outputColorSpace = (THREE as any).SRGBColorSpace ?? (THREE as any).sRGBEncoding;
+        this.renderer.outputColorSpace = (THREE as any).SRGBColorSpace;
       } catch (e) { /* ignore */ }
       this.container.appendChild(this.renderer.domElement);
       // ensure canvas stretches to container while content rendered at lower res
@@ -4166,7 +4198,7 @@ export {};
 --- START OF FILE src\lib\components\sections\ContactSection.svelte ---
 <!-- src/lib/components/sections/ContactSection.svelte -->
 <script context="module" lang="ts">
-  // The public API now includes all optional methods to support the full lifecycle.
+  // Public API for lifecycle
   export type ContactSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
@@ -4179,233 +4211,179 @@ export {};
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
-  import { siteConfig } from '$lib/data/siteConfig';
-  
-  // 1. Import the new effect component and its instance type.
+  import type { ContactContent } from '$lib/data/projectsData';
+  import type { SocialLink } from '$lib/data/siteConfig';
   import ContactEffect from './ContactEffect.svelte';
   import type { ContactEffectInstance } from './ContactEffect.svelte';
 
   const dispatch = createEventDispatcher();
 
-  type ContactSectionData = typeof siteConfig.contactSection;
-  export let data: ContactSectionData;
-  export let emailLabel: string | undefined;
+  export let data: ContactContent;
+  // Social links passed from the About section (GitHub, LinkedIn, Email)
+  export let socialLinks: SocialLink[] = [];
 
-  // 2. Create a binding for the child component instance.
+  // Precomputed segments for the outro message supporting [[br]] (with optional spaces) or literal newlines
+  let outroSegments: string[] = [];
+  $: {
+    const raw = data?.outroMessage ?? '';
+    // Normalize: if contains our break token variant
+    const tokenRegex = /\s*\[\[br\]\]\s*/i; // remove surrounding spaces when splitting
+    if (tokenRegex.test(raw)) {
+      outroSegments = raw.split(tokenRegex).map(s => s.trim()).filter(Boolean);
+    } else if (raw.includes('\n')) {
+      outroSegments = raw.split(/\n+/).map(s => s.trim()).filter(Boolean);
+    } else {
+      outroSegments = [raw];
+    }
+  }
+
   let contactEffectInstance: ContactEffectInstance | null = null;
-  
-  let sectionWrapper: HTMLElement;
-  let animatableUiElements: Element[] = [];
+  let wrapperEl: HTMLDivElement;
+  let h2El: HTMLHeadingElement;
+  let pEl: HTMLParagraphElement;
+  let keyPositionElements: Element[] = [];
 
   onMount(() => {
-    if (sectionWrapper) {
-      // Select only the UI elements for the GSAP animation.
-      animatableUiElements = gsap.utils.toArray(sectionWrapper.querySelectorAll('.anim-ui-element'));
+    if (wrapperEl) {
+      keyPositionElements = gsap.utils.toArray(wrapperEl.querySelectorAll('.key-position'));
     }
   });
 
-  // --- Animation Lifecycle API Implementation (with Proxying) ---
-
+  /* ---------------- Lifecycle & Animation ---------------- */
   export async function initializeEffect() {
-    // Proxy the call to the child effect component.
     if (contactEffectInstance?.initializeEffect) {
       await contactEffectInstance.initializeEffect();
     }
   }
 
-  export function onEnterSection(): void {
-    // A. Trigger the fade-in of the background effect.
-    contactEffectInstance?.onEnterSection();
+  export function onEnterSection() {
+    // Force initialization attempt immediately when entering (covers direct jumps where preload didn't run)
+    if (contactEffectInstance) {
+      try { initializeEffect(); } catch {}
+      contactEffectInstance.onEnterSection();
+    }
 
-    // B. Animate the surrounding UI elements in parallel.
-    if (animatableUiElements.length === 0) return;
-    gsap.set(animatableUiElements, { autoAlpha: 0, y: 30 });
+    if (!h2El || !pEl || keyPositionElements.length === 0) return;
 
-    gsap.to(animatableUiElements, {
-      autoAlpha: 1,
-      y: 0,
-      duration: 1.2,
-      stagger: 0.2,
-      delay: 0.5, // Start UI animation slightly after the section starts transitioning in.
-      ease: 'power3.out',
-      onComplete: () => {
-        dispatch('animationComplete');
+    gsap.set(h2El, { autoAlpha: 0, y: 30 });
+    gsap.set(pEl, { autoAlpha: 0, y: 20 });
+    gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
+
+    gsap.timeline({
+      delay: 0.5,
+      onComplete: () => { dispatch('animationComplete'); }
+    })
+      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0)
+      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 0.1)
+      .to(keyPositionElements, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power3.out', stagger: 0.08 }, 0.25);
+  }
+
+  export async function onTransitionComplete() {
+    // Ensure effect is fully initialized before we trigger its transition-complete fade
+    if (contactEffectInstance) {
+      if (contactEffectInstance.initializeEffect) {
+        try { await contactEffectInstance.initializeEffect(); } catch {}
       }
-    });
+      contactEffectInstance.onTransitionComplete?.();
+    }
   }
 
-  export function onTransitionComplete() {
-    // Proxy the call to start the heavy rendering loop.
-    contactEffectInstance?.onTransitionComplete();
-  }
-
-  export function onLeaveSection(): void {
-    // A. Trigger the fade-out of the background effect.
+  export function onLeaveSection() {
     contactEffectInstance?.onLeaveSection();
-
-    // B. Immediately reset the surrounding UI elements.
-    if (animatableUiElements.length === 0) return;
-    gsap.killTweensOf(animatableUiElements);
-    gsap.set(animatableUiElements, { autoAlpha: 0 });
+    const all = [h2El, pEl, ...keyPositionElements];
+    gsap.killTweensOf(all);
+    gsap.set(all, { autoAlpha: 0 });
   }
-  
+
   export function onUnload() {
-    // Proxy the call to dispose of the effect's GPU resources.
     contactEffectInstance?.onUnload();
   }
+
+  /* ---------------- Helpers ---------------- */
+  const getLink = (name: string): string => {
+    const link = socialLinks.find(l => l.name.toLowerCase() === name.toLowerCase());
+    return link ? link.url : '#';
+  };
+
+  // Determine resume link (first additional link containing resume/lebenslauf or fallback)
+  const resumeLink: string = (() => {
+    const match = data.additionalLinks?.find(l => /resume|lebenslauf/i.test(l.name));
+    return match?.url || '/resume.pdf';
+  })();
 </script>
 
-<div class="contact-section-wrapper" bind:this={sectionWrapper}>
-  <!-- 
-    The ContactEffect component is placed here. It will create its own
-    absolutely positioned canvas that sits behind the content-overlay.
-  -->
+<div class="contact-section-wrapper" bind:this={wrapperEl}>
   <ContactEffect bind:this={contactEffectInstance} />
-
-  <!-- 
-    This overlay holds all the UI content and arranges it around the effect.
-  -->
-  <div class="content-overlay">
-    <div class="text-column anim-ui-element">
-      <h2>{data.title}</h2>
-      <p>{data.outroMessage}</p>
-    </div>
-
-    <div class="links-column">
-      <a href="mailto:{data.email}" class="contact-link anim-ui-element">
-        <span>{emailLabel ?? 'Email Me'}</span>
-        <svg width="13px" height="10px" viewBox="0 0 13 10">
-          <path d="M1,5 L11,5"></path>
-          <polyline points="8 1 12 5 8 9"></polyline>
-        </svg>
-      </a>
-      {#if data.additionalLinks}
-        {#each data.additionalLinks as link}
-          <a href={link.url} target="_blank" rel="noopener noreferrer" class="contact-link anim-ui-element">
-            <span>{link.name}</span>
-            <svg width="13px" height="10px" viewBox="0 0 13 10">
-              <path d="M1,5 L11,5"></path>
-              <polyline points="8 1 12 5 8 9"></polyline>
-            </svg>
-          </a>
+  <div class="contact-content">
+    <div class="contact-text-block">
+      <h2 bind:this={h2El}>{data.title}</h2>
+      <p bind:this={pEl}>
+        {#each outroSegments as seg, i (i)}
+          {seg}{#if i < outroSegments.length - 1}<br>{/if}
         {/each}
-      {/if}
+      </p>
+      <div class="keyboard-buttons-wrapper">
+        {#if socialLinks.find(l => l.name.toLowerCase() === 'github')}
+          <div class="key-position gpu-prewarm-target">
+            <a aria-label="GitHub" class="key" target="_blank" rel="noopener noreferrer" href={getLink('GitHub')}>
+              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor"><path d="M10 20.568c-3.429 1.157-6.286 0-8-3.568"/><path d="M10 22v-3.242c0-.598.184-1.118.48-1.588c.204-.322.064-.78-.303-.88C7.134 15.452 5 14.107 5 9.645c0-1.16.38-2.25 1.048-3.2c.166-.236.25-.354.27-.46c.02-.108-.015-.247-.085-.527c-.283-1.136-.264-2.343.16-3.43c0 0 .877-.287 2.874.96c.456.285.684.428.885.46s.469-.035 1.005-.169A9.5 9.5 0 0 1 13.5 3a9.6 9.6 0 0 1 2.343.28c.536.134.805.2 1.006.169c.2-.032.428-.175.884-.46c1.997-1.247 2.874-.96 2.874-.96c.424 1.087.443 2.294.16 3.43c-.07.28-.104.42-.084.526s.103.225.269.461c.668.95 1.048 2.04 1.048 3.2c0 4.462-2.364 5.807-5.177 6.643c-.367.101-.507.559-.303.88c.296.47.48.99.48 1.589V22"/></g></svg>
+            </a>
+          </div>
+        {/if}
+        {#if socialLinks.find(l => l.name.toLowerCase() === 'linkedin')}
+          <div class="key-position gpu-prewarm-target">
+            <a aria-label="LinkedIn" class="key" target="_blank" rel="noopener noreferrer" href={getLink('LinkedIn')}>
+              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.5 9.5H4c-.943 0-1.414 0-1.707.293S2 10.557 2 11.5V20c0 .943 0 1.414.293 1.707S3.057 22 4 22h.5c.943 0 1.414 0 1.707-.293S6.5 20.943 6.5 20v-8.5c0-.943 0-1.414-.293-1.707S5.443 9.5 4.5 9.5m2-5.25a2.25 2.25 0 1 1-4.5 0a2.25 2.25 0 0 1 4.5 0m5.826 5.25H11.5c-.943 0-1.414 0-1.707.293S9.5 10.557 9.5 11.5V20c0 .943 0 1.414.293 1.707S10.557 22 11.5 22h.5c.943 0 1.414 0 1.707-.293S14 20.943 14 20v-3.5c0-1.657.528-3 2.088-3c.78 0 1.412.672 1.412 1.5v4.5c0 .943 0 1.414.293 1.707s.764.293 1.707.293h.499c.942 0 1.414 0 1.707-.293c.292-.293.293-.764.293-1.706L22 14c0-2.486-2.364-4.5-4.703-4.5c-1.332 0-2.52.652-3.297 1.673c0-.63 0-.945-.137-1.179a1 1 0 0 0-.358-.358c-.234-.137-.549-.137-1.179-.137" color="currentColor"/></svg>
+            </a>
+          </div>
+        {/if}
+        {#if socialLinks.find(l => l.name.toLowerCase() === 'instagram')}
+          <div class="key-position gpu-prewarm-target">
+            <a aria-label="Instagram" class="key" target="_blank" rel="noopener noreferrer" href={getLink('Instagram')}>
+              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"><rect width="18" height="18" x="3" y="3" rx="4"/><circle cx="12" cy="12" r="5"/><path d="M16 7h.01"/></g></svg>
+            </a>
+          </div>
+        {/if}
+        {#if socialLinks.find(l => l.name.toLowerCase() === 'email')}
+          <div class="key-position gpu-prewarm-target">
+            <a aria-label="Email" class="key" href={getLink('Email')}>
+              <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" color="currentColor"><path d="m2 6l6.913 3.917c2.549 1.444 3.625 1.444 6.174 0L22 6"/><path d="M2.016 13.476c.065 3.065.098 4.598 1.229 5.733c1.131 1.136 2.705 1.175 5.854 1.254c1.94.05 3.862.05 5.802 0c3.149-.079 4.723-.118 5.854-1.254c1.131-1.135 1.164-2.668 1.23-5.733c.02-.986.02-1.966 0-2.952c-.066-3.065-.099-4.598-1.23-5.733c-1.131-1.136-2.705-1.175-5.854-1.254a115 115 0 0 0-5.802 0c-3.149.079-4.723.118-5.854 1.254c-1.131 1.135-1.164 2.668-1.23 5.733a69 69 0 0 0 0 2.952"/></g></svg>
+            </a>
+          </div>
+        {/if}
+        <div class="key-position key-position-cta gpu-prewarm-target">
+          <a aria-label="Download Resume" class="key call-to-action" href={resumeLink} download>
+            <span class="call-to-action-content">{(data.additionalLinks?.[0]?.name) ?? 'Resume'}</span>
+          </a>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
 <style>
-  .contact-section-wrapper {
-    width: 100%;
-    height: 100%;
-    position: relative;
-    overflow: hidden;
-    background-color: transparent; /* The effect provides the background */
-  }
+  .contact-section-wrapper { width: 100%; height: 100%; position: relative; overflow: hidden; background: transparent; }
+  .contact-content { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; display: flex; align-items: center; padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem); box-sizing: border-box; }
+  .contact-text-block { max-width: 860px; text-align: left; }
+  .contact-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; visibility: hidden; }
+  .contact-text-block p { font-size: clamp(1rem, 2.2vw, 1.15rem); line-height: 1.8; margin-bottom: 2.5rem; color: rgb(212 212 216); opacity: 0; visibility: hidden; }
 
-  .content-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1; /* Sits on top of the effect's canvas */
-    
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 8vw), 3rem);
-    box-sizing: border-box;
-    pointer-events: none; /* Allows mouse interaction with the background effect */
-  }
+  /* Keyboard style buttons (duplicated minimal styles from About for isolation) */
+  .keyboard-buttons-wrapper { display: flex; align-items: flex-start; gap: calc(var(--keyboard-key-base-size) * 0.01); flex-wrap: nowrap; }
+  .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
+  .key-position { perspective: 800px; transform: rotateY(0.05turn) rotateX(-0.1turn); }
+  .key { position: relative; width: var(--keyboard-key-base-size); height: var(--keyboard-key-base-size); font-size: calc(var(--keyboard-key-base-size) / 2.2); border: 0.1rem solid var(--keyboard-background-3); border-radius: calc(var(--keyboard-key-base-size) * 0.2); background: var(--keyboard-background-2); color: var(--keyboard-contrast); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); transition: transform 0.2s ease, box-shadow 0.2s ease; display: flex; align-items: center; justify-content: center; text-decoration: none; transform-style: preserve-3d; }
+  .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); }
+  .key:active { transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
+  .key.call-to-action { width: 160px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+  .call-to-action-content { position: relative; }
+  .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
+  .key.call-to-action:hover .call-to-action-content:after { width: 100%; }
 
-  /* Columns for the layout */
-  .text-column, .links-column {
-    pointer-events: auto; /* Re-enable pointer events for the content itself */
-    opacity: 0; /* Start hidden for GSAP */
-    visibility: hidden;
-  }
-
-  .text-column {
-    text-align: left;
-    max-width: 450px;
-  }
-  
-  .links-column {
-    text-align: right;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 1.5rem;
-  }
-
-  h2 {
-    font-size: clamp(2.5rem, 5vw, 3.5rem);
-    margin-bottom: 1.5rem;
-    font-weight: 300;
-    letter-spacing: -0.02em;
-    color: rgb(245 245 247);
-  }
-
-  p {
-    font-size: clamp(1rem, 2.2vw, 1.15rem);
-    line-height: 1.8;
-    color: rgb(212 212 216);
-  }
-  
-  /* Styling for the new contact buttons */
-  .contact-link {
-    font-family: 'Source Code Pro', monospace;
-    font-size: 1.1rem;
-    font-weight: 300;
-    color: #c7c7c7;
-    text-decoration: none;
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    transition: color 0.3s ease;
-  }
-  
-  .contact-link:hover {
-    color: #ffffff;
-  }
-
-  .contact-link span {
-    display: block;
-    transition: transform 0.3s ease;
-  }
-
-  .contact-link:hover span {
-    transform: translateX(-8px);
-  }
-
-  .contact-link svg {
-    margin-left: 10px;
-    stroke: #ffffff;
-    stroke-width: 2;
-    fill: none;
-    stroke-dasharray: 18;
-    stroke-dashoffset: 18;
-    transition: stroke-dashoffset 0.4s ease, transform 0.3s ease;
-  }
-
-  .contact-link:hover svg {
-    stroke-dashoffset: 0;
-  }
-
-  /* Responsive adjustments for smaller screens */
-  @media (max-width: 768px) {
-    .content-overlay {
-      flex-direction: column;
-      justify-content: center;
-      text-align: center;
-      gap: 3rem;
-    }
-    .text-column, .links-column {
-      text-align: center;
-      align-items: center;
-      max-width: 90%;
-    }
+  @media (max-width: 640px) {
+    .contact-content { padding: 2.5rem 1.25rem 2rem; align-items: flex-start; }
+    .keyboard-buttons-wrapper { flex-wrap: wrap; }
+    .key-position-cta { flex-basis: 100%; display: flex; justify-content: flex-start; margin-top: 0.25rem; }
   }
 </style>
 --- END OF FILE src\lib\components\sections\ContactSection.svelte ---
@@ -4523,11 +4501,12 @@ export {};
   export type ProjectSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
+    initializeEffect?: () => Promise<void>;
   };
 </script>
 
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import { gsap } from 'gsap';
   import type { Project } from '$lib/data/projectsData';
 
@@ -4544,20 +4523,68 @@ export {};
   let activeLayer: 'A' | 'B' = 'A';
   let cycleTimer: number | undefined;
   let isCycling = false;
+  let isInitialized = false;
+  let initializationPromise: Promise<void> | null = null;
+
+  const decodedImagePromises = new Map<string, Promise<void>>();
+
+  function loadAndDecodeImage(src: string | undefined): Promise<void> {
+    if (!src) return Promise.resolve();
+    const existing = decodedImagePromises.get(src);
+    if (existing) return existing;
+
+    const promise = new Promise<void>((resolve, reject) => {
+      const img = new Image();
+      img.decoding = 'async';
+      let settled = false;
+
+      const markLoaded = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const markError = () => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`Failed to load project background: ${src}`));
+      };
+
+      img.onload = markLoaded;
+      img.onerror = markError;
+      img.src = src;
+
+      if (typeof img.decode === 'function') {
+        img
+          .decode()
+          .then(markLoaded)
+          .catch(() => {
+            if (img.complete && img.naturalWidth > 0) {
+              markLoaded();
+            }
+          });
+      }
+    })
+      .catch(error => {
+        decodedImagePromises.delete(src);
+        throw error;
+      });
+
+    decodedImagePromises.set(src, promise);
+    return promise;
+  }
 
   function preloadNextImage() {
     if (project.backgrounds.length < 2) return;
     const nextIndex = (currentImageIndex + 1) % project.backgrounds.length;
     const nextImageSrc = project.backgrounds[nextIndex].value;
-    const img = new Image();
-    img.src = nextImageSrc;
+    void loadAndDecodeImage(nextImageSrc);
   }
 
   /**
    * REWRITTEN & CORRECTED: Handles the core cross-fade and continuous zoom logic.
    * This version ensures the outgoing layer continues its zoom during the fade.
    */
-  function transitionToNextImage() {
+  async function transitionToNextImage() {
     if (project.backgrounds.length < 2 || !isCycling) return;
 
     // 1. Identify layers and get the next image in the sequence.
@@ -4567,6 +4594,12 @@ export {};
     
     currentImageIndex = (currentImageIndex + 1) % project.backgrounds.length;
     const nextImageSrc = project.backgrounds[currentImageIndex].value;
+
+    try {
+      await loadAndDecodeImage(nextImageSrc);
+    } catch (error) {
+      console.warn(error);
+    }
     
     // --- PRELOADING FIX ---
     // Start preloading the *next* image immediately, so it's ready for the subsequent transition.
@@ -4584,39 +4617,86 @@ export {};
     const nextTransitionDelay = (totalLifetime - crossfadeDuration) * 1000;
 
     // 5. Set up the INCOMING (hidden) layer.
-    gsap.set(hiddenLayer, { 
-      backgroundImage: `url(${nextImageSrc})`, 
-      scale: 1, 
-      opacity: 0 
+    if (!hiddenLayer || !visibleLayer) return;
+
+    gsap.set(hiddenLayer, {
+      backgroundImage: `url(${nextImageSrc})`,
+      scale: 1,
+      opacity: 0
     });
 
-    // 6. Animate the INCOMING layer.
-    gsap.to(hiddenLayer, {
-      scale: 'var(--image-zoom-amount)',
-      ease: 'none',
-      duration: totalZoomDuration
-    });
-    gsap.to(hiddenLayer, {
-      opacity: 1,
-      ease: 'power2.inOut',
-      duration: crossfadeDuration
-    });
+    requestAnimationFrame(() => {
+      gsap.to(hiddenLayer, {
+        scale: 'var(--image-zoom-amount)',
+        ease: 'none',
+        duration: totalZoomDuration
+      });
+      gsap.to(hiddenLayer, {
+        opacity: 1,
+        ease: 'power2.inOut',
+        duration: crossfadeDuration
+      });
 
-    // 7. Animate the OUTGOING layer.
-    gsap.to(visibleLayer, {
-      opacity: 0,
-      ease: 'power2.inOut',
-      duration: crossfadeDuration,
-      onComplete: () => {
-        gsap.killTweensOf(visibleLayer);
-        gsap.set(visibleLayer, { opacity: 0 });
-        activeLayer = activeLayer === 'A' ? 'B' : 'A';
-        cycleTimer = window.setTimeout(transitionToNextImage, nextTransitionDelay);
-      }
+      gsap.to(visibleLayer, {
+        opacity: 0,
+        ease: 'power2.inOut',
+        duration: crossfadeDuration,
+        onComplete: () => {
+          gsap.killTweensOf(visibleLayer);
+          gsap.set(visibleLayer, { opacity: 0 });
+          activeLayer = activeLayer === 'A' ? 'B' : 'A';
+          cycleTimer = window.setTimeout(() => { void transitionToNextImage(); }, nextTransitionDelay);
+        }
+      });
     });
   }
 
+  async function ensureInitialized() {
+    if (isInitialized || initializationPromise) {
+      return initializationPromise ?? Promise.resolve();
+    }
+
+    initializationPromise = (async () => {
+      await tick();
+      const initialImageSrc = project.backgrounds[currentImageIndex]?.value;
+      if (!initialImageSrc) return;
+
+      try {
+        await loadAndDecodeImage(initialImageSrc);
+      } catch (error) {
+        console.warn(error);
+      }
+
+  const layers = { A: bgLayerA, B: bgLayerB };
+  activeLayer = 'A';
+  const visibleLayer = layers[activeLayer];
+  const hiddenLayer = activeLayer === 'A' ? layers.B : layers.A;
+
+      if (visibleLayer) {
+        gsap.set(visibleLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 1, scale: 1 });
+      }
+      if (hiddenLayer) {
+        gsap.set(hiddenLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 0, scale: 1 });
+      }
+
+      if (project.backgrounds.length > 1) {
+        void loadAndDecodeImage(project.backgrounds[1].value);
+      }
+
+      isInitialized = true;
+    })().finally(() => {
+      initializationPromise = null;
+    });
+
+    return initializationPromise;
+  }
+
+  export function initializeEffect() {
+    return ensureInitialized();
+  }
+
   export function onEnterSection() {
+    void ensureInitialized();
     const initialImageSrc = project.backgrounds[currentImageIndex].value;
     const layers = { A: bgLayerA, B: bgLayerB };
     const visibleLayer = layers[activeLayer];
@@ -4629,7 +4709,7 @@ export {};
       preloadNextImage();
       
       const entryZoomDuration = parseFloat(getComputedStyle(sectionWrapperEl).getPropertyValue('--entry-zoom-duration'));
-      cycleTimer = window.setTimeout(transitionToNextImage, entryZoomDuration * 1000);
+      cycleTimer = window.setTimeout(() => { void transitionToNextImage(); }, entryZoomDuration * 1000);
     }
     
     const headline = sectionWrapperEl.querySelector('.anim-headline');
@@ -4716,6 +4796,7 @@ export {};
     height: 100%;
     z-index: 0;
     transform: scale(1); /* Target for the orchestrator's initial dramatic zoom */
+    will-change: transform;
   }
 
   .bg-layer {
@@ -4727,6 +4808,7 @@ export {};
     background-size: cover;
     background-position: center;
     transform: scale(1); /* Target for the component's internal linear zoom */
+    will-change: transform, opacity;
   }
 
   .background-zoom-target::after {
@@ -4752,7 +4834,7 @@ export {};
 --- START OF FILE src\lib\data\projectsData.ts ---
 // src/lib/data/projectsData.ts
 
-// --- MODIFICATION START: The ProjectCard no longer holds the sub-section's background. ---
+// The ProjectCard no longer holds the sub-section's background.
 // It is now only responsible for its own appearance and linking.
 export interface ProjectCard {
   id: string; // Unique ID for this card, e.g., 'p1_capability'
@@ -4761,13 +4843,12 @@ export interface ProjectCard {
   description?: string; // Short description for the card
   aspectLink?: string; // Anchor link for the subpage section, e.g., '#capability'
 }
-// --- MODIFICATION END ---
 
 // This interface is the definitive source for a sub-section's content and background.
 export interface ProjectSubPageSection {
     id: string; // Corresponds to aspectLink from a card, used for scrolling
     title: string;
-    content: string; // Can be HTML or Markdown, we'll decide how to render it
+    content: string;
     background: {
       type: 'image' | 'video' | 'color';
       value: string; // The URL for this specific section's background
@@ -4798,6 +4879,89 @@ export interface Project {
 }
 
 export type Locale = 'en' | 'de';
+
+// ---- NEW: Localized About & Contact Content (moved from siteConfig) ----
+export interface AboutContent {
+  title: string;
+  introduction: string;
+  imageUrl: string;
+  imageParticleEffect: { type: string }; // minimal ParticleEffectConfig reference
+  socialLinks: { name: string; url: string; icon?: string }[];
+}
+
+// Feature flags (simple manual toggles)
+export const featureFlags = {
+  showInstagram: false
+};
+
+export interface ContactContent {
+  title: string;
+  // Supports optional line break token [[br]] which will render as a <br> in ContactSection
+  outroMessage: string;
+  email: string;
+  additionalLinks: { name: string; url: string }[];
+}
+
+const aboutContentByLocale: Record<Locale, AboutContent> = {
+  en: {
+    title: 'About Me',
+    introduction: "I am a data science student specializing in building end-to-end systems that derive actionable intelligence from real-world data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
+    imageUrl: '/images/profile.webp',
+    imageParticleEffect: { type: 'imageAuraParticles' },
+    socialLinks: (() => {
+      const links = [
+        { name: 'GitHub', url: 'https://github.com/coming_soon' },
+        { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
+        { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
+      ];
+      if (featureFlags.showInstagram) {
+        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/coming_soon/' });
+      }
+      return links;
+    })()
+  },
+  de: {
+    title: 'Über Mich',
+    introduction: 'Ich bin Data Science Student und entwickle Ende-zu-Ende Systeme, die aus realen Daten verwertbare Erkenntnisse gewinnen. Die folgenden Projekte zeigen meine Fähigkeit, maßgeschneiderte Hardware, robuste Software und hoch moderne Wahrnehmungs-Modelle zu integrieren, um komplexe operative Herausforderungen zu lösen.',
+    imageUrl: '/images/profile.webp',
+    imageParticleEffect: { type: 'imageAuraParticles' },
+    socialLinks: (() => {
+      const links = [
+        { name: 'GitHub', url: 'https://github.com/coming_soon' },
+        { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
+        { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
+      ];
+      if (featureFlags.showInstagram) {
+        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/coming_soon/' });
+      }
+      return links;
+    })()
+  }
+};
+
+const contactContentByLocale: Record<Locale, ContactContent> = {
+  en: {
+    title: 'Get in Touch',
+    // Insert [[br]] for a manual line break
+    outroMessage: "I'm always excited to discuss new projects, [[br]] collaborations, or opportunities. Feel free to reach out!",
+  email: 'mika.mueller.work@gmail.com',
+    additionalLinks: [{ name: 'View My Resume', url: '/resume.pdf' }]
+  },
+  de: {
+    title: 'Kontakt',
+    outroMessage: 'Ich freue mich über neue Projekte, Kooperationen oder Austausch. [[br]]Schreiben Sie mir gerne!',
+  email: 'mika.mueller.work@gmail.com',
+    additionalLinks: [{ name: 'Lebenslauf', url: '/resume.pdf' }]
+  }
+};
+
+export function getAboutContent(locale: Locale): AboutContent {
+  return aboutContentByLocale[locale] ?? aboutContentByLocale.en;
+}
+
+export function getContactContent(locale: Locale): ContactContent {
+  return contactContentByLocale[locale] ?? contactContentByLocale.en;
+}
 
 export function getProjects(locale: Locale): Project[] {
   const isDE = locale === 'de';
@@ -4882,8 +5046,7 @@ export function getProjects(locale: Locale): Project[] {
     headline: isDE ? 'Projekt 2' : 'Project 2',
     summary: isDE ? 'Platzhaltertext für ein zweites Projekt (kommt bald)' : 'Placeholder text for a second project (coming soon)',
     backgrounds: [
-      { type: 'image', value: '/images/projects/project-two/background.jpg' },
-      { type: 'image', value: '/images/projects/project-two/background2.jpg' }
+      { type: 'image', value: '/images/projects/project-two/Vio.webp' }
     ],
     tags: isDE ? ['Platzhalter', 'Konzept', 'Demo'] : ['Placeholder', 'Concept', 'Demo'],
     cards: [
@@ -4892,9 +5055,9 @@ export function getProjects(locale: Locale): Project[] {
       { id: 'p2_section_c', title: isDE ? 'Abschnitt C' : 'Section C', cardImage: '/images/projects/project-two/card-insights-small.webp', description: isDE ? 'Platzhalter' : 'Placeholder', aspectLink: '#section-c' }
     ],
     subPageSections: [
-      { id: 'section-a', title: isDE ? 'Abschnitt A' : 'Section A', content: isDE ? 'Platzhalterinhalt A. Lorem ipsum dolor sit amet.' : 'Placeholder content A. Lorem ipsum dolor sit amet.', background: { type: 'image', value: '/images/projects/project-two/card-data.jpg' } },
-      { id: 'section-b', title: isDE ? 'Abschnitt B' : 'Section B', content: isDE ? 'Platzhalterinhalt B. Consectetur adipiscing elit.' : 'Placeholder content B. Consectetur adipiscing elit.', background: { type: 'image', value: '/images/projects/project-two/card-design.jpg' } },
-      { id: 'section-c', title: isDE ? 'Abschnitt C' : 'Section C', content: isDE ? 'Platzhalterinhalt C. Sed do eiusmod tempor.' : 'Placeholder content C. Sed do eiusmod tempor.', background: { type: 'image', value: '/images/projects/project-two/card-insights.jpg' } }
+      { id: 'section-a', title: isDE ? 'Abschnitt A' : 'Section A', content: isDE ? 'Platzhalterinhalt A. Lorem ipsum dolor sit amet.' : 'Placeholder content A. Lorem ipsum dolor sit amet.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } },
+      { id: 'section-b', title: isDE ? 'Abschnitt B' : 'Section B', content: isDE ? 'Platzhalterinhalt B. Consectetur adipiscing elit.' : 'Placeholder content B. Consectetur adipiscing elit.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } },
+      { id: 'section-c', title: isDE ? 'Abschnitt C' : 'Section C', content: isDE ? 'Platzhalterinhalt C. Sed do eiusmod tempor.' : 'Placeholder content C. Sed do eiusmod tempor.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } }
     ],
     readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
   };
@@ -4926,8 +5089,8 @@ export interface LegalLink {
 }
 
 export const siteConfig = {
-  title: "Your Name - Data Scientist Portfolio",
-  author: "Your Name",
+  title: "Miká Müller - Data Scientist Portfolio",
+  author: "Miká Müller",
   description: "A portfolio showcasing data science projects and expertise.",
 
   heroSection: {
@@ -4936,29 +5099,6 @@ export const siteConfig = {
     particleEffect: {
       type: 'defaultGreetingParticles', // We'll define this later
     } as ParticleEffectConfig,
-  },
-
-  aboutSection: {
-    title: "About Me", // MODIFIED
-    introduction: "I am a data scientist specializing in building end-to-end systems that derive actionable intelligence from real-world sensor data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
-    imageUrl: "/images/profile.webp", // MODIFIED - ensure this image exists in static/images
-    imageParticleEffect: {
-      type: 'imageAuraParticles', // We'll define this later
-    } as ParticleEffectConfig,
-    socialLinks: [ // Existing links, will be used by KeyboardButtons
-      { name: "GitHub", url: "https://github.com/coming_soon" }, // Replace with your actual URL
-      { name: "LinkedIn", url: "https://www.linkedin.com/in/coming_soon/" }, // Replace with your actual URL
-      { name: "Email", url: "mailto:mika38159@gmail.com" }, // Replace with your actual email
-    ] as SocialLink[],
-  },
-
-  contactSection: {
-    title: "Get in Touch",
-    outroMessage: "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
-    email: "youremail@example.com", // Replace with your actual email
-    additionalLinks: [
-        { name: "View My Resume", url: "/resume.pdf" } // Place resume in `static` folder
-    ]
   },
 
   // Centralized legal links for global footer
@@ -4984,10 +5124,6 @@ export const siteConfig = {
 --- START OF FILE src\lib\debug\README.md ---
 
 --- END OF FILE src\lib\debug\README.md ---
-
---- START OF FILE src\lib\effects\effectConfig.ts ---
-
---- END OF FILE src\lib\effects\effectConfig.ts ---
 
 --- START OF FILE src\lib\i18n\namespaces.ts ---
 // src/lib/i18n/namespaces.ts
@@ -5046,16 +5182,12 @@ Next steps:
     "en": "EN",
     "de": "DE",
     "switchToEn": "Zu Englisch wechseln",
-    "switchToDe": "Zu Deutsch wechseln"
+    "switchToDe": "Deutsch"
   },
   "about": {
-    "title": "Über mich",
-    "introduction": "Ich bin Data Scientist, spezialisiert auf die Entwicklung von End-to-End-Systemen, die aus realen Sensordaten handlungsrelevante Informationen gewinnen. Die nachfolgenden Projekte demonstrieren meine Kompetenz in der Integration von maßgeschneiderter Hardware, robuster Software und fortschrittlichen Wahrnehmungsmodellen zur Lösung komplexer operativer Herausforderungen.",
     "contactMe": "Kontakt aufnehmen"
   },
   "contact": {
-    "title": "Kontakt",
-    "outroMessage": "Ich freue mich über neue Projekte, Kooperationen oder Möglichkeiten. Melden Sie sich gern!",
     "emailLabel": "E-Mail senden",
     "resumeLabel": "Lebenslauf ansehen"
   },
@@ -5065,8 +5197,8 @@ Next steps:
   },
   "hero": {
     "greeting": "Hallo, ich bin",
-    "name": "Ihr Name",
-    "introduction": "Ein Data Scientist mit Leidenschaft für Erkenntnisse und intelligente Lösungen."
+    "name": "Miká",
+    "introduction": "Ein Data Scientist mit Leidenschaft für intelligente Lösungen."
   },
   "projects": {
     "readMore": "Mehr erfahren",
@@ -5106,17 +5238,13 @@ Next steps:
     "groupLabel": "Language",
     "en": "EN",
     "de": "DE",
-    "switchToEn": "Switch to English",
+    "switchToEn": "English",
     "switchToDe": "Switch to German"
   },
   "about": {
-    "title": "About Me",
-  "introduction": "I am a data scientist specializing in building end-to-end systems that derive actionable intelligence from real-world sensor data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
-  "contactMe": "Contact Me"
+    "contactMe": "Contact Me"
   },
   "contact": {
-    "title": "Get in Touch",
-    "outroMessage": "I'm always excited to discuss new projects, collaborations, or opportunities. Feel free to reach out!",
     "emailLabel": "Email me",
     "resumeLabel": "View my resume"
   },
@@ -5155,6 +5283,448 @@ Next steps:
 }
 
 --- END OF FILE src\lib\i18n\locales\en\layout.json ---
+
+--- START OF FILE src\lib\preload\particlePreloadController.ts ---
+
+--- END OF FILE src\lib\preload\particlePreloadController.ts ---
+
+--- START OF FILE src\lib\preload\schedulerCore.ts ---
+// Phase 2: Core scheduling & prediction primitives
+import type { SectionDescriptor } from './sectionDescriptors';
+import type { SectionState } from '$lib/stores/sectionStateStore';
+
+export interface SectionContextSnapshot {
+	activeIndex: number;
+	states: SectionState[];
+	sections: SectionDescriptor[];
+	// Potentially add render profile signals later (mobile, reducedMotion...)
+}
+
+export interface PredictionResult {
+	warmupCandidates: number[]; // indices to pre-warm (assets + minimal init)
+	preloadOnly: number[];      // indices to just asset-preload (defer effect init)
+}
+
+export interface PredictionStrategy {
+	predict(ctx: SectionContextSnapshot): PredictionResult;
+}
+
+// Default naive strategy:
+// - Always attempt to warmup the next section (active+1) if exists & not READY/ACTIVE
+// - Preload-only the section after that (active+2) if exists & currently IDLE/COOLDOWN
+export class DefaultPredictionStrategy implements PredictionStrategy {
+	predict(ctx: SectionContextSnapshot): PredictionResult {
+		const warmupCandidates: number[] = [];
+		const preloadOnly: number[] = [];
+		const { activeIndex, sections, states } = ctx;
+		const next = activeIndex + 1;
+		const afterNext = activeIndex + 2;
+		if (next < sections.length && !['READY','ACTIVE','PRELOADING'].includes(states[next] as any)) {
+			warmupCandidates.push(next);
+		}
+		if (afterNext < sections.length && ['IDLE','COOLDOWN'].includes(states[afterNext] as any)) {
+			preloadOnly.push(afterNext);
+		}
+		return { warmupCandidates, preloadOnly };
+	}
+}
+
+// Direction-aware strategy:
+// Tracks last travel direction; prioritizes warming only in that direction.
+// If user changes direction, performs a conservative warmup of the immediate neighbor both directions once.
+export class DirectionalPredictionStrategy implements PredictionStrategy {
+	private lastDirection: number = 1; // 1 forward, -1 backward
+	private lastActive = 0;
+	private directionStreak = 0;
+
+	predict(ctx: SectionContextSnapshot): PredictionResult {
+		const { activeIndex, sections, states } = ctx;
+		const delta = activeIndex - this.lastActive;
+		if (delta !== 0) {
+			const dir = Math.sign(delta);
+			if (dir === this.lastDirection) {
+				this.directionStreak++;
+			} else {
+				this.directionStreak = 1; // reset streak
+				this.lastDirection = dir;
+			}
+			this.lastActive = activeIndex;
+		}
+
+		const warmupCandidates: number[] = [];
+		const preloadOnly: number[] = [];
+
+		const forward = activeIndex + 1;
+		const backward = activeIndex - 1;
+
+		// Helper to test if we should warm a given index
+		const canWarm = (i: number) => i >= 0 && i < sections.length && !['READY','ACTIVE','PRELOADING','FETCHING_ASSETS','EFFECT_INIT'].includes(states[i] as any);
+
+		if (this.directionStreak > 1) {
+			// Strong directional intent: warm only in travel direction
+			const primary = this.lastDirection === 1 ? forward : backward;
+			if (canWarm(primary)) warmupCandidates.push(primary);
+			// Asset-preload one further in that direction
+			const further = primary + this.lastDirection;
+			if (further >= 0 && further < sections.length && ['IDLE','COOLDOWN'].includes(states[further] as any)) preloadOnly.push(further);
+		} else {
+			// Neutral / direction change: prepare both immediate neighbors lightly
+			if (canWarm(forward)) warmupCandidates.push(forward);
+			if (canWarm(backward)) warmupCandidates.push(backward);
+			// Preload second forward as a small look-ahead
+			const secondForward = activeIndex + 2;
+			if (secondForward < sections.length && ['IDLE','COOLDOWN'].includes(states[secondForward] as any)) preloadOnly.push(secondForward);
+		}
+
+		return { warmupCandidates, preloadOnly };
+	}
+}
+
+export interface SchedulerConfig {
+	prediction?: PredictionStrategy;
+	debug?: boolean;
+}
+
+--- END OF FILE src\lib\preload\schedulerCore.ts ---
+
+--- START OF FILE src\lib\preload\schedulerMetricsStore.ts ---
+// Metrics store for scheduler instrumentation
+import { writable, type Writable } from 'svelte/store';
+
+export interface SectionTiming {
+  index: number;
+  id: string;
+  fetchStart?: number;
+  fetchEnd?: number;
+  initStart?: number;
+  initEnd?: number;
+  readyAt?: number;
+}
+
+export interface SchedulerMetricsState {
+  queueLength: number;
+  activeFetches: number;
+  timings: Record<string, SectionTiming>; // keyed by section id
+  lastNavigationIndex: number;
+}
+
+const initial: SchedulerMetricsState = {
+  queueLength: 0,
+  activeFetches: 0,
+  timings: {},
+  lastNavigationIndex: 0
+};
+
+export const schedulerMetrics: Writable<SchedulerMetricsState> = writable(initial);
+
+export function recordFetchStart(id: string, index: number) {
+  schedulerMetrics.update(s => {
+    const t = s.timings[id] ||= { id, index } as SectionTiming;
+    t.fetchStart = performance.now();
+    return s;
+  });
+}
+export function recordFetchEnd(id: string) {
+  schedulerMetrics.update(s => { const t = s.timings[id]; if (t) t.fetchEnd = performance.now(); return s; });
+}
+export function recordInitStart(id: string) {
+  schedulerMetrics.update(s => { const t = s.timings[id]; if (t) t.initStart = performance.now(); return s; });
+}
+export function recordInitEnd(id: string) {
+  schedulerMetrics.update(s => { const t = s.timings[id]; if (t) t.initEnd = performance.now(); return s; });
+}
+export function recordReady(id: string) {
+  schedulerMetrics.update(s => { const t = s.timings[id]; if (t) t.readyAt = performance.now(); return s; });
+}
+export function updateQueue(activeFetches: number, queueLength: number) {
+  schedulerMetrics.update(s => { s.activeFetches = activeFetches; s.queueLength = queueLength; return s; });
+}
+export function recordNavigationMetric(index: number) {
+  schedulerMetrics.update(s => { s.lastNavigationIndex = index; return s; });
+}
+
+--- END OF FILE src\lib\preload\schedulerMetricsStore.ts ---
+
+--- START OF FILE src\lib\preload\sectionDescriptors.ts ---
+// Phase 1 extraction: section descriptor & asset URL utilities
+// (No behavior change expected)
+
+import type { AboutContent, Project } from '$lib/data/projectsData';
+
+export interface SectionDescriptorBase {
+	id: string;
+	// Raw data payload (typed via union helpers below)
+	data: unknown;
+	// Optional layout Svelte component constructor
+	layout?: any; // left as any to avoid importing SvelteComponent type here (keeps light)
+}
+
+export interface HeroSectionDescriptor extends SectionDescriptorBase {
+	id: 'hero';
+	data: any; // siteConfig.heroSection shape (not strictly typed yet)
+}
+export interface AboutSectionDescriptor extends SectionDescriptorBase {
+	id: 'about';
+	data: AboutContent;
+}
+export interface ContactSectionDescriptor extends SectionDescriptorBase {
+	id: 'contact';
+	data: AboutContent; // re-using AboutContent for now (similar shape w/ social links) TODO refine type
+}
+export interface ProjectSectionDescriptor extends SectionDescriptorBase {
+	id: `project-${string}`;
+	data: Project;
+}
+
+export type SectionDescriptor =
+	| HeroSectionDescriptor
+	| AboutSectionDescriptor
+	| ContactSectionDescriptor
+	| ProjectSectionDescriptor;
+
+// Utility: derive asset URLs for a given section (mirrors legacy inline logic)
+export function getSectionAssetUrls(section: SectionDescriptor): string[] {
+	const urls: string[] = [];
+	if (section.id === 'about') {
+		const data = section.data as AboutContent;
+		if (data?.imageUrl) urls.push(data.imageUrl);
+	} else if (section.id.startsWith('project-')) {
+		const p = section.data as Project;
+		if (p.backgrounds?.length) {
+			urls.push(p.backgrounds[0].value);
+			if (p.backgrounds.length > 1) urls.push(p.backgrounds[1].value);
+		}
+		p.cards.forEach(card => { if (card.cardImage) urls.push(card.cardImage); });
+	}
+	return urls.filter(Boolean);
+}
+
+--- END OF FILE src\lib\preload\sectionDescriptors.ts ---
+
+--- START OF FILE src\lib\preload\sectionScheduler.ts ---
+// Phase 1 extraction of legacy preloadManager logic (behavior preserved)
+// Future phases will replace internals with priority queue / predictive logic.
+
+import { get } from 'svelte/store';
+import { gsap } from 'gsap';
+import { preloadAssets } from '$lib/stores/preloadingStore';
+import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
+import type { SectionDescriptor } from './sectionDescriptors';
+import { DefaultPredictionStrategy, DirectionalPredictionStrategy, type PredictionStrategy, type SchedulerConfig } from './schedulerCore';
+import { recordFetchStart, recordFetchEnd, recordInitStart, recordInitEnd, recordReady, updateQueue, recordNavigationMetric } from './schedulerMetricsStore';
+
+export interface SectionEnvironment {
+	sections: SectionDescriptor[];
+	sectionElements: HTMLElement[];
+	sectionInstances: Map<string, any>; // IAnimatedComponent shape (loose for phase 1)
+	contactSectionIndex: number;
+}
+
+export class LegacySectionScheduler {
+	private env: SectionEnvironment;
+	private sectionStatesStore = sectionStates;
+	private prediction: PredictionStrategy;
+	private debug: boolean;
+	private maxConcurrent = 3;
+	private activeFetches = 0;
+	private queue: Array<() => Promise<void>> = [];
+	private lastNavIndex = 0;
+	private navHistory: number[] = [];
+	private unloadDistance = 4; // sections farther than this from active may be unloaded
+
+	constructor(env: SectionEnvironment, config: SchedulerConfig = {}) {
+		this.env = env;
+		this.prediction = config.prediction ?? new DirectionalPredictionStrategy();
+		this.debug = !!config.debug;
+	}
+
+	setDebug(v: boolean) { this.debug = v; }
+	recordNavigation(index: number) {
+		this.navHistory.push(index);
+		if (this.navHistory.length > 50) this.navHistory.shift();
+		this.lastNavIndex = index;
+		recordNavigationMetric(index);
+	}
+	setPrediction(strategy: PredictionStrategy) { this.prediction = strategy; }
+	setMaxConcurrent(n: number) { this.maxConcurrent = Math.max(1, n); }
+	setUnloadDistance(d: number) { this.unloadDistance = Math.max(2, d); }
+
+	private log(...args: any[]) { if (this.debug) console.info('[Scheduler]', ...args); }
+
+	private enqueue(task: () => Promise<void>) {
+		this.queue.push(task);
+		this.drain();
+	}
+
+	private drain() {
+		while (this.activeFetches < this.maxConcurrent && this.queue.length) {
+			const fn = this.queue.shift()!;
+			this.activeFetches++;
+			updateQueue(this.activeFetches, this.queue.length);
+			fn().catch(()=>{}).finally(() => {
+				this.activeFetches--;
+				updateQueue(this.activeFetches, this.queue.length);
+				this.drain();
+			});
+		}
+		updateQueue(this.activeFetches, this.queue.length);
+	}
+
+	updateEnv(env: Partial<SectionEnvironment>) {
+		this.env = { ...this.env, ...env } as SectionEnvironment;
+	}
+
+	async updateNeighborStates(activeIndex: number) {
+		const { sections } = this.env;
+		const currentStates = get(this.sectionStatesStore);
+		const desiredStates: SectionState[] = sections.map((_, i) => {
+			if (i === activeIndex) return 'ACTIVE';
+			if (i === activeIndex - 1 || i === activeIndex + 1) return 'READY';
+			return 'COOLDOWN';
+		});
+
+		const tasks: Promise<void>[] = [];
+
+		for (let i = 0; i < sections.length; i++) {
+			const currentState = currentStates[i];
+			const desiredState = desiredStates[i];
+			if (currentState !== desiredState) {
+				if ((currentState === 'IDLE' || currentState === 'COOLDOWN') && desiredState === 'READY') {
+					tasks.push(this.prepareSection(i));
+				}
+				if (currentState === 'READY' && desiredState === 'COOLDOWN') {
+					tasks.push(this.coolDownSection(i));
+				}
+			}
+		}
+
+		this.sectionStatesStore.update(states => { states[activeIndex] = 'ACTIVE'; return states; });
+		await Promise.all(tasks);
+	}
+
+	async prepareSection(index: number) {
+		const { sections, sectionInstances, sectionElements } = this.env;
+		const currentState = get(this.sectionStatesStore)[index];
+		if (currentState !== 'IDLE' && currentState !== 'COOLDOWN') return;
+		const sectionInfo = sections[index];
+		const instance = sectionInstances.get(sectionInfo.id);
+		const element = sectionElements[index];
+		if (!instance || !element) return;
+
+		// Stage 1: assets
+		this.sectionStatesStore.update(states => { states[index] = 'FETCHING_ASSETS'; return states; });
+		recordFetchStart(sectionInfo.id, index);
+		const urls = this.getSectionAssetUrls(index);
+		if (urls.length > 0) {
+			await new Promise<void>((resolve) => {
+				this.enqueue(async () => {
+					try { await preloadAssets(urls); } finally { resolve(); recordFetchEnd(sectionInfo.id); }
+				});
+			});
+		} else { recordFetchEnd(sectionInfo.id); }
+
+		// Stage 2: effect init
+		this.sectionStatesStore.update(states => { states[index] = 'EFFECT_INIT'; return states; });
+		recordInitStart(sectionInfo.id);
+		if (instance.initializeEffect) await instance.initializeEffect();
+		recordInitEnd(sectionInfo.id);
+
+		// Legacy PRELOADING transitional state (optional) — keep for compatibility
+		this.sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
+
+		if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
+			gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
+			instance.onEnterSection();
+			instance.onTransitionComplete?.();
+			await new Promise(resolve => setTimeout(resolve, 200));
+			instance.onLeaveSection();
+			gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+		} else if (sectionInfo.id.startsWith('project-')) {
+			gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
+			await new Promise(resolve => requestAnimationFrame(resolve));
+			await new Promise(resolve => requestAnimationFrame(resolve));
+			gsap.set(element, { yPercent: 100, autoAlpha: 0 });
+		}
+
+		this.sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
+		recordReady(sectionInfo.id);
+	}
+
+	async coolDownSection(index: number) {
+		const { sections, sectionInstances } = this.env;
+		const sectionId = sections[index].id;
+		this.sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
+		const instance = sectionInstances.get(sectionId);
+		instance?.onUnload?.();
+		this.sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
+	}
+
+	// Mirrors old inline function; duplicates logic for Phase 1 extraction.
+	getSectionAssetUrls(index: number): string[] {
+		const { sections } = this.env;
+		if (index < 0 || index >= sections.length) return [];
+		const section = sections[index];
+		const urls: string[] = [];
+		if (section.id === 'about') {
+			const data: any = section.data;
+			if (data?.imageUrl) urls.push(data.imageUrl);
+		} else if (section.id.startsWith('project-')) {
+			const p: any = section.data;
+			if (p.backgrounds?.length) {
+				urls.push(p.backgrounds[0].value);
+				if (p.backgrounds.length > 1) urls.push(p.backgrounds[1].value);
+			}
+			p.cards.forEach((card: any) => { if (card.cardImage) urls.push(card.cardImage); });
+		}
+		return urls.filter(Boolean);
+	}
+
+	// Phase 2: predictive warmup using strategy
+	predictiveWarmup(activeIndex: number) {
+		const states = get(this.sectionStatesStore);
+		const snapshot = { activeIndex, states, sections: this.env.sections } as const;
+		const { warmupCandidates, preloadOnly } = this.prediction.predict(snapshot);
+		if (this.debug) {
+			console.info('[Scheduler] prediction', { warmupCandidates, preloadOnly });
+		}
+		// Fire and forget warmup (full prepare)
+		warmupCandidates.forEach(i => this.prepareSection(i).catch(()=>{}));
+		// Preload-only: fetch assets but don't run effect initialization
+		preloadOnly.forEach(i => {
+			const urls = this.getSectionAssetUrls(i);
+			if (urls.length) {
+				this.enqueue(async () => { await preloadAssets(urls); });
+			}
+		});
+
+		// Memory heuristic: unload distant sections
+		this.applyUnloadHeuristic(activeIndex);
+	}
+
+	private applyUnloadHeuristic(activeIndex: number) {
+		const { sections, sectionInstances } = this.env;
+		const states = get(this.sectionStatesStore);
+		let mutated = false;
+		for (let i = 0; i < sections.length; i++) {
+			if (states[i] === 'READY' || states[i] === 'IDLE' || states[i] === 'COOLDOWN' || states[i] === 'ACTIVE') continue;
+		}
+		// Unload logic: if section is READY and farther than unloadDistance -> move to COOLDOWN then IDLE
+		for (let i = 0; i < sections.length; i++) {
+			const dist = Math.abs(i - activeIndex);
+			if (dist > this.unloadDistance && states[i] === 'READY') {
+				const id = sections[i].id;
+				sectionInstances.get(id)?.onUnload?.();
+				states[i] = 'COOLDOWN';
+				states[i] = 'IDLE';
+				mutated = true;
+				this.log('Unloaded distant section', id, 'dist', dist);
+			}
+		}
+		if (mutated) this.sectionStatesStore.set([...states]);
+	}
+}
+
+--- END OF FILE src\lib\preload\sectionScheduler.ts ---
 
 --- START OF FILE src\lib\server\locale.ts ---
 // src/lib/server/locale.ts
@@ -5303,14 +5873,14 @@ export const initialSiteLoadComplete = writable<boolean>(false);
 export const loadingProgress = derived(tasks, $tasks => {
   const allTasksArray = Object.values($tasks);
   if (allTasksArray.length === 0) return 0;
-  
+
   let totalWeight = 0;
   let weightedProgress = 0;
-  
+
   allTasksArray.forEach(task => {
     const weight = task.priority || 1;
     totalWeight += weight;
-    
+
     let taskProgress = 0;
     switch (task.status) {
       case 'loaded': taskProgress = 1; break;
@@ -5318,10 +5888,10 @@ export const loadingProgress = derived(tasks, $tasks => {
       case 'loading': taskProgress = task.progress || 0.5; break;
       default: taskProgress = 0; break;
     }
-    
+
     weightedProgress += taskProgress * weight;
   });
-  
+
   return totalWeight > 0 ? weightedProgress / totalWeight : 0;
 });
 
@@ -5433,15 +6003,37 @@ export async function preloadAssets(urls: string[]): Promise<void> {
       // Basic image preloader
       if (/\.(jpg|jpeg|png|webp|gif|svg)$/i.test(url)) {
         const img = new Image();
-        img.src = url;
-        img.onload = () => {
+        img.decoding = 'async';
+        let settled = false;
+
+        const markLoaded = () => {
+          if (settled) return;
+          settled = true;
           preloadingStore.setAssetStatus(url, 'loaded');
           resolve(url);
         };
-        img.onerror = () => {
+
+        const markError = () => {
+          if (settled) return;
+          settled = true;
           preloadingStore.setAssetStatus(url, 'error');
           reject(new Error(`Failed to load image: ${url}`));
         };
+
+        img.onload = markLoaded;
+        img.onerror = markError;
+        img.src = url;
+
+        if (typeof img.decode === 'function') {
+          img
+            .decode()
+            .then(markLoaded)
+            .catch(() => {
+              if (img.complete && img.naturalWidth > 0) {
+                markLoaded();
+              }
+            });
+        }
       } 
       // Basic font preloader (for .json from FontLoader)
       else if (/\.json$/i.test(url)) {
@@ -5595,7 +6187,14 @@ import { writable } from 'svelte/store';
  * - ACTIVE: Currently visible to the user.
  * - COOLDOWN: No longer a neighbor, can be unloaded to free resources.
  */
-export type SectionState = 'IDLE' | 'PRELOADING' | 'READY' | 'ACTIVE' | 'COOLDOWN';
+export type SectionState =
+	| 'IDLE'
+	| 'FETCHING_ASSETS'  // newly added: network / decode stage
+	| 'EFFECT_INIT'      // newly added: GPU / effect init stage
+	| 'PRELOADING'       // legacy alias transitional (will be phased out)
+	| 'READY'
+	| 'ACTIVE'
+	| 'COOLDOWN';
 
 /**
  * A writable store that holds an array of states, one for each section
@@ -5619,7 +6218,6 @@ const { subscribe, update } = writable<TransitionState>({
   color: '#000000', // Default to black for our fade effect
 });
 
-// --- MODIFICATION: Reduced transition duration for a "snappier" feel ---
 const TRANSITION_DURATION = 90; // ms
 
 export const transitionStore = {
@@ -5959,7 +6557,7 @@ import type { Font } from 'three/examples/jsm/loaders/FontLoader.js';
 import { BloomEffect } from './BloomEffect';
 import Stats from 'stats.js';
 
-// Shaders (VERTEX_SHADER and FRAGMENT_SHADER remain the same)
+// Shaders
 export const VERTEX_SHADER = `
 attribute float size;
 attribute vec3 customColor;
@@ -6596,7 +7194,7 @@ export class CreateParticles {
     laptop: { minMul: 1.0, maxMul: 1.0 },
     desktop: { minMul: 0.9,maxMul: 0.9},
     large: { minMul: 1.07, maxMul: 1.08 },
-    ultrawide: { minMul: 13, maxMul: 19 }
+    ultrawide: { minMul: 1.3, maxMul: 1.3 }
   };
 
   private symbolTextureRows: number = 6;
@@ -7572,6 +8170,31 @@ export class CreateParticles {
 }
 --- END OF FILE src\lib\three\heroParticleLogic.ts ---
 
+--- START OF FILE src\lib\utils\projectNavigation.ts ---
+// src/lib/utils/projectNavigation.ts
+// Utility helpers for deriving main-page section hashes from project slugs.
+import { getProjects, type Locale } from '$lib/data/projectsData';
+
+/** Returns the internal project.id for a given slug+locale or null if none found */
+export function projectIdFromSlug(slug: string, locale: Locale): string | null {
+  if (!slug) return null;
+  try {
+    const projects = getProjects(locale);
+    const match = projects.find(p => p.slug === slug);
+    return match ? match.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Builds the section hash (#project-{id}) for a given slug+locale or empty string */
+export function projectHashFromSlug(slug: string, locale: Locale): string {
+  const id = projectIdFromSlug(slug, locale);
+  return id ? `#project-${id}` : '';
+}
+
+--- END OF FILE src\lib\utils\projectNavigation.ts ---
+
 --- START OF FILE src\params\lang.ts ---
 // src/params/lang.ts
 // Constrains [lang] route segment to supported locales
@@ -7582,22 +8205,8 @@ export function match(param: string) {
 --- END OF FILE src\params\lang.ts ---
 
 --- START OF FILE src\routes\+layout.server.ts ---
-// src/routes/+layout.server.ts
-import type { LayoutServerLoad } from './$types';
-import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders, syncLocaleCookie } from '$lib/server/locale';
-
-export const load: LayoutServerLoad = async ({ cookies, request, params, setHeaders }) => {
-  const urlLocale = params?.lang ?? null;
-  const cookieLocale = cookies.get('locale');
-  const accept = request.headers.get('accept-language');
-  const countryCode = extractCountryCodeFromHeaders((name) => request.headers.get(name));
-
-  const locale = decideLocale({ urlLocale, cookieLocale, acceptLanguage: accept, countryCode });
-  syncLocaleCookie(cookies, locale);
-  setVaryHeaders(setHeaders);
-
-  return { locale };
-};
+// No-op server layout for static site. Logic moved to +layout.ts.
+export const prerender = true;
 
 --- END OF FILE src\routes\+layout.server.ts ---
 
@@ -7732,43 +8341,62 @@ export const load: LayoutServerLoad = async ({ cookies, request, params, setHead
 
 --- START OF FILE src\routes\+layout.ts ---
 import type { LayoutLoad } from './$types';
+import { browser } from '$app/environment';
 
-export const load: LayoutLoad = async ({ data }) => {
-  const locale = (data as { locale?: 'en' | 'de' })?.locale ?? 'de';
+export const prerender = true;
 
+// Purely static locale resolution: derived from URL segment [lang] when present; fallback 'en'.
+// (Previous server-side detection via headers removed for static hosting compatibility.)
+export const load: LayoutLoad = async ({ params }) => {
+  let locale: 'en' | 'de' = params.lang === 'de' ? 'de' : 'en';
+  // Optional: read cookie on client to choose locale when visiting root '/'
+  if (!params.lang && browser) {
+    const cookieMatch = document.cookie.match(/(?:^|; )locale=(en|de)/);
+    if (cookieMatch) locale = cookieMatch[1] as 'en' | 'de';
+  }
+  // Dynamically import translation JSON bundles
   const common = (await import(`$lib/i18n/locales/${locale}/common.json`)).default;
   const layout = (await import(`$lib/i18n/locales/${locale}/layout.json`)).default;
-
+  // Set/update cookie client-side (non-httpOnly) so future root visits reuse selection
+  if (browser) {
+    if (!document.cookie.includes(`locale=${locale}`)) {
+      document.cookie = `locale=${locale}; Path=/; Max-Age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+    }
+  }
   return { messages: { common, layout }, locale };
 };
 
 --- END OF FILE src\routes\+layout.ts ---
 
 --- START OF FILE src\routes\+page.server.ts ---
-// src/routes/+page.server.ts
-import type { PageServerLoad } from './$types';
-import { redirect } from '@sveltejs/kit';
-import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders } from '$lib/server/locale';
+// Intentionally left as a no-op for static build. Former server redirect removed.
+export const prerender = true;
 
-export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => {
-  const locale = decideLocale({
-    cookieLocale: cookies.get('locale') ?? null,
-    acceptLanguage: request.headers.get('accept-language'),
-    countryCode: extractCountryCodeFromHeaders((name) => request.headers.get(name)) ?? null
-  });
-  setVaryHeaders(setHeaders);
-  throw redirect(307, `/${locale}`);
-};
 
 --- END OF FILE src\routes\+page.server.ts ---
 
 --- START OF FILE src\routes\+page.svelte ---
-<!-- Minimal placeholder. Root path redirects via +page.server.ts -->
 <script lang="ts">
-  // intentionally empty
+  import { browser } from '$app/environment';
+  // Client-only locale redirect (replaces former +page.server.ts)
+  if (browser) {
+    const nav = (navigator.language || '').toLowerCase();
+    const cookieMatch = document.cookie.match(/(?:^|; )locale=(en|de)/);
+    let target: 'en' | 'de' = cookieMatch?.[1] as any || (nav.startsWith('de') ? 'de' : 'en');
+    if (!document.cookie.includes(`locale=${target}`)) {
+      document.cookie = `locale=${target}; Path=/; Max-Age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+    }
+    location.replace('/' + target);
+  }
 </script>
 
-<div></div>
+<noscript>
+  <main style="padding:2rem;font-family:system-ui,sans-serif;">
+    <h1>Choose Language / Sprache wählen</h1>
+    <p><a href="/en">English Version</a></p>
+    <p><a href="/de">Deutsche Version</a></p>
+  </main>
+</noscript>
 --- END OF FILE src\routes\+page.svelte ---
 
 --- START OF FILE src\routes\barrierefreiheit\+page.server.ts ---
@@ -7790,8 +8418,18 @@ export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => 
 
 --- START OF FILE src\routes\barrierefreiheit\+page.svelte ---
 <script lang="ts">
+  import { browser } from '$app/environment';
   import BackButton from '$lib/components/BackButton.svelte';
+  if (browser) {
+    // Canonical German page /de/barrierefreiheit; English -> /en/accessibility
+    const nav = (navigator.language || '').toLowerCase();
+    const locale: 'de' | 'en' = nav.startsWith('de') ? 'de' : 'en';
+    location.replace(locale === 'de' ? '/de/barrierefreiheit' : '/en/accessibility');
+  }
 </script>
+<noscript>
+  <p>Redirecting... <a href="/de/barrierefreiheit">/de/barrierefreiheit</a> | <a href="/en/accessibility">/en/accessibility</a></p>
+</noscript>
 
 <svelte:head>
   <title>Barrierefreiheit</title>
@@ -7831,8 +8469,18 @@ export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => 
 
 --- START OF FILE src\routes\datenschutz\+page.svelte ---
 <script lang="ts">
+  import { browser } from '$app/environment';
   import BackButton from '$lib/components/BackButton.svelte';
+  if (browser) {
+    // German canonical route lives at /de/datenschutz now; fallback to /en/privacy for non-German
+    const nav = (navigator.language || '').toLowerCase();
+    const locale: 'de' | 'en' = nav.startsWith('de') ? 'de' : 'en';
+    location.replace(locale === 'de' ? '/de/datenschutz' : '/en/privacy');
+  }
 </script>
+<noscript>
+  <p>Redirecting... <a href="/de/datenschutz">/de/datenschutz</a> | <a href="/en/privacy">/en/privacy</a></p>
+</noscript>
 
 <svelte:head>
   <title>Datenschutz</title>
@@ -7855,40 +8503,9 @@ export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => 
 
 --- START OF FILE src\routes\debug\locale\+server.ts ---
 // src/routes/debug/locale/+server.ts
-import type { RequestHandler } from './$types';
-import { json } from '@sveltejs/kit';
-import { decideLocale, extractCountryCodeFromHeaders, setVaryHeaders } from '$lib/server/locale';
-
-export const GET: RequestHandler = async ({ cookies, request, setHeaders, url }) => {
-  const acceptLanguage = request.headers.get('accept-language');
-  const countryCode = extractCountryCodeFromHeaders((name) => request.headers.get(name));
-  const cookieLocale = cookies.get('locale');
-  const resolved = decideLocale({ urlLocale: null, cookieLocale, acceptLanguage, countryCode });
-
-  setVaryHeaders(setHeaders);
-  setHeaders({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' });
-
-  return json({
-    resolvedLocale: resolved,
-    inputs: {
-      url: url.pathname,
-  urlLocale: null,
-      cookieLocale,
-      acceptLanguage,
-      countryCode
-    },
-    headers: {
-      'accept-language': acceptLanguage,
-      'cf-ipcountry': request.headers.get('cf-ipcountry'),
-      'x-vercel-ip-country': request.headers.get('x-vercel-ip-country'),
-      'fastly-geoip-country-code': request.headers.get('fastly-geoip-country-code'),
-      'x-fastly-country-code': request.headers.get('x-fastly-country-code'),
-      'x-country-code': request.headers.get('x-country-code'),
-      'x-geo-country': request.headers.get('x-geo-country'),
-      'x-nf-geo': request.headers.get('x-nf-geo')
-    }
-  });
-};
+// Debug locale server endpoint removed for static hosting; keeping file to avoid missing import errors.
+// Exporting prerender true so adapter-static treats this as a static no-op.
+export const prerender = true;
 
 --- END OF FILE src\routes\debug\locale\+server.ts ---
 
@@ -7911,8 +8528,18 @@ export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => 
 
 --- START OF FILE src\routes\impressum\+page.svelte ---
 <script lang="ts">
+  import { browser } from '$app/environment';
   import BackButton from '$lib/components/BackButton.svelte';
+  if (browser) {
+    // Canonical German page /de/impressum; English users go to /en/imprint
+    const nav = (navigator.language || '').toLowerCase();
+    const locale: 'de' | 'en' = nav.startsWith('de') ? 'de' : 'en';
+    location.replace(locale === 'de' ? '/de/impressum' : '/en/imprint');
+  }
 </script>
+<noscript>
+  <p>Redirecting... <a href="/de/impressum">/de/impressum</a> | <a href="/en/imprint">/en/imprint</a></p>
+</noscript>
 
 <svelte:head>
   <title>Impressum</title>
@@ -7938,7 +8565,7 @@ export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => 
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ArrowLeft } from 'lucide-svelte';
-  // --- MODIFICATION: Import the new transition store ---
+  import { page } from '$app/stores';
   import { transitionStore } from '$lib/stores/transitionStore';
 
   let showButton = false;
@@ -7952,16 +8579,7 @@ export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => 
   });
 
   function handleBackClick() {
-    // Determine project id based on slug param
-    // Access $page not available here (no import) so replicate via URL parsing as fallback
-    let projectId: string | null = null;
-    try {
-      const path = window.location.pathname; // /projects/{slug}
-      const parts = path.split('/');
-      const slug = parts[parts.length - 1];
-      if (slug === 'BURA') projectId = 'project-one';
-      else if (slug === 'Project2') projectId = 'project-two';
-    } catch {}
+    const projectId = ($page.data as any).projectId as string | null;
     const hash = projectId ? `#project-${projectId}` : '';
     transitionStore.fadeToBlackAndNavigate(`/${hash}`);
   }
@@ -8026,6 +8644,24 @@ export const load: PageServerLoad = async ({ cookies, request, setHeaders }) => 
   }
 </style>
 --- END OF FILE src\routes\projects\[slug]\+layout.svelte ---
+
+--- START OF FILE src\routes\projects\[slug]\+layout.ts ---
+// src/routes/projects/[slug]/+layout.ts
+import type { LayoutLoad } from './$types';
+import { getProjects } from '$lib/data/projectsData';
+
+// Assume default locale is 'en' for root (adjust if different in your setup)
+const DEFAULT_LOCALE = 'en';
+
+export const load: LayoutLoad = ({ params }) => {
+  const slug = params.slug;
+  const project = getProjects(DEFAULT_LOCALE).find(p => p.slug === slug);
+  return {
+    projectId: project?.id ?? null
+  };
+};
+
+--- END OF FILE src\routes\projects\[slug]\+layout.ts ---
 
 --- START OF FILE src\routes\projects\[slug]\+page.svelte ---
 <!-- src/routes/projects/[slug]/+page.svelte -->
@@ -8366,8 +9002,8 @@ export const load: PageLoad = ({ params }) => {
 	import { writable, get } from 'svelte/store';
 		import { siteConfig } from '$lib/data/siteConfig';
 		import { page } from '$app/stores';
-	import { getProjects, type Project, type Locale } from '$lib/data/projectsData';
-	import { initialSiteLoadComplete, preloadAssets } from '$lib/stores/preloadingStore';
+	import { getProjects, getAboutContent, getContactContent, type Project, type Locale, type AboutContent } from '$lib/data/projectsData';
+	import { initialSiteLoadComplete } from '$lib/stores/preloadingStore';
 	import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
 	import { renderProfile } from '$lib/stores/renderProfile';
 	import { gsap } from 'gsap';
@@ -8396,32 +9032,42 @@ export const load: PageLoad = ({ params }) => {
 	let currentLocale: Locale;
 	$: currentLocale = ((($page.params as any)?.lang === 'de') ? 'de' : 'en');
 	$: localizedProjects = getProjects(currentLocale);
+	// Pull localized static content for About & Contact (must be reactive for language switch)
+	let baseAboutContent = getAboutContent(currentLocale);
+	let baseContactContent = getContactContent(currentLocale);
+	$: if (currentLocale) {
+		baseAboutContent = getAboutContent(currentLocale);
+		baseContactContent = getContactContent(currentLocale);
+	}
 	$: allSectionsData = [
 		{ id: 'hero', component: HeroSection, data: siteConfig.heroSection, layout: null },
-		{ id: 'about', component: AboutSection, data: siteConfig.aboutSection, layout: null },
+		{ id: 'about', component: AboutSection, data: baseAboutContent, layout: null },
 		{ id: `project-${localizedProjects[0].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[0] },
 		{ id: `project-${localizedProjects[1].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[1] },
-		{ id: 'contact', component: ContactSection, data: siteConfig.contactSection, layout: null }
+		{ id: 'contact', component: ContactSection, data: baseContactContent, layout: null }
 	];
-	const contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
+	let contactSectionIndex: number = allSectionsData.findIndex(s => s.id === 'contact');
+	$: contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
 
-		// Localized data overrides for About and Contact
-		let aboutData: typeof siteConfig.aboutSection = siteConfig.aboutSection;
-		let contactData: typeof siteConfig.contactSection = siteConfig.contactSection;
-		$: {
+		// Localized data overrides (recompute when base content or translation messages change)
+		let aboutData = { ...baseAboutContent };
+		let contactData = { ...baseContactContent };
+		$: if (baseAboutContent && baseContactContent) {
 			const common = ($page.data as any)?.messages?.common;
+			aboutData = { ...baseAboutContent };
+			contactData = { ...baseContactContent };
 			if (common?.about) {
 				aboutData = {
-					...siteConfig.aboutSection,
-					title: common.about.title ?? siteConfig.aboutSection.title,
-					introduction: common.about.introduction ?? siteConfig.aboutSection.introduction
+					...aboutData,
+					title: common.about.title ?? aboutData.title,
+					introduction: common.about.introduction ?? aboutData.introduction
 				};
 			}
 			if (common?.contact) {
 				contactData = {
-					...siteConfig.contactSection,
-					title: common.contact.title ?? siteConfig.contactSection.title,
-					outroMessage: common.contact.outroMessage ?? siteConfig.contactSection.outroMessage
+					...contactData,
+					title: common.contact.title ?? contactData.title,
+					outroMessage: common.contact.outroMessage ?? contactData.outroMessage
 				};
 			}
 		}
@@ -8560,109 +9206,32 @@ export const load: PageLoad = ({ params }) => {
 		heroReadyResolver = resolve;
 	});
 
-	// The HYBRID Preload Manager
-	const preloadManager = {
-		async updateNeighborStates(activeIndex: number) {
-			const currentStates = get(sectionStatesStore);
-			const desiredStates: SectionState[] = allSectionsData.map((_, i) => {
-				if (i === activeIndex) return 'ACTIVE';
-				if (i === activeIndex - 1 || i === activeIndex + 1) return 'READY';
-				return 'COOLDOWN';
+	// Phase 1: extracted legacy preload manager -> LegacySectionScheduler
+	import { LegacySectionScheduler } from '$lib/preload/sectionScheduler';
+	let legacyScheduler: LegacySectionScheduler | null = null;
+
+	function ensureScheduler() {
+		if (!legacyScheduler) {
+			legacyScheduler = new LegacySectionScheduler({
+				sections: allSectionsData as any,
+				sectionElements,
+				sectionInstances,
+				contactSectionIndex
+			}, { debug: false });
+		} else {
+			legacyScheduler.updateEnv({
+				sections: allSectionsData as any,
+				sectionElements,
+				sectionInstances,
+				contactSectionIndex
 			});
-
-			const tasks: Promise<void>[] = [];
-
-			for (let i = 0; i < allSectionsData.length; i++) {
-				const currentState = currentStates[i];
-				const desiredState = desiredStates[i];
-
-				if (currentState !== desiredState) {
-					if ((currentState === 'IDLE' || currentState === 'COOLDOWN') && desiredState === 'READY') {
-						tasks.push(this.prepareSection(i));
-					}
-					if (currentState === 'READY' && desiredState === 'COOLDOWN') {
-						tasks.push(this.coolDownSection(i));
-					}
-				}
-			}
-      
-			sectionStatesStore.update(states => {
-				states[activeIndex] = 'ACTIVE';
-				return states;
-			});
-
-			await Promise.all(tasks);
-		},
-    
-		async prepareSection(index: number) {
-			const currentState = get(sectionStatesStore)[index];
-			if (currentState !== 'IDLE' && currentState !== 'COOLDOWN') return;
-      
-			const sectionInfo = allSectionsData[index];
-			const instance = sectionInstances.get(sectionInfo.id);
-			const element = sectionElements[index];
-
-			if (!instance || !element) return;
-
-			sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
-
-			const urls = this.getSectionAssetUrls(index);
-			if (urls.length > 0) await preloadAssets(urls);
-      
-			if (instance.initializeEffect) await instance.initializeEffect();
-      
-			if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
-				gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
-				instance.onEnterSection();
-				instance.onTransitionComplete?.();
-				await new Promise(resolve => setTimeout(resolve, 200));
-				instance.onLeaveSection();
-				gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-			} else if (sectionInfo.id.startsWith('project-')) {
-				gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
-				await new Promise(resolve => requestAnimationFrame(resolve));
-				await new Promise(resolve => requestAnimationFrame(resolve));
-				gsap.set(element, { yPercent: 100, autoAlpha: 0 });
-			}
-      
-			sectionStatesStore.update(states => { states[index] = 'READY'; return states; });
-		},
-
-		async coolDownSection(index: number) {
-			const sectionId = allSectionsData[index].id;
-			sectionStatesStore.update(states => { states[index] = 'COOLDOWN'; return states; });
-      
-			const instance = sectionInstances.get(sectionId);
-			instance?.onUnload?.();
-      
-			sectionStatesStore.update(states => { states[index] = 'IDLE'; return states; });
-		},
-
-		getSectionAssetUrls(index: number): string[] {
-			if (index < 0 || index >= allSectionsData.length) return [];
-			const section = allSectionsData[index];
-			let urls: string[] = [];
-			if (section.id === 'about') {
-				urls.push((section.data as typeof siteConfig.aboutSection).imageUrl);
-			} else if (section.id.startsWith('project-')) {
-				const p = section.data as Project;
-				if (p.backgrounds && p.backgrounds.length > 0) {
-					urls.push(p.backgrounds[0].value);
-					if (p.backgrounds.length > 1) urls.push(p.backgrounds[1].value);
-				}
-				p.cards.forEach(card => {
-					if (card.cardImage) urls.push(card.cardImage);
-				});
-			}
-			return urls.filter(Boolean);
-		},
-	};
+		}
+		return legacyScheduler;
+	}
 
 	function handleAnimationComplete() {
-		const nextNeighborIndex = get(currentSectionIndex) + 2;
-		if(nextNeighborIndex < allSectionsData.length) {
-			preloadManager.prepareSection(nextNeighborIndex);
-		}
+		// Phase 2: use predictive warmup instead of static +2 preload
+		ensureScheduler().predictiveWarmup(get(currentSectionIndex));
 	}
 
 	async function handleVisibilityChange() {
@@ -8688,7 +9257,8 @@ export const load: PageLoad = ({ params }) => {
 					currentInstance.onTransitionComplete?.();
 				});
 				isTabHiddenAndPaused = false;
-				preloadManager.updateNeighborStates(currentIndex);
+				ensureScheduler().updateNeighborStates(currentIndex);
+				ensureScheduler().predictiveWarmup(currentIndex);
 			}
 		}
 	}
@@ -8748,26 +9318,31 @@ export const load: PageLoad = ({ params }) => {
 					navActiveIndex.set(targetIdx);
 					setActiveSectionInert(targetIdx);
 					announceSection(targetIdx);
-					// Kick section instance lifecycle
+					// Eagerly initialize heavy effect (todo 20) before lifecycle enter/complete to avoid first-frame pop-in
 					const secId = allSectionsData[targetIdx].id;
 					const inst = sectionInstances.get(secId);
+					if (inst?.initializeEffect) {
+						try { await inst.initializeEffect(); } catch {}
+					}
 					inst?.onEnterSection();
 					requestAnimationFrame(() => inst?.onTransitionComplete?.());
 				}
 
 			const setupInitialLoad = async () => {
 				if (!isDeepLinkStart) {
-					await Promise.all([heroReadyPromise, preloadManager.prepareSection(1)]);
-					preloadManager.updateNeighborStates(0);
+					await Promise.all([heroReadyPromise, ensureScheduler().prepareSection(1)]);
+					ensureScheduler().updateNeighborStates(0);
+					ensureScheduler().predictiveWarmup(0);
 					initialSiteLoadComplete.set(true);
 				} else if (initialHashTargetIndex && initialHashTargetIndex > 0) {
 					// Preload neighbors of target section instead of hero neighbors
 					const t = initialHashTargetIndex;
 					const preloadPromises: Promise<void>[] = [];
-					if (t - 1 >= 0) preloadPromises.push(preloadManager.prepareSection(t - 1));
-					if (t + 1 < allSectionsData.length) preloadPromises.push(preloadManager.prepareSection(t + 1));
+					if (t - 1 >= 0) preloadPromises.push(ensureScheduler().prepareSection(t - 1));
+					if (t + 1 < allSectionsData.length) preloadPromises.push(ensureScheduler().prepareSection(t + 1));
 					await Promise.all(preloadPromises);
-					preloadManager.updateNeighborStates(t);
+					ensureScheduler().updateNeighborStates(t);
+					ensureScheduler().predictiveWarmup(t);
 					initialSiteLoadComplete.set(true);
 					// Immediately end initial reveal state
 					isInitialReveal.set(false);
@@ -8834,18 +9409,35 @@ export const load: PageLoad = ({ params }) => {
 		setTimeout(() => {
 			if (heroSectionInstance) {
 				heroSectionInstance.onTransitionToHeroComplete();
-				preloadManager.prepareSection(2);
+				ensureScheduler().predictiveWarmup(0);
 			}
 			setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
 		}, initialRevealDelay);
 	}
   
-	function navigateToSection(newIndex: number) { 
+	async function navigateToSection(newIndex: number) { 
 		if (get(isInitialReveal)) return; 
 		const oldIndex = get(currentSectionIndex); 
 		if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
+		// If jumping more than one section ahead/behind, proactively preload target before animating
+		if (Math.abs(newIndex - oldIndex) > 1) {
+			const targetId = allSectionsData[newIndex].id;
+			const targetInstance = sectionInstances.get(targetId);
+			try { await ensureScheduler().prepareSection(newIndex); } catch {}
+			// Make sure instance map has updated (in rare cases of dynamic data)
+			if (targetInstance && targetInstance.initializeEffect) {
+				try { await targetInstance.initializeEffect(); } catch {}
+			}
+		}
 		// Update dots immediately to animate grow/shrink during transition
 		navActiveIndex.set(newIndex);
+
+		// Ensure target section is at least initialized if preload state was skipped (robustness)
+		const targetId = allSectionsData[newIndex].id;
+		const targetInstance = sectionInstances.get(targetId);
+		if (targetInstance && targetInstance.initializeEffect) {
+			try { targetInstance.initializeEffect(); } catch {}
+		}
     
 		isAnimating.set(true); 
 		isTransitioning.set(true); 
@@ -8868,9 +9460,12 @@ export const load: PageLoad = ({ params }) => {
 		const masterTransitionTl = gsap.timeline({ 
 			onComplete: () => { 
 				currentSectionIndex.set(newIndex); 
+				// Record navigation for direction-aware prediction
+				ensureScheduler().recordNavigation(newIndex);
 				isTransitioning.set(false);
 				isLeavingHero.set(false);
-				preloadManager.updateNeighborStates(newIndex);
+				ensureScheduler().updateNeighborStates(newIndex);
+				ensureScheduler().predictiveWarmup(newIndex);
 				requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
 				if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
 					 heroSectionInstance.onTransitionToHeroComplete();
@@ -8885,8 +9480,7 @@ export const load: PageLoad = ({ params }) => {
 		gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
 		masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
 		masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
-    
-    masterTransitionTl.call(() => {
+		masterTransitionTl.call(() => {
 				sectionBackgroundZooms[newIndex]?.restart();
 		}, [], `slide+=${transitionDuration * 0.1}`);
 
@@ -9041,7 +9635,8 @@ export const load: PageLoad = ({ params }) => {
 			on:touchend|passive={onTouchEnd}
 		>
 		<section id="hero" class="full-screen-section hero-section-container">
-			<div class="section-focus-sentinel sr-only" tabindex="-1" aria-label="Start of hero section"></div>
+			<!-- Focus sentinel: remove invalid aria-label on generic div; hide from AT but keep focusable -->
+			<div class="section-focus-sentinel sr-only" tabindex="-1" aria-hidden="true"></div>
 		</section>
 
 		{#each allSectionsData.slice(1) as section, i (section.id)}
@@ -9049,8 +9644,8 @@ export const load: PageLoad = ({ params }) => {
 				id={section.id} 
 				class="full-screen-section"
 			>
-				<!-- Invisible sentinel for accessible, non-distracting programmatic focus -->
-				<div class="section-focus-sentinel sr-only" tabindex="-1" aria-label={`Start of ${section.id} section`}></div>
+				<!-- Invisible focus target (no aria-label on generic element) -->
+				<div class="section-focus-sentinel sr-only" tabindex="-1" aria-hidden="true"></div>
 				{#if section.id === 'about'}
 					<AboutSection
 						bind:this={sectionInstancesArray[i + 1]}
@@ -9075,7 +9670,7 @@ export const load: PageLoad = ({ params }) => {
 								<ContactSection
 						bind:this={sectionInstancesArray[i + 1]}
 									data={contactData}
-								emailLabel={(($page.data as any)?.messages?.common?.contact?.emailLabel) ?? undefined}
+										socialLinks={aboutData.socialLinks}
 						on:animationComplete={handleAnimationComplete}
 					/>
 				{/if}
@@ -9246,7 +9841,7 @@ export const load: PageLoad = ({ params }) => {
     <section id="feedback" class="legal-section" aria-labelledby="feedback-heading">
       <h2 id="feedback-heading">Feedback and contact</h2>
   <p>If you encounter any accessibility barriers not listed here, please contact me:</p>
-  <p>Email: <a class="link" href="mailto:mika38159@gmail.com">mika38159@gmail.com</a>. I aim to respond within 5 business days.</p>
+  <p>Email: <a class="link" href="mailto:mika.mueller.work@gmail.com">mika.mueller.work@gmail.com</a>. I aim to respond within 5 business days.</p>
     </section>
 
     <section id="technical" class="legal-section" aria-labelledby="technical-heading">
@@ -9387,7 +9982,7 @@ export const load: PageLoad = ({ params }) => {
     <section id="feedback" class="legal-section" aria-labelledby="feedback-heading">
       <h2 id="feedback-heading">Feedback und Kontakt</h2>
   <p>Wenn Sie auf Barrieren stoßen, die hier nicht aufgeführt sind, melden Sie sich bitte:</p>
-  <p>E‑Mail: <a class="link" href="mailto:mika38159@gmail.com">mika38159@gmail.com</a>. Ich versuche, innerhalb von 5 Werktagen zu antworten.</p>
+  <p>E‑Mail: <a class="link" href="mailto:mika.mueller.work@gmail.com">mika.mueller.work@gmail.com</a>. Ich versuche, innerhalb von 5 Werktagen zu antworten.</p>
     </section>
 
     <section id="technisch" class="legal-section" aria-labelledby="technisch-heading">
@@ -9478,7 +10073,7 @@ export const load: PageLoad = ({ params }) => {
         <span>Weinbergstraße 16a</span><br />
         <span>38159 Vechelde</span><br />
         <span>Deutschland</span></p>
-        <p>E-Mail: <a href="mailto:mika38159@gmail.com" class="link">mika38159@gmail.com</a></p>
+  <p>E-Mail: <a href="mailto:mika.mueller.work@gmail.com" class="link">mika.mueller.work@gmail.com</a></p>
       </address>
     </header>
 
@@ -9663,7 +10258,7 @@ export const load: PageLoad = async ({ params, url }) => {
 
     <section id="kontakt" class="legal-section" aria-labelledby="kontakt-heading">
       <h2 id="kontakt-heading">Kontakt</h2>
-  <p>E‑Mail: <a href="mailto:mika38159@gmail.com" class="link">mika38159@gmail.com</a></p>
+  <p>E‑Mail: <a href="mailto:mika.mueller.work@gmail.com" class="link">mika.mueller.work@gmail.com</a></p>
     </section>
 
     
@@ -9797,7 +10392,7 @@ export const load: PageLoad = async ({ params }) => {
 
     <section id="contact" class="legal-section" aria-labelledby="contact-heading">
       <h2 id="contact-heading">Contact</h2>
-  <p>Email: <a href="mailto:mika38159@gmail.com" class="link">mika38159@gmail.com</a></p>
+  <p>Email: <a href="mailto:mika.mueller.work@gmail.com" class="link">mika.mueller.work@gmail.com</a></p>
     </section>
 
     
@@ -9925,7 +10520,7 @@ export const load: PageLoad = async ({ params }) => {
         <span>Weinbergstraße 16a</span><br />
         <span>38159 Vechelde</span><br />
         <span>Germany</span></p>
-        <p>Email: <a href="mailto:mika38159@gmail.com" class="link">mika38159@gmail.com</a></p>
+  <p>Email: <a href="mailto:mika.mueller.work@gmail.com" class="link">mika.mueller.work@gmail.com</a></p>
       </address>
     </header>
 
@@ -10060,21 +10655,8 @@ export const load: PageLoad = async ({ params }) => {
   });
 
   function handleBackClick() {
-    const lang = $page.params.lang ?? 'de';
-    // Map slug back to project id used on main page section IDs (project-{id})
-    // We can derive id by inspecting slug param vs known patterns. For now assume slug exactly matches Project.slug.
-    // Need to load project list for current locale to find matching project object.
-    try {
-      // Dynamic import to avoid adding heavy data eagerly
-      const locale: 'en' | 'de' = lang === 'de' ? 'de' : 'en';
-      // @ts-ignore - dynamic require via import.meta.glob could be used; simple synchronous assumption here
-    } catch {}
-    // Minimal inline mapping approach: replicate logic cheaply
-    // We only need id for hash; slug is unique so we can hardcode mapping for existing projects.
-    const slug = ($page.params as any).slug;
-    let projectId: string | null = null;
-    if (slug === 'BURA') projectId = 'project-one';
-    else if (slug === 'Project2') projectId = 'project-two';
+    const lang = $page.params.lang === 'de' ? 'de' : 'en';
+    const projectId = ($page.data as any).projectId as string | null;
     const hash = projectId ? `#project-${projectId}` : '';
     transitionStore.fadeToBlackAndNavigate(`/${lang}${hash}`);
   }
@@ -10110,6 +10692,24 @@ export const load: PageLoad = async ({ params }) => {
 </style>
 
 --- END OF FILE src\routes\[lang=lang]\projects\[slug]\+layout.svelte ---
+
+--- START OF FILE src\routes\[lang=lang]\projects\[slug]\+layout.ts ---
+// src/routes/[lang=lang]/projects/[slug]/+layout.ts
+import type { LayoutLoad } from './$types';
+import { getProjects, type Locale } from '$lib/data/projectsData';
+
+export const load: LayoutLoad = ({ params }) => {
+  const langParam = params.lang === 'de' ? 'de' : 'en';
+  const locale = langParam as Locale;
+  const slug = params.slug;
+  const project = getProjects(locale).find(p => p.slug === slug);
+  return {
+    projectId: project?.id ?? null,
+    locale
+  };
+};
+
+--- END OF FILE src\routes\[lang=lang]\projects\[slug]\+layout.ts ---
 
 --- START OF FILE src\routes\[lang=lang]\projects\[slug]\+page.svelte ---
 <script lang="ts">

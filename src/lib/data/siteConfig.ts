@@ -17,8 +17,8 @@ export interface LegalLink {
 }
 
 export const siteConfig = {
-  title: "Your Name - Data Scientist Portfolio",
-  author: "Your Name",
+  title: "Miká Müller - Data Scientist Portfolio",
+  author: "Miká Müller",
   description: "A portfolio showcasing data science projects and expertise.",
 
   heroSection: {

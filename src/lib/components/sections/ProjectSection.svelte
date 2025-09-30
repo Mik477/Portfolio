@@ -3,11 +3,12 @@
   export type ProjectSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
+    initializeEffect?: () => Promise<void>;
   };
 </script>
 
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
+  import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import { gsap } from 'gsap';
   import type { Project } from '$lib/data/projectsData';
 
@@ -24,20 +25,68 @@
   let activeLayer: 'A' | 'B' = 'A';
   let cycleTimer: number | undefined;
   let isCycling = false;
+  let isInitialized = false;
+  let initializationPromise: Promise<void> | null = null;
+
+  const decodedImagePromises = new Map<string, Promise<void>>();
+
+  function loadAndDecodeImage(src: string | undefined): Promise<void> {
+    if (!src) return Promise.resolve();
+    const existing = decodedImagePromises.get(src);
+    if (existing) return existing;
+
+    const promise = new Promise<void>((resolve, reject) => {
+      const img = new Image();
+      img.decoding = 'async';
+      let settled = false;
+
+      const markLoaded = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      const markError = () => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(`Failed to load project background: ${src}`));
+      };
+
+      img.onload = markLoaded;
+      img.onerror = markError;
+      img.src = src;
+
+      if (typeof img.decode === 'function') {
+        img
+          .decode()
+          .then(markLoaded)
+          .catch(() => {
+            if (img.complete && img.naturalWidth > 0) {
+              markLoaded();
+            }
+          });
+      }
+    })
+      .catch(error => {
+        decodedImagePromises.delete(src);
+        throw error;
+      });
+
+    decodedImagePromises.set(src, promise);
+    return promise;
+  }
 
   function preloadNextImage() {
     if (project.backgrounds.length < 2) return;
     const nextIndex = (currentImageIndex + 1) % project.backgrounds.length;
     const nextImageSrc = project.backgrounds[nextIndex].value;
-    const img = new Image();
-    img.src = nextImageSrc;
+    void loadAndDecodeImage(nextImageSrc);
   }
 
   /**
    * REWRITTEN & CORRECTED: Handles the core cross-fade and continuous zoom logic.
    * This version ensures the outgoing layer continues its zoom during the fade.
    */
-  function transitionToNextImage() {
+  async function transitionToNextImage() {
     if (project.backgrounds.length < 2 || !isCycling) return;
 
     // 1. Identify layers and get the next image in the sequence.
@@ -47,6 +96,12 @@
     
     currentImageIndex = (currentImageIndex + 1) % project.backgrounds.length;
     const nextImageSrc = project.backgrounds[currentImageIndex].value;
+
+    try {
+      await loadAndDecodeImage(nextImageSrc);
+    } catch (error) {
+      console.warn(error);
+    }
     
     // --- PRELOADING FIX ---
     // Start preloading the *next* image immediately, so it's ready for the subsequent transition.
@@ -64,39 +119,86 @@
     const nextTransitionDelay = (totalLifetime - crossfadeDuration) * 1000;
 
     // 5. Set up the INCOMING (hidden) layer.
-    gsap.set(hiddenLayer, { 
-      backgroundImage: `url(${nextImageSrc})`, 
-      scale: 1, 
-      opacity: 0 
+    if (!hiddenLayer || !visibleLayer) return;
+
+    gsap.set(hiddenLayer, {
+      backgroundImage: `url(${nextImageSrc})`,
+      scale: 1,
+      opacity: 0
     });
 
-    // 6. Animate the INCOMING layer.
-    gsap.to(hiddenLayer, {
-      scale: 'var(--image-zoom-amount)',
-      ease: 'none',
-      duration: totalZoomDuration
-    });
-    gsap.to(hiddenLayer, {
-      opacity: 1,
-      ease: 'power2.inOut',
-      duration: crossfadeDuration
-    });
+    requestAnimationFrame(() => {
+      gsap.to(hiddenLayer, {
+        scale: 'var(--image-zoom-amount)',
+        ease: 'none',
+        duration: totalZoomDuration
+      });
+      gsap.to(hiddenLayer, {
+        opacity: 1,
+        ease: 'power2.inOut',
+        duration: crossfadeDuration
+      });
 
-    // 7. Animate the OUTGOING layer.
-    gsap.to(visibleLayer, {
-      opacity: 0,
-      ease: 'power2.inOut',
-      duration: crossfadeDuration,
-      onComplete: () => {
-        gsap.killTweensOf(visibleLayer);
-        gsap.set(visibleLayer, { opacity: 0 });
-        activeLayer = activeLayer === 'A' ? 'B' : 'A';
-        cycleTimer = window.setTimeout(transitionToNextImage, nextTransitionDelay);
-      }
+      gsap.to(visibleLayer, {
+        opacity: 0,
+        ease: 'power2.inOut',
+        duration: crossfadeDuration,
+        onComplete: () => {
+          gsap.killTweensOf(visibleLayer);
+          gsap.set(visibleLayer, { opacity: 0 });
+          activeLayer = activeLayer === 'A' ? 'B' : 'A';
+          cycleTimer = window.setTimeout(() => { void transitionToNextImage(); }, nextTransitionDelay);
+        }
+      });
     });
   }
 
+  async function ensureInitialized() {
+    if (isInitialized || initializationPromise) {
+      return initializationPromise ?? Promise.resolve();
+    }
+
+    initializationPromise = (async () => {
+      await tick();
+      const initialImageSrc = project.backgrounds[currentImageIndex]?.value;
+      if (!initialImageSrc) return;
+
+      try {
+        await loadAndDecodeImage(initialImageSrc);
+      } catch (error) {
+        console.warn(error);
+      }
+
+  const layers = { A: bgLayerA, B: bgLayerB };
+  activeLayer = 'A';
+  const visibleLayer = layers[activeLayer];
+  const hiddenLayer = activeLayer === 'A' ? layers.B : layers.A;
+
+      if (visibleLayer) {
+        gsap.set(visibleLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 1, scale: 1 });
+      }
+      if (hiddenLayer) {
+        gsap.set(hiddenLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 0, scale: 1 });
+      }
+
+      if (project.backgrounds.length > 1) {
+        void loadAndDecodeImage(project.backgrounds[1].value);
+      }
+
+      isInitialized = true;
+    })().finally(() => {
+      initializationPromise = null;
+    });
+
+    return initializationPromise;
+  }
+
+  export function initializeEffect() {
+    return ensureInitialized();
+  }
+
   export function onEnterSection() {
+    void ensureInitialized();
     const initialImageSrc = project.backgrounds[currentImageIndex].value;
     const layers = { A: bgLayerA, B: bgLayerB };
     const visibleLayer = layers[activeLayer];
@@ -109,7 +211,7 @@
       preloadNextImage();
       
       const entryZoomDuration = parseFloat(getComputedStyle(sectionWrapperEl).getPropertyValue('--entry-zoom-duration'));
-      cycleTimer = window.setTimeout(transitionToNextImage, entryZoomDuration * 1000);
+      cycleTimer = window.setTimeout(() => { void transitionToNextImage(); }, entryZoomDuration * 1000);
     }
     
     const headline = sectionWrapperEl.querySelector('.anim-headline');
@@ -196,6 +298,7 @@
     height: 100%;
     z-index: 0;
     transform: scale(1); /* Target for the orchestrator's initial dramatic zoom */
+    will-change: transform;
   }
 
   .bg-layer {
@@ -207,6 +310,7 @@
     background-size: cover;
     background-position: center;
     transform: scale(1); /* Target for the component's internal linear zoom */
+    will-change: transform, opacity;
   }
 
   .background-zoom-target::after {

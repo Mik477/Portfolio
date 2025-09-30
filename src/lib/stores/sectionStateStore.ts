@@ -9,7 +9,14 @@ import { writable } from 'svelte/store';
  * - ACTIVE: Currently visible to the user.
  * - COOLDOWN: No longer a neighbor, can be unloaded to free resources.
  */
-export type SectionState = 'IDLE' | 'PRELOADING' | 'READY' | 'ACTIVE' | 'COOLDOWN';
+export type SectionState =
+	| 'IDLE'
+	| 'FETCHING_ASSETS'  // newly added: network / decode stage
+	| 'EFFECT_INIT'      // newly added: GPU / effect init stage
+	| 'PRELOADING'       // legacy alias transitional (will be phased out)
+	| 'READY'
+	| 'ACTIVE'
+	| 'COOLDOWN';
 
 /**
  * A writable store that holds an array of states, one for each section

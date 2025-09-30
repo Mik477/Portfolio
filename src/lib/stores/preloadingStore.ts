@@ -33,14 +33,14 @@ export const initialSiteLoadComplete = writable<boolean>(false);
 export const loadingProgress = derived(tasks, $tasks => {
   const allTasksArray = Object.values($tasks);
   if (allTasksArray.length === 0) return 0;
-  
+
   let totalWeight = 0;
   let weightedProgress = 0;
-  
+
   allTasksArray.forEach(task => {
     const weight = task.priority || 1;
     totalWeight += weight;
-    
+
     let taskProgress = 0;
     switch (task.status) {
       case 'loaded': taskProgress = 1; break;
@@ -48,10 +48,10 @@ export const loadingProgress = derived(tasks, $tasks => {
       case 'loading': taskProgress = task.progress || 0.5; break;
       default: taskProgress = 0; break;
     }
-    
+
     weightedProgress += taskProgress * weight;
   });
-  
+
   return totalWeight > 0 ? weightedProgress / totalWeight : 0;
 });
 
@@ -163,15 +163,37 @@ export async function preloadAssets(urls: string[]): Promise<void> {
       // Basic image preloader
       if (/\.(jpg|jpeg|png|webp|gif|svg)$/i.test(url)) {
         const img = new Image();
-        img.src = url;
-        img.onload = () => {
+        img.decoding = 'async';
+        let settled = false;
+
+        const markLoaded = () => {
+          if (settled) return;
+          settled = true;
           preloadingStore.setAssetStatus(url, 'loaded');
           resolve(url);
         };
-        img.onerror = () => {
+
+        const markError = () => {
+          if (settled) return;
+          settled = true;
           preloadingStore.setAssetStatus(url, 'error');
           reject(new Error(`Failed to load image: ${url}`));
         };
+
+        img.onload = markLoaded;
+        img.onerror = markError;
+        img.src = url;
+
+        if (typeof img.decode === 'function') {
+          img
+            .decode()
+            .then(markLoaded)
+            .catch(() => {
+              if (img.complete && img.naturalWidth > 0) {
+                markLoaded();
+              }
+            });
+        }
       } 
       // Basic font preloader (for .json from FontLoader)
       else if (/\.json$/i.test(url)) {
