@@ -93,14 +93,47 @@ Main page uses an **Orchestrator Pattern**. Root page (`src/routes/[lang=lang]/+
 
 #### Core subsystems and responsibilities
 
-| Subsystem | Location | Consumes | Emits | Responsibilities |
-| --- | --- | --- | --- | --- |
-| Orchestrator | `src/routes/[lang=lang]/+page.svelte` | User input events, router params, writable stores | Lifecycle hook calls, store updates, scheduler instructions | Tracks the active section index, owns the GSAP transition timeline, forwards lifecycle calls (`onEnterSection`, `onLeaveSection`, `onTransitionComplete`, `onUnload`), keeps accessibility state in sync (focus, inert, announcements). |
-| Section components | `src/lib/components/sections/*.svelte` | Lifecycle hook calls, localized data, render profile flags | GSAP timelines, WebGL scene handles, completion promises | Implement the Animation Lifecycle API, create per-section GSAP timelines and Three.js effects, expose cleanup hooks so the orchestrator can pause, resume, or dispose them deterministically. |
-| Layout injections | `src/lib/components/layouts/*.svelte` | Slot props from wrapper components | Static markup / scoped styles | Provide presentation-only structures (cards, copy, CTAs) that slot into functional wrappers like `ProjectSection.svelte`, keeping data flow unidirectional. |
-| Predictive preload scheduler | `src/lib/preload/sectionScheduler.ts` | Section descriptors, `sectionStates`, navigation history | Asset prefetch tasks, `initializeEffect` invocations, unload signals | Uses prediction strategies to stage asset downloads via `preloadingStore`, initialise heavy effects just-in-time, and trigger `onUnload` for distant sections so GPU memory stays within budget. |
-| Global stores | `src/lib/stores/*.ts` | Updates from orchestrator and scheduler | Derived state for UI, preload metrics, booleans for feature toggles | `preloadingStore` caches asset status and reports loading progress, `sectionStateStore` models each section’s lifecycle, `renderProfile` broadcasts environment flags, `schedulerMetricsStore` captures timing data for debugging. |
-| Three.js utilities | `src/lib/three/*` | Configuration from sections (shader uniforms, geometry specs) | Instantiated scenes, cleanup callbacks | Encapsulate reusable WebGL constructs (Bloom, particle systems) so sections can initialise and dispose scenes predictably without duplicating low-level Three.js code. |
+Orchestrator
+
+- Location: `src/routes/[lang=lang]/+page.svelte`
+- Consumes: user input events, router params, writable stores
+- Emits: lifecycle hook calls, store updates, scheduler instructions
+- Responsibilities: track active section index; own GSAP transition timeline; forward lifecycle hooks (`onEnterSection`, `onLeaveSection`, `onTransitionComplete`, `onUnload`); keep accessibility state in sync (focus, inert, announcements).
+
+Section components
+
+- Location: `src/lib/components/sections/*.svelte`
+- Consumes: lifecycle hook calls, localized data, render profile flags
+- Emits: GSAP timelines, WebGL scene handles, completion promises
+- Responsibilities: implement Animation Lifecycle API; build per‑section GSAP timelines + Three.js effects; expose cleanup so orchestrator can pause/resume/dispose deterministically.
+
+Layout injections
+
+- Location: `src/lib/components/layouts/*.svelte`
+- Consumes: slot props from wrapper components
+- Emits: static markup / scoped styles
+- Responsibilities: presentational structure (cards, copy, CTAs) inserted into functional wrappers (e.g. `ProjectSection.svelte`) keeping data flow unidirectional.
+
+Predictive preload scheduler
+
+- Location: `src/lib/preload/sectionScheduler.ts`
+- Consumes: section descriptors, `sectionStates`, navigation history
+- Emits: asset prefetch tasks, `initializeEffect` calls, unload signals
+- Responsibilities: predict next sections; stage asset downloads via `preloadingStore`; initialise heavy effects just‑in‑time; trigger `onUnload` for distant sections to manage GPU memory.
+
+Global stores
+
+- Location: `src/lib/stores/*.ts`
+- Consumes: updates from orchestrator and scheduler
+- Emits: derived UI state, preload metrics, feature toggles
+- Responsibilities: `preloadingStore` caches asset status & progress; `sectionStateStore` tracks lifecycle; `renderProfile` broadcasts environment flags; `schedulerMetricsStore` records timing for debugging.
+
+Three.js utilities
+
+- Location: `src/lib/three/*`
+- Consumes: configuration from sections (shader uniforms, geometry specs)
+- Emits: instantiated scenes, cleanup callbacks
+- Responsibilities: encapsulate reusable WebGL constructs (bloom, particle systems) so sections initialise/dispose scenes without duplicating low‑level code.
 
 #### Runtime interaction flow
 
