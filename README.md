@@ -2,7 +2,7 @@
 
 Single-page style portfolio built with SvelteKit, GSAP, and Three.js. It offers a section-scrolling experience with WebGL effects and a modular architecture.
 
-**Live Deployment URL:** `TODO`
+**Live Deployment URL:** <https://mika-mueller.com>
 
 ---
 
