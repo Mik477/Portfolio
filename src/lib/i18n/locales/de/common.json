@@ -1,0 +1,40 @@
+{
+  "legal": {
+    "impressum": "Impressum",
+    "datenschutz": "Datenschutz",
+    "barrierefreiheit": "Barrierefreiheit"
+  },
+  "language": {
+    "groupLabel": "Sprache",
+    "en": "EN",
+    "de": "DE",
+    "switchToEn": "Zu Englisch wechseln",
+    "switchToDe": "Deutsch"
+  },
+  "about": {
+    "contactMe": "Kontakt aufnehmen"
+  },
+  "contact": {
+    "emailLabel": "E-Mail senden",
+    "resumeLabel": "Lebenslauf ansehen"
+  },
+  "loading": {
+    "loading": "LADEN...",
+    "error": "FEHLER BEIM LADEN"
+  },
+  "hero": {
+    "greeting": "Hallo, ich bin",
+    "name": "Miká",
+    "introduction": "Ein Data Scientist mit Leidenschaft für intelligente Lösungen."
+  },
+  "projects": {
+    "readMore": "Mehr erfahren",
+    "viewDetailsPrefix": "Details anzeigen für",
+    "cardAriaPrefix": "Interaktive Projektkarte für"
+  },
+  "a11y": {
+    "backHome": "Zurück zur Startseite",
+    "legalFooter": "Links zu rechtlichen Informationen",
+    "legalNav": "Rechtliche Links"
+  }
+}

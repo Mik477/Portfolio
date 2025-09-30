@@ -1,0 +1,43 @@
+/* src/app.css */
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&display=swap');
+
+:root {
+    --keyboard-background-2: #09090b;
+    --keyboard-background-3: #232b34;
+    --keyboard-contrast: #fff;
+    --keyboard-key-base-size: 4rem;
+}
+
+@keyframes fade-in-bottom {
+    0% {
+        transform: translateY(50px) rotateY(0.05turn) rotateX(-0.1turn);
+        opacity: 0;
+        filter: blur(16px);
+    }
+    to {
+        transform: translateY(0) rotateY(0.05turn) rotateX(-0.1turn);
+        opacity: 1;
+        filter: blur(0);
+    }
+}
+
+/* This is the style we are moving from +layout.svelte */
+body {
+    background-color: rgb(9 9 11);
+    color: rgb(245 245 247);
+}
+
+/* Body scroll control: home page (immersive sections) uses a fixed viewport stack; legal and other content pages must scroll */
+/* Home immersive experience locks body scroll inline via layout; other pages default to auto */
+/* Allow vertical scrolling by default (home page script will set body.style.overflow='hidden' when needed) */
+body {
+    overflow-y: auto;
+}
+
+
+@media (max-width: 768px) {
+    :root { --keyboard-key-base-size: 3.5rem; }
+}
+@media (max-width: 640px) {
+    :root { --keyboard-key-base-size: 3rem; }
+}

@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "siteTitle": "Your Name - Portfolio",
+    "siteDescription": "A portfolio showcasing projects and expertise."
+  },
+  "a11y": {
+    "skipToContent": "Skip to main content"
+  }
+}
