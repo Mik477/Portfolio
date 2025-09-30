@@ -31,7 +31,7 @@ Single-page style portfolio built with SvelteKit, GSAP, and Three.js. It offers 
 
 ### Abstract
 
-This is a single-page portfolio for a Data Scientist. Audience: employers, recruiters, and peers. Core goals: (1) present projects clearly, (2) demonstrate use of SvelteKit, GSAP, and WebGL, (3) centralize profile and contact details. The main page uses a full-screen, section-scrolling layout; each section is an isolated animated scene managed through a standard lifecycle. The design focuses on predictable transitions, controlled resource usage, and accessibility.
+This is a single-page portfolio for a Data Scientist. Audience: employers, recruiters, and peers. Core goals: (1) present projects clearly, (2) demonstrate use of SvelteKit, GSAP, and WebGL, (3) centralize profile and contact details. The main page uses a full-screen, section-scrolling layout; each section is an isolated animated scene managed through a standard lifecycle. The design focuses on stunning visuals, predictable navigation, controlled resource usage, and accessibility.
 
 ### Key Features
 
@@ -271,7 +271,7 @@ There is no authentication, authorization, or database, as the site is purely in
 
 Accessibility decisions:
 
-- `prefers-reduced-motion`: disables/simplifies major effects
+- `prefers-reduced-motion`: disables/simplifies some major effects
 - Keyboard: all interactive elements focusable; navigation operable
 - Focus management: `inert` on inactive sections; programmatic focus
 - ARIA live region: announces new section titles
@@ -286,7 +286,7 @@ Accessibility Statement: `/en/accessibility`, `/de/barrierefreiheit`.
 Privacy:
 
 - No analytics, tracking scripts, or ads.
-- **IP address:** handled by host (e.g., Vercel) in standard logs.
+- **IP address:** handled by host in standard logs.
 - **`locale` cookie:** stores preferred language (`en` / `de`), non-tracking, necessary.
 - No special categories of data.
 - Rights (access, deletion): handled via contact in Privacy Policy (`/en/privacy`, `/de/datenschutz`).
