@@ -328,3 +328,5 @@ Create a production build (static files in `/build`):
 ```bash
 npm run build
 ```
+
+For transparency, please note that generative AI tools were utilized as a productivity aid during this project. Their application spanned various aspects of the development lifecycle, including assistance with code implementation, documentation, and the composition of written materials. All outputs were subject to my critical review and revision, and I retain full intellectual responsibility for the final submitted work and its conclusions.
