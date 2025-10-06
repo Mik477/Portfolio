@@ -7,6 +7,8 @@
   export let cardData: ProjectCard;
   export let width: string = '240px';
   export let height: string = '320px';
+  export let active: boolean = false;
+  export let disableTilt: boolean = false;
 
   let cardWrapElement: HTMLDivElement;
   let elementWidth: number = 0;
@@ -120,14 +122,14 @@
   function cancelRaf() { if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; } }
 
   function handlePointerMove(e: PointerEvent) {
-    if (!cardWrapElement) return;
+    if (disableTilt || !cardWrapElement) return;
     lastPointerX = e.clientX; lastPointerY = e.clientY;
     needsFrame = true;
     scheduleFrame();
   }
 
   function attachPointer() {
-    if (!cardWrapElement || hasPointer) return;
+    if (!cardWrapElement || hasPointer || disableTilt) return;
     hasPointer = true;
     cardWrapElement.addEventListener('pointermove', handlePointerMove);
     // Update cached rect on enter for accuracy
@@ -141,6 +143,7 @@
   }
 
   function handleMouseEnter() {
+    if (disableTilt) return;
     if (mouseLeaveDelay) clearTimeout(mouseLeaveDelay);
     attachPointer();
   }
@@ -152,12 +155,20 @@
     }, 1000);
     detachPointer();
   }
+
+  $: if (disableTilt) {
+    if (hasPointer) detachPointer();
+    cancelRaf();
+    mouseX = 0;
+    mouseY = 0;
+  }
 </script>
 
 <div
   class="card-wrap"
   style:width
   style:height
+  class:is-active={active}
   on:mouseenter={handleMouseEnter}
   on:mouseleave={handleMouseLeave}
   bind:this={cardWrapElement}
@@ -205,22 +216,26 @@
   will-change: transform;
   }
 
-  .card-wrap:hover .card-title {
+  .card-wrap:hover .card-title,
+  .card-wrap.is-active .card-title {
     font-weight: var(--card-title-hover-weight);
     letter-spacing: 0.03em;
     transform: translateY(var(--card-title-hover-lift));
   }
   
-  .card-wrap:hover .card-description {
+  .card-wrap:hover .card-description,
+  .card-wrap.is-active .card-description {
     opacity: 1;
     transform: translateY(0);
   }
   
-  .card-wrap:hover .card-bg {
+  .card-wrap:hover .card-bg,
+  .card-wrap.is-active .card-bg {
     transition: 0.6s cubic-bezier(0.23, 1, 0.32, 1), opacity 5s cubic-bezier(0.23, 1, 0.32, 1);
     opacity: 0.8;
   }
-  .card-wrap:hover .card {
+  .card-wrap:hover .card,
+  .card-wrap.is-active .card {
     transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), box-shadow 2s cubic-bezier(0.23, 1, 0.32, 1);
     box-shadow: rgba(255, 255, 255, 0.2) 0 0 40px 5px, white 0 0 0 1px, rgba(0, 0, 0, 0.66) 0 30px 60px 0, inset #333 0 0 0 5px, inset white 0 0 0 6px;
   }

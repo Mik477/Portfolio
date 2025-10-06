@@ -4,6 +4,7 @@
   import { transitionStore } from '$lib/stores/transitionStore';
   import { page } from '$app/stores';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
+  import MobileCardsCarousel from '$lib/components/MobileCardsCarousel.svelte';
   import { renderProfile } from '$lib/stores/renderProfile';
 
   export let headline: string;
@@ -45,6 +46,14 @@
   const lang = $page.params?.lang ?? 'de';
   transitionStore.fadeToBlackAndNavigate(`/${lang}/projects/${slug}`);
   }
+
+  function handleCarouselSelect(index: number) {
+    const selected = cards[index];
+    if (selected) {
+      handleCardClick(selected);
+    }
+  }
+
 </script>
 
 <div class="layout-container">
@@ -62,17 +71,29 @@
   </div>
 
   <div class="cards-block">
-    {#each cards as card, i (card.id)}
-      <div class="card-wrapper anim-card" style="--card-index: {i};">
-  <button type="button" class="card-click-target" on:click={() => handleCardClick(card)} aria-label={(($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for') + ' ' + card.title}>
-          <ParallaxCard
-            cardData={card}
-            width={$renderProfile.isMobile ? '100%' : '240px'}
-            height={$renderProfile.isMobile ? 'auto' : '320px'}
-          />
-        </button>
-      </div>
-    {/each}
+    {#if $renderProfile.isMobile}
+      <MobileCardsCarousel
+        cards={cards}
+        on:select={({ detail }) => handleCarouselSelect(detail.index)}
+      />
+    {:else}
+      {#each cards as card, i (card.id)}
+        <div class="card-wrapper anim-card" style="--card-index: {i};">
+          <button
+            type="button"
+            class="card-click-target"
+            on:click={() => handleCardClick(card)}
+            aria-label={(($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for') + ' ' + card.title}
+          >
+            <ParallaxCard
+              cardData={card}
+              width="240px"
+              height="320px"
+            />
+          </button>
+        </div>
+      {/each}
+    {/if}
   </div>
 </div>
 
@@ -233,32 +254,13 @@
       right: auto;
       transform: none;
       width: 100%;
-      /* Use variables to keep columns within viewport including gap */
-      --grid-gap: 4vw;
-      --grid-pad: 4vw;
-      padding: 0 var(--grid-pad) 2rem;
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, calc((100% - var(--grid-gap)) / 2)));
-      column-gap: var(--grid-gap);
-      row-gap: var(--grid-gap);
-      align-items: start;
-      justify-items: stretch;
-      box-sizing: border-box;
-      overflow-x: hidden;
-    }
-    .card-wrapper {
-      width: 100%;
-    }
-    .card-click-target {
+      padding: 0;
       display: block;
-      width: 100%;
+      overflow: visible;
     }
-    /* Remove inner ParallaxCard margins to avoid squishing */
-    .cards-block :global(.card-wrap) {
-  margin: 0;
-  width: 100%;
-  aspect-ratio: 2 / 3; /* keeps a tall card while allowing full cell width */
-      box-sizing: border-box;
+    .cards-block :global(.carousel-viewport) {
+      padding-top: 1rem;
+      padding-bottom: 2.5rem;
     }
   }
 </style>
