@@ -183,8 +183,36 @@
   .key.call-to-action:hover .call-to-action-content:after { width: 100%; }
 
   @media (max-width: 640px) {
-    .contact-content { padding: 2.5rem 1.25rem 2rem; align-items: flex-start; }
-    .keyboard-buttons-wrapper { flex-wrap: wrap; }
-    .key-position-cta { flex-basis: 100%; display: flex; justify-content: flex-start; margin-top: 0.25rem; }
+    .contact-content {
+      padding: 2.5rem 1.25rem 2rem;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+      min-height: 100%;
+    }
+
+    .contact-text-block {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      width: 100%;
+    }
+
+    .keyboard-buttons-wrapper {
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      row-gap: 0.75rem;
+      align-items: flex-start;
+      justify-content: flex-start;
+      width: 100%;
+      margin-top: auto;
+    }
+
+    .key-position-cta {
+      flex-basis: 100%;
+      display: flex;
+      justify-content: flex-start;
+      margin-top: 0;
+    }
   }
 </style>
