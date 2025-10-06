@@ -19,17 +19,28 @@
   const isContentLoaded = writable(false);
 
   // Combine the project overview and detailed sections into one scrollable list.
-  const allSubSections = [
-    { 
-      id: 'overview', 
-      title: project.headline,
-      content: project.summary,
-      background: project.backgrounds[0]
-    },
-    ...project.subPageSections
-  ];
+  let allSubSections: any[] = [];
+  let navSections: { id: string; label?: string }[] = [];
 
-  const navSections = allSubSections.map((section) => ({ id: section.id, label: section.title }));
+  $: {
+    const useMobileBackgrounds = $renderProfile.isMobile && Array.isArray(project.backgroundsMobile) && project.backgroundsMobile.length > 0;
+    const overviewSource = useMobileBackgrounds ? project.backgroundsMobile! : project.backgrounds;
+    const overviewBackground = overviewSource?.[0] ?? project.backgrounds[0];
+    allSubSections = [
+      { 
+        id: 'overview', 
+        title: project.headline,
+        content: project.summary,
+        background: overviewBackground
+      },
+      ...project.subPageSections.map((section) => ({
+        ...section,
+        background: ($renderProfile.isMobile && section.backgroundMobile) ? section.backgroundMobile : section.background
+      }))
+    ];
+
+    navSections = allSubSections.map((section) => ({ id: section.id, label: section.title }));
+  }
 
   let sectionElements: HTMLElement[] = [];
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
@@ -62,13 +73,28 @@
       startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
 
       // 2. Gather all image URLs needed for this subpage.
-      const assetUrls = allSubSections
+      const assetUrls = new Set<string>();
+      const enqueueAsset = (asset: { type: string; value: string } | undefined) => {
+        if (asset && asset.type === 'image' && asset.value) {
+          assetUrls.add(asset.value);
+        }
+      };
+
+      project.backgrounds.forEach(enqueueAsset);
+      project.backgroundsMobile?.forEach(enqueueAsset);
+      project.subPageSections.forEach((section) => {
+        enqueueAsset(section.background);
+        enqueueAsset(section.backgroundMobile);
+      });
+
+      const resolvedAssets = allSubSections
         .filter(s => s.background && s.background.type === 'image')
         .map(s => s.background.value);
+      resolvedAssets.forEach((value) => assetUrls.add(value));
       
       try {
         // 3. Use the global preloader to fetch assets. This is cache-aware.
-        await preloadAssets(assetUrls);
+  await preloadAssets(Array.from(assetUrls));
         preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
         console.log(`All assets for project '${project.slug}' preloaded successfully.`);
       } catch (error) {

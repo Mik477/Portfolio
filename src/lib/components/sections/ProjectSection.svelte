@@ -10,11 +10,16 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import { gsap } from 'gsap';
+  import { renderProfile } from '$lib/stores/renderProfile';
   import type { Project } from '$lib/data/projectsData';
 
   const dispatch = createEventDispatcher();
 
   export let project: Project;
+
+  let activeBackgrounds: Project['backgrounds'] = project.backgrounds;
+  let backgroundListVersion = 0;
+  let appliedBackgroundVersion = 0;
 
   let sectionWrapperEl: HTMLElement;
   let bgLayerA: HTMLDivElement;
@@ -27,6 +32,40 @@
   let isCycling = false;
   let isInitialized = false;
   let initializationPromise: Promise<void> | null = null;
+
+  $: {
+    const fallback = project.backgrounds;
+    const useMobile = $renderProfile?.isMobile && Array.isArray(project.backgroundsMobile) && project.backgroundsMobile.length > 0;
+    const selected = (useMobile ? project.backgroundsMobile : fallback) as Project['backgrounds'];
+    if (selected && selected !== activeBackgrounds) {
+      activeBackgrounds = selected;
+      backgroundListVersion += 1;
+    }
+  }
+
+  $: if (backgroundListVersion !== appliedBackgroundVersion) {
+    appliedBackgroundVersion = backgroundListVersion;
+    resetBackgroundCycle();
+  }
+
+  function resetBackgroundCycle() {
+    currentImageIndex = 0;
+    activeLayer = 'A';
+    clearTimeout(cycleTimer);
+    cycleTimer = undefined;
+    isCycling = false;
+    isInitialized = false;
+    initializationPromise = null;
+    if (bgLayerA) {
+      gsap.set(bgLayerA, { opacity: 0, transformOrigin: '50% 50%' });
+    }
+    if (bgLayerB) {
+      gsap.set(bgLayerB, { opacity: 0, transformOrigin: '50% 50%' });
+    }
+    if (sectionWrapperEl && activeBackgrounds.length > 0) {
+      void ensureInitialized();
+    }
+  }
 
   const decodedImagePromises = new Map<string, Promise<void>>();
 
@@ -76,9 +115,9 @@
   }
 
   function preloadNextImage() {
-    if (project.backgrounds.length < 2) return;
-    const nextIndex = (currentImageIndex + 1) % project.backgrounds.length;
-    const nextImageSrc = project.backgrounds[nextIndex].value;
+    if (activeBackgrounds.length < 2) return;
+    const nextIndex = (currentImageIndex + 1) % activeBackgrounds.length;
+    const nextImageSrc = activeBackgrounds[nextIndex]?.value;
     void loadAndDecodeImage(nextImageSrc);
   }
 
@@ -87,15 +126,15 @@
    * This version ensures the outgoing layer continues its zoom during the fade.
    */
   async function transitionToNextImage() {
-    if (project.backgrounds.length < 2 || !isCycling) return;
+    if (activeBackgrounds.length < 2 || !isCycling) return;
 
     // 1. Identify layers and get the next image in the sequence.
     const layers = { A: bgLayerA, B: bgLayerB };
     const visibleLayer = layers[activeLayer];
     const hiddenLayer = activeLayer === 'A' ? layers.B : layers.A;
-    
-    currentImageIndex = (currentImageIndex + 1) % project.backgrounds.length;
-    const nextImageSrc = project.backgrounds[currentImageIndex].value;
+
+    currentImageIndex = (currentImageIndex + 1) % activeBackgrounds.length;
+    const nextImageSrc = activeBackgrounds[currentImageIndex]?.value;
 
     try {
       await loadAndDecodeImage(nextImageSrc);
@@ -124,14 +163,16 @@
     gsap.set(hiddenLayer, {
       backgroundImage: `url(${nextImageSrc})`,
       scale: 1,
-      opacity: 0
+      opacity: 0,
+      transformOrigin: '50% 50%'
     });
 
     requestAnimationFrame(() => {
       gsap.to(hiddenLayer, {
         scale: 'var(--image-zoom-amount)',
         ease: 'none',
-        duration: totalZoomDuration
+        duration: totalZoomDuration,
+        transformOrigin: '50% 50%'
       });
       gsap.to(hiddenLayer, {
         opacity: 1,
@@ -160,7 +201,7 @@
 
     initializationPromise = (async () => {
       await tick();
-      const initialImageSrc = project.backgrounds[currentImageIndex]?.value;
+  const initialImageSrc = activeBackgrounds[currentImageIndex]?.value;
       if (!initialImageSrc) return;
 
       try {
@@ -175,14 +216,15 @@
   const hiddenLayer = activeLayer === 'A' ? layers.B : layers.A;
 
       if (visibleLayer) {
-        gsap.set(visibleLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 1, scale: 1 });
+        gsap.set(visibleLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 1, scale: 1, transformOrigin: '50% 50%' });
       }
       if (hiddenLayer) {
-        gsap.set(hiddenLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 0, scale: 1 });
+        gsap.set(hiddenLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 0, scale: 1, transformOrigin: '50% 50%' });
       }
 
-      if (project.backgrounds.length > 1) {
-        void loadAndDecodeImage(project.backgrounds[1].value);
+      if (activeBackgrounds.length > 1) {
+        const secondImageSrc = activeBackgrounds[1]?.value;
+        void loadAndDecodeImage(secondImageSrc);
       }
 
       isInitialized = true;
@@ -199,14 +241,15 @@
 
   export function onEnterSection() {
     void ensureInitialized();
-    const initialImageSrc = project.backgrounds[currentImageIndex].value;
+  const initialImageSrc = activeBackgrounds[currentImageIndex]?.value;
+  if (!initialImageSrc) return;
     const layers = { A: bgLayerA, B: bgLayerB };
     const visibleLayer = layers[activeLayer];
     const hiddenLayer = activeLayer === 'A' ? layers.B : layers.A;
-    gsap.set(visibleLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 1, scale: 1 });
-    gsap.set(hiddenLayer, { opacity: 0 });
+  gsap.set(visibleLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 1, scale: 1, transformOrigin: '50% 50%' });
+  gsap.set(hiddenLayer, { opacity: 0, transformOrigin: '50% 50%' });
 
-    if (project.backgrounds.length > 1 && !isCycling) {
+  if (activeBackgrounds.length > 1 && !isCycling) {
       isCycling = true;
       preloadNextImage();
       
@@ -298,6 +341,7 @@
     height: 100%;
     z-index: 0;
     transform: scale(1); /* Target for the orchestrator's initial dramatic zoom */
+    transform-origin: center center;
     will-change: transform;
   }
 
@@ -308,8 +352,10 @@
     width: 100%;
     height: 100%;
     background-size: cover;
-    background-position: center;
+    background-position: center center;
+    background-repeat: no-repeat;
     transform: scale(1); /* Target for the component's internal linear zoom */
+    transform-origin: center center;
     will-change: transform, opacity;
   }
 

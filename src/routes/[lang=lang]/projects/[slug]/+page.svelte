@@ -19,12 +19,24 @@
   // Reactive recomputation of subsections when project changes
   let allSubSections: any[] = [];
   let navSections: { id: string; label?: string }[] = [];
-  $: if (project) {
-    allSubSections = [
-      { id: 'overview', title: project.headline, content: project.summary, background: project.backgrounds[0] },
-      ...project.subPageSections
-    ];
-    navSections = allSubSections.map((section) => ({ id: section.id, label: section.title }));
+  $: {
+    if (project) {
+      const useMobileBackgrounds = $renderProfile.isMobile && Array.isArray(project.backgroundsMobile) && project.backgroundsMobile.length > 0;
+      const overviewSource = useMobileBackgrounds ? project.backgroundsMobile! : project.backgrounds;
+      const overviewBackground = overviewSource?.[0] ?? project.backgrounds[0];
+      const mappedSubSections = project.subPageSections.map((section) => ({
+        ...section,
+        background: ($renderProfile.isMobile && section.backgroundMobile) ? section.backgroundMobile : section.background
+      }));
+      allSubSections = [
+        { id: 'overview', title: project.headline, content: project.summary, background: overviewBackground },
+        ...mappedSubSections
+      ];
+      navSections = allSubSections.map((section) => ({ id: section.id, label: section.title }));
+    } else {
+      allSubSections = [];
+      navSections = [];
+    }
   }
 
   let sectionElements: HTMLElement[] = [];
@@ -54,11 +66,27 @@
   onMount(() => {
     const runPreloadAndSetup = async () => {
       startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
-      const assetUrls = allSubSections
+      const assetUrls = new Set<string>();
+      const enqueueAsset = (asset: { type: string; value: string } | undefined) => {
+        if (asset && asset.type === 'image' && asset.value) {
+          assetUrls.add(asset.value);
+        }
+      };
+
+      project.backgrounds.forEach(enqueueAsset);
+      project.backgroundsMobile?.forEach(enqueueAsset);
+      project.subPageSections.forEach((section) => {
+        enqueueAsset(section.background);
+        enqueueAsset(section.backgroundMobile);
+      });
+
+      const resolvedAssets = allSubSections
         .filter(s => s.background && s.background.type === 'image')
         .map(s => s.background.value);
+      resolvedAssets.forEach((value) => assetUrls.add(value));
+
       try {
-        await preloadAssets(assetUrls);
+        await preloadAssets(Array.from(assetUrls));
         preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
       } catch (error) {
         console.error(error);

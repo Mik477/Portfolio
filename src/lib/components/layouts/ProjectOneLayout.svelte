@@ -14,6 +14,7 @@
   export let readMoreLinkText: string | undefined = undefined;
   export let readMoreFallbackLabel: string | undefined = undefined;
   export let backgrounds: Project['backgrounds'];
+  export let backgroundsMobile: Project['backgrounds'] | undefined;
   // --- MODIFICATION: Added prop for subPageSections to enable intelligent preloading ---
   export let subPageSections: ProjectSubPageSection[];
 
@@ -23,10 +24,13 @@
     if (card.aspectLink) {
       const targetId = card.aspectLink.replace(/^#/, '');
       const target = subPageSections.find(s => s.id === targetId);
-      if (target && target.background.type === 'image') {
+      const resolvedBackground = target
+        ? ($renderProfile.isMobile && target.backgroundMobile ? target.backgroundMobile : target.background)
+        : undefined;
+      if (resolvedBackground && resolvedBackground.type === 'image') {
         const img = new Image();
-        img.src = target.background.value;
-        console.log(`[Preloader] Preloading background for '${targetId}': ${target.background.value}`);
+        img.src = resolvedBackground.value;
+        console.log(`[Preloader] Preloading background for '${targetId}': ${resolvedBackground.value}`);
       }
       // Keep hash for deep-linking the subsection
       hash = `#${targetId}`;
@@ -37,10 +41,14 @@
   function handleReadMoreClick() {
     // --- MODIFICATION: Preload the background for the FIRST sub-section (the overview). ---
     // The overview's background is the first image in the main `backgrounds` array.
-    if (backgrounds && backgrounds.length > 0 && backgrounds[0].type === 'image') {
+    const activeBackgrounds = ($renderProfile.isMobile && backgroundsMobile && backgroundsMobile.length > 0)
+      ? backgroundsMobile
+      : backgrounds;
+    const firstBackground = activeBackgrounds?.[0];
+    if (firstBackground && firstBackground.type === 'image') {
       const imageToPreload = new Image();
-      imageToPreload.src = backgrounds[0].value;
-      console.log(`[Preloader] Proactively loading background for project overview: ${backgrounds[0].value}`);
+      imageToPreload.src = firstBackground.value;
+      console.log(`[Preloader] Proactively loading background for project overview: ${firstBackground.value}`);
     }
 
   const lang = $page.params?.lang ?? 'de';
@@ -247,6 +255,12 @@
       width: auto;
       max-width: none;
       padding: 2rem 4vw 1rem;
+    }
+    .text-block h2 {
+      margin-bottom: 1rem;
+    }
+    .text-block p {
+      margin-bottom: 1.5rem;
     }
     .cards-block {
       position: static;

@@ -19,6 +19,10 @@ export interface ProjectSubPageSection {
       type: 'image' | 'video' | 'color';
       value: string; // The URL for this specific section's background
     };
+    backgroundMobile?: {
+      type: 'image' | 'video' | 'color';
+      value: string;
+    };
 }
 
 // This is the main project interface, which holds all data for a project.
@@ -35,6 +39,10 @@ export interface Project {
   };
   summary: string;
   backgrounds: { // The list of images to cycle through on the main page
+    type: 'image';
+    value: string;
+  }[];
+  backgroundsMobile?: {
     type: 'image';
     value: string;
   }[];
@@ -145,6 +153,12 @@ export function getProjects(locale: Locale): Project[] {
       { type: 'image', value: '/images/projects/project-one/Me_and_Drone.webp' },
       { type: 'image', value: '/images/projects/project-one/Drone_close_clouds.webp' }
     ],
+    backgroundsMobile: [
+      { type: 'image', value: '/images/projects/project-one/mobile2_Drone_Sunset.jpg' },
+      { type: 'image', value: '/images/projects/project-one/mobile_clouds.jpg' },
+      { type: 'image', value: '/images/projects/project-one/Me_and_Drone.webp' },
+      { type: 'image', value: '/images/projects/project-one/mobile_Drone_close_clouds.jpg' }
+    ],
     tags: isDE
       ? ['3D‑Druck', 'UAV‑Design', 'Luft- und Raumfahrttechnik', 'Elektronik']
       : ['3D Printing', 'UAV Design', 'Aerospace Engineering', 'Electronics'],
@@ -184,7 +198,8 @@ export function getProjects(locale: Locale): Project[] {
         content: isDE
           ? 'Detaillierte Vorstellung der Sensorsuite mit hochauflösender Kamera, GPS und Echtzeit-Datenlinks – Grundlage für anspruchsvolle autonome Flüge und Datenerfassung. (Coming soon)'
           : 'Detailed walkthrough of the sensor suite, including a high-resolution camera, GPS and real-time data links, enabling sophisticated autonomous flight and data collection. (Coming soon)',
-        background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' }
+        background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' },
+        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' }
       },
       {
         id: '3d-printing',
@@ -192,7 +207,8 @@ export function getProjects(locale: Locale): Project[] {
         content: isDE
           ? 'Erläuterung des Designs mit Lightweight PLA (LW‑PLA) für Strukturbauteile und ASA für robuste, strukturelle Teile optimiert für Langlebigkeit und optimale Flugzeit. (Coming soon)'
           : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable structural surfaces, optimizing for both strength and flight time. (Coming soon)',
-        background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
+        background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' },
+        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
       },
       {
         id: 'testing',
@@ -200,7 +216,8 @@ export function getProjects(locale: Locale): Project[] {
         content: isDE
           ? 'Präsentation der Flugtestergebnisse, darunter Ausdauer, Reichweite und Nutzlast (Coming Soon). Das UAV demonstrierte über 2 Stunden Flugzeit und eine Reichweite von über 20 km.'
           : 'Presentation of flight test data, including endurance, range, and payload capacity metrics (Coming Soon). The UAV successfully demonstrated over 2 hours of flight time and a range of more than 20 km.',
-        background: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' }
+        background: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' },
+        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' }
       }
     ],
     readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
@@ -214,6 +231,9 @@ export function getProjects(locale: Locale): Project[] {
     backgrounds: [
       { type: 'image', value: '/images/projects/project-two/Vio.webp' }
     ],
+    backgroundsMobile: [
+      { type: 'image', value: '/images/projects/project-two/Vio.webp' }
+    ],
     tags: isDE ? ['Platzhalter', 'Konzept', 'Demo'] : ['Placeholder', 'Concept', 'Demo'],
     cards: [
       { id: 'p2_section_a', title: isDE ? 'Abschnitt A' : 'Section A', cardImage: '/images/projects/project-two/card-data-small.webp', description: isDE ? 'Platzhalter' : 'Placeholder', aspectLink: '#section-a' },
@@ -221,9 +241,27 @@ export function getProjects(locale: Locale): Project[] {
       { id: 'p2_section_c', title: isDE ? 'Abschnitt C' : 'Section C', cardImage: '/images/projects/project-two/card-insights-small.webp', description: isDE ? 'Platzhalter' : 'Placeholder', aspectLink: '#section-c' }
     ],
     subPageSections: [
-      { id: 'section-a', title: isDE ? 'Abschnitt A' : 'Section A', content: isDE ? 'Platzhalterinhalt A. Lorem ipsum dolor sit amet.' : 'Placeholder content A. Lorem ipsum dolor sit amet.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } },
-      { id: 'section-b', title: isDE ? 'Abschnitt B' : 'Section B', content: isDE ? 'Platzhalterinhalt B. Consectetur adipiscing elit.' : 'Placeholder content B. Consectetur adipiscing elit.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } },
-      { id: 'section-c', title: isDE ? 'Abschnitt C' : 'Section C', content: isDE ? 'Platzhalterinhalt C. Sed do eiusmod tempor.' : 'Placeholder content C. Sed do eiusmod tempor.', background: { type: 'image', value: '/images/projects/project-two/Vio.webp' } }
+      {
+        id: 'section-a',
+        title: isDE ? 'Abschnitt A' : 'Section A',
+        content: isDE ? 'Platzhalterinhalt A. Lorem ipsum dolor sit amet.' : 'Placeholder content A. Lorem ipsum dolor sit amet.',
+        background: { type: 'image', value: '/images/projects/project-two/Vio.webp' },
+        backgroundMobile: { type: 'image', value: '/images/projects/project-two/Vio.webp' }
+      },
+      {
+        id: 'section-b',
+        title: isDE ? 'Abschnitt B' : 'Section B',
+        content: isDE ? 'Platzhalterinhalt B. Consectetur adipiscing elit.' : 'Placeholder content B. Consectetur adipiscing elit.',
+        background: { type: 'image', value: '/images/projects/project-two/Vio.webp' },
+        backgroundMobile: { type: 'image', value: '/images/projects/project-two/Vio.webp' }
+      },
+      {
+        id: 'section-c',
+        title: isDE ? 'Abschnitt C' : 'Section C',
+        content: isDE ? 'Platzhalterinhalt C. Sed do eiusmod tempor.' : 'Placeholder content C. Sed do eiusmod tempor.',
+        background: { type: 'image', value: '/images/projects/project-two/Vio.webp' },
+        backgroundMobile: { type: 'image', value: '/images/projects/project-two/Vio.webp' }
+      }
     ],
     readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
   };

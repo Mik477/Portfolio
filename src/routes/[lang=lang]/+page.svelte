@@ -295,7 +295,7 @@
 				const sectionData = allSectionsData[index];
 				if (sectionData.id.startsWith('project-')) {
 					const bgTarget = sectionEl.querySelector('.background-zoom-target') as HTMLElement;
-					sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.08, duration: projectBgZoomDuration, ease: 'power1.out', paused: true }) : null;
+					sectionBackgroundZooms[index] = bgTarget ? gsap.to(bgTarget, { scale: 1.08, duration: projectBgZoomDuration, ease: 'power1.out', paused: true, transformOrigin: '50% 50%' }) : null;
 				}
 					// Default positioning assumes hero start; override later for deep link
 					gsap.set(sectionEl, { yPercent: index === 0 ? 0 : 100, autoAlpha: index === 0 ? 1 : 0 });
