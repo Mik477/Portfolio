@@ -571,9 +571,13 @@
 	let touchStartY = 0;
 	let touchStartX = 0;
 	let touchStartTime = 0;
+	let touchIntent: 'next' | 'prev' | null = null;
 	const SWIPE_DIST = 70; // px
 	const SWIPE_VELOCITY = 0.35; // px/ms
 	const HORIZ_DEADZONE = 60; // px, ignore if mostly horizontal
+	const SWIPE_INTENT_DIST = 24; // px before locking intent
+	const SWIPE_INTENT_DOMINANCE = 1.35; // vertical must outweigh horizontal by this factor
+	const PREVENT_REFRESH_DIST = 16; // px before blocking pull-to-refresh
 
 		function onTouchStart(e: TouchEvent) {
 			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
@@ -581,6 +585,35 @@
 		touchStartY = t.clientY;
 		touchStartX = t.clientX;
 		touchStartTime = performance.now();
+		touchIntent = null;
+	}
+		function onTouchMove(e: TouchEvent) {
+			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		const t = e.changedTouches[0];
+		if (!t) return;
+		const currentY = t.clientY;
+		const currentX = t.clientX;
+		const dy = currentY - touchStartY;
+		const dx = currentX - touchStartX;
+		const absDy = Math.abs(dy);
+		const absDx = Math.abs(dx);
+
+		if (absDx > HORIZ_DEADZONE) {
+			touchIntent = null;
+			return;
+		}
+
+		const verticalDominant = absDy > absDx * SWIPE_INTENT_DOMINANCE;
+		if (!touchIntent && absDy >= SWIPE_INTENT_DIST && verticalDominant) {
+			touchIntent = dy < 0 ? 'next' : 'prev';
+		}
+
+		const scroller = (document.scrollingElement as HTMLElement | null) ?? document.body;
+		const atTop = scroller ? scroller.scrollTop <= 0 : window.scrollY <= 0;
+		if (dy > 0 && atTop && verticalDominant && (absDy >= PREVENT_REFRESH_DIST || touchIntent === 'prev')) {
+			// Block native pull-to-refresh while keeping slow interactions available
+			e.preventDefault();
+		}
 	}
 		function onTouchEnd(e: TouchEvent) {
 			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
@@ -588,12 +621,16 @@
 		const dy = t.clientY - touchStartY;
 		const dx = t.clientX - touchStartX;
 		const dt = Math.max(1, performance.now() - touchStartTime);
-		if (Math.abs(dx) > HORIZ_DEADZONE) return; // likely horizontal gesture (e.g., carousels)
+		if (Math.abs(dx) > HORIZ_DEADZONE) {
+			touchIntent = null;
+			return; // likely horizontal gesture (e.g., carousels)
+		}
 		const v = Math.abs(dy) / dt; // px/ms
-			if (Math.abs(dy) > SWIPE_DIST || v > SWIPE_VELOCITY) {
-				const dir = dy < 0 ? 1 : -1; // swipe up -> next
-				mobileNavigateTo(get(currentSectionIndex) + dir, 'swipe');
-			}
+		if (Math.abs(dy) > SWIPE_DIST || v > SWIPE_VELOCITY) {
+			const dir = touchIntent === 'next' ? 1 : touchIntent === 'prev' ? -1 : (dy < 0 ? 1 : -1); // swipe up -> next
+			mobileNavigateTo(get(currentSectionIndex) + dir, 'swipe');
+		}
+		touchIntent = null;
 	}
 </script>
 
@@ -618,6 +655,7 @@
 		class:on-top={$isLeavingHero}
 		style="pointer-events: {particleLayerPointerEvents};"
 		on:touchstart|passive={onTouchStart}
+		on:touchmove={onTouchMove}
 		on:touchend|passive={onTouchEnd}
 	>
 			<HeroSection
@@ -634,6 +672,7 @@
 			class="portfolio-container"
 			style="pointer-events: {mainContainerPointerEvents};"
 			on:touchstart|passive={onTouchStart}
+			on:touchmove={onTouchMove}
 			on:touchend|passive={onTouchEnd}
 		>
 		<section id="hero" class="full-screen-section hero-section-container">

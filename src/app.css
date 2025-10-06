@@ -27,6 +27,11 @@ body {
     color: rgb(245 245 247);
 }
 
+html,
+body {
+    overscroll-behavior-y: contain;
+}
+
 /* Body scroll control: home page (immersive sections) uses a fixed viewport stack; legal and other content pages must scroll */
 /* Home immersive experience locks body scroll inline via layout; other pages default to auto */
 /* Allow vertical scrolling by default (home page script will set body.style.overflow='hidden' when needed) */

@@ -6,6 +6,8 @@
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { renderProfile } from '$lib/stores/renderProfile';
+  import MobileNavDots from '$lib/components/MobileNavDots.svelte';
 
   export let data;
   const { project } = data;
@@ -27,16 +29,31 @@
     ...project.subPageSections
   ];
 
+  const navSections = allSubSections.map((section) => ({ id: section.id, label: section.title }));
+
   let sectionElements: HTMLElement[] = [];
   let sectionContentTimelines: (gsap.core.Timeline | null)[] = [];
   let sectionBackgroundZooms: (gsap.core.Tween | null)[] = [];
 
   // State for the subpage's internal scrolling logic.
   let currentSectionIndex = 0;
+  let navActiveIndex = 0;
   let isAnimating = false;
   let lastScrollTime = 0;
   const scrollDebounce = 200;
   const transitionDuration = 1.1;
+
+  // --- Mobile swipe detection state ---
+  let touchStartY = 0;
+  let touchStartX = 0;
+  let touchStartTime = 0;
+  let touchIntent: 'next' | 'prev' | null = null;
+  const SWIPE_DIST = 70; // px
+  const SWIPE_VELOCITY = 0.35; // px/ms
+  const HORIZ_DEADZONE = 60; // px, ignore if mostly horizontal
+  const SWIPE_INTENT_DIST = 24; // px before locking intent
+  const SWIPE_INTENT_DOMINANCE = 1.35; // vertical must outweigh horizontal by this factor
+  const PREVENT_REFRESH_DIST = 16; // px before blocking pull-to-refresh
 
   onMount(() => {
     // This function runs once when the component is created.
@@ -95,6 +112,7 @@
         }
       }
       currentSectionIndex = initialIndex;
+      navActiveIndex = initialIndex;
 
       // Create animations for each section but keep them paused.
       sectionElements.forEach((sectionEl, index) => {
@@ -136,11 +154,76 @@
       window.addEventListener('keydown', handleKeyDown);
   }
 
+  function onTouchStart(e: TouchEvent) {
+    if (!get(renderProfile).isMobile || !get(isContentLoaded) || isAnimating) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+    touchStartY = t.clientY;
+    touchStartX = t.clientX;
+    touchStartTime = performance.now();
+    touchIntent = null;
+  }
+
+  function onTouchMove(e: TouchEvent) {
+    if (!get(renderProfile).isMobile || !get(isContentLoaded) || isAnimating) return;
+    const t = e.changedTouches[0];
+    if (!t) return;
+
+    const currentY = t.clientY;
+    const currentX = t.clientX;
+    const dy = currentY - touchStartY;
+    const dx = currentX - touchStartX;
+    const absDy = Math.abs(dy);
+    const absDx = Math.abs(dx);
+
+    if (absDx > HORIZ_DEADZONE) {
+      touchIntent = null;
+      return;
+    }
+
+    const verticalDominant = absDy > absDx * SWIPE_INTENT_DOMINANCE;
+    if (!touchIntent && absDy >= SWIPE_INTENT_DIST && verticalDominant) {
+      touchIntent = dy < 0 ? 'next' : 'prev';
+    }
+
+    const scroller = (document.scrollingElement as HTMLElement | null) ?? document.body;
+    const atTop = scroller ? scroller.scrollTop <= 0 : window.scrollY <= 0;
+    if (dy > 0 && atTop && verticalDominant && (absDy >= PREVENT_REFRESH_DIST || touchIntent === 'prev')) {
+      e.preventDefault();
+    }
+  }
+
+  function onTouchEnd(e: TouchEvent) {
+    if (!get(renderProfile).isMobile || !get(isContentLoaded) || isAnimating) {
+      touchIntent = null;
+      return;
+    }
+    const t = e.changedTouches[0];
+    if (!t) {
+      touchIntent = null;
+      return;
+    }
+    const dy = t.clientY - touchStartY;
+    const dx = t.clientX - touchStartX;
+    const dt = Math.max(1, performance.now() - touchStartTime);
+    if (Math.abs(dx) > HORIZ_DEADZONE) {
+      touchIntent = null;
+      return;
+    }
+    const v = Math.abs(dy) / dt;
+    if (Math.abs(dy) > SWIPE_DIST || v > SWIPE_VELOCITY) {
+      const dir = touchIntent === 'next' ? 1 : touchIntent === 'prev' ? -1 : (dy < 0 ? 1 : -1);
+      navigateToSection(currentSectionIndex + dir);
+    }
+    touchIntent = null;
+  }
+
   function navigateToSection(newIndex: number) {
     const oldIndex = currentSectionIndex;
     if (isAnimating || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return;
     
     isAnimating = true;
+    navActiveIndex = newIndex;
 
     const currentSectionEl = sectionElements[oldIndex];
     const targetSectionEl = sectionElements[newIndex];
@@ -206,7 +289,13 @@
   <meta name="description" content={project.summary} />
 </svelte:head>
 
-<div class="subpage-container" class:loaded={$isContentLoaded}>
+<div 
+  class="subpage-container" 
+  class:loaded={$isContentLoaded}
+  on:touchstart|passive={onTouchStart}
+  on:touchmove={onTouchMove}
+  on:touchend|passive={onTouchEnd}
+>
   {#each allSubSections as section, i (section.id)}
     <section id={section.id} class="subpage-fullscreen-section">
       <!-- --- START OF FIX --- -->
@@ -227,6 +316,14 @@
     </section>
   {/each}
 </div>
+
+{#if navSections.length > 1}
+  <MobileNavDots
+    sections={navSections}
+    activeIndex={navActiveIndex}
+    on:select={({ detail }) => navigateToSection(detail.index)}
+  />
+{/if}
 
 <style>
   .subpage-container {
