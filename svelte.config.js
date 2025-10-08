@@ -39,7 +39,9 @@ const config = {
 			},
 			entries: [
 				'*',
+				'/404',
 				'/en', '/de',
+				'/en/404', '/de/404',
 				'/impressum', '/datenschutz', '/barrierefreiheit',
 				'/en/imprint', '/de/impressum',
 				'/en/privacy', '/de/datenschutz',

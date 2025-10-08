@@ -18,6 +18,12 @@
     "emailLabel": "Email me",
     "resumeLabel": "View my resume"
   },
+  "error404": {
+    "title": "Page not found",
+    "description": "I couldn't find the page you were looking for. You can always head back to the homepage.",
+    "cta": "Back to homepage",
+    "backLabel": "Back to homepage"
+  },
   "loading": {
     "loading": "LOADING...",
     "error": "ERROR LOADING"

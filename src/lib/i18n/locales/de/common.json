@@ -18,6 +18,12 @@
     "emailLabel": "E-Mail senden",
     "resumeLabel": "Lebenslauf ansehen"
   },
+  "error404": {
+    "title": "Seite nicht gefunden",
+    "description": "Die angeforderte Seite konnte nicht gefunden werden. Vielleicht hilft der Startbereich weiter.",
+    "cta": "Zur Startseite",
+    "backLabel": "Zurück zur Startseite"
+  },
   "loading": {
     "loading": "LADEN...",
     "error": "FEHLER BEIM LADEN"
