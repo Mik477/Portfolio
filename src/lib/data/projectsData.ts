@@ -15,6 +15,7 @@ export interface ProjectHeadlineSegment {
   bold?: boolean;
   breakBefore?: boolean;
   weight?: number;
+  fontScale?: number;
 }
 
 // This interface is the definitive source for a sub-section's content and background.
@@ -159,11 +160,11 @@ export function getProjects(locale: Locale): Project[] {
     headlineSegments: isDE
       ? [
           { text: 'BURA', bold: true, weight: 480 },
-          { text: 'Langstrecken-Aufklärung', breakBefore: false }
+          { text: 'Langstrecken Aufklärung', breakBefore: false, fontScale: 0.92 }
         ]
       : [
           { text: 'BURA', bold: true, weight: 480 },
-          { text: 'Long Range Recon', breakBefore: true }
+          { text: 'Long Range Recon', breakBefore: true, fontScale: 0.92 }
         ],
     summary: isDE
       ? 'Ein vollständig 3D-gedruckte Drohne für Langstrecken- und mehrstündige Aufklärungsmissionen.'
@@ -199,7 +200,7 @@ export function getProjects(locale: Locale): Project[] {
         cardImage: '/images/projects/project-one/card2_cropped.webp',
         description: isDE
           ? 'Vollständig 3D‑gedruckt mit LW‑PLA und ASA'
-          : 'Fully 3D-printed Airframe with LW-PLA and ASA',
+          : 'Fully 3D-printed Airframe using LW-PLA and ASA',
         aspectLink: '#3d-printing'
       },
       {

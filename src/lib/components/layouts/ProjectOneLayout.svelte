@@ -76,7 +76,9 @@
           <span
             class="headline-segment"
             class:bold={segment.bold}
-            style:font-weight={segment.weight ?? (segment.bold ? 600 : undefined)}
+            class:secondary={idx === 1}
+            style:font-weight={segment.weight ?? (segment.bold ? 'var(--project-title-bold-weight)' : undefined)}
+            style:font-size={segment.fontScale ? `calc(1em * ${segment.fontScale})` : undefined}
           >{segment.text}</span>
         {/each}
       {:else}
@@ -127,12 +129,21 @@
     --read-more-font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     --read-more-font-weight-initial: 300;
     --read-more-font-weight-hover: 520;
-    --read-more-letter-spacing-base: 0.0125em;
+    --read-more-letter-spacing-base: 0.015em;
     --read-more-letter-spacing-hover: 0.05em;
     --read-more-transition-duration: 0.8s;
     --read-more-transition-timing: ease;
     --read-more-shadow-transition-duration: 0.6s;
     --read-more-shadow-transition-timing: cubic-bezier(0.19, 1, 0.22, 1);
+
+    /* === PROJECT SECTION TYPOGRAPHY TUNABLES === */
+    --project-title-font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --project-title-font-weight: 300;
+    --project-title-bold-weight: 600;
+    --project-title-secondary-scale: 1;
+    --project-summary-font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --project-summary-font-weight: 400;
+  --project-summary-letter-spacing: 0;
   }
 
   .layout-container {
@@ -153,7 +164,8 @@
 
   h2 {
     font-size: clamp(2.2rem, 5vw, 3.8rem);
-    font-weight: 300;
+    font-family: var(--project-title-font-family);
+    font-weight: var(--project-title-font-weight);
     margin-bottom: 1.5rem;
     letter-spacing: -0.02em;
     line-height: 1.1;
@@ -161,11 +173,18 @@
   }
 
   h2 .headline-segment.bold {
-    font-weight: 600;
+    font-weight: var(--project-title-bold-weight);
+  }
+
+  h2 .headline-segment.secondary {
+    font-size: calc(1em * var(--project-title-secondary-scale));
   }
 
   p {
     font-size: clamp(1rem, 1.8vw, 1.15rem);
+    font-family: var(--project-summary-font-family);
+    font-weight: var(--project-summary-font-weight);
+    letter-spacing: var(--project-summary-letter-spacing);
     color: rgb(212 212 216);
     line-height: 1.8;
     margin-bottom: 2.5rem;
