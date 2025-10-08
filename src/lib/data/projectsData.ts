@@ -10,6 +10,13 @@ export interface ProjectCard {
   aspectLink?: string; // Anchor link for the subpage section, e.g., '#capability'
 }
 
+export interface ProjectHeadlineSegment {
+  text: string;
+  bold?: boolean;
+  breakBefore?: boolean;
+  weight?: number;
+}
+
 // This interface is the definitive source for a sub-section's content and background.
 export interface ProjectSubPageSection {
     id: string; // Corresponds to aspectLink from a card, used for scrolling
@@ -30,6 +37,7 @@ export interface Project {
   id: string;
   slug: string;
   headline: string;
+  headlineSegments?: ProjectHeadlineSegment[];
   headlineAnimation?: {
     type?: string;
     duration?: number;
@@ -61,11 +69,13 @@ export interface AboutContent {
   imageUrl: string;
   imageParticleEffect: { type: string }; // minimal ParticleEffectConfig reference
   socialLinks: { name: string; url: string; icon?: string }[];
+  disableImageOnMobile?: boolean;
 }
 
 // Feature flags (simple manual toggles)
 export const featureFlags = {
-  showInstagram: false
+  showInstagram: false,
+  disableAboutImageOnMobile: true
 };
 
 export interface ContactContent {
@@ -82,6 +92,7 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
     introduction: "I am a data science student specializing in building end-to-end systems that derive actionable intelligence from real-world data. The projects below demonstrate my capability in integrating custom hardware, robust software, and advanced perception models to solve complex operational challenges.",
     imageUrl: '/images/profile.webp',
     imageParticleEffect: { type: 'imageAuraParticles' },
+    disableImageOnMobile: featureFlags.disableAboutImageOnMobile,
     socialLinks: (() => {
       const links = [
         { name: 'GitHub', url: 'https://github.com/coming_soon' },
@@ -99,6 +110,7 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
     introduction: 'Ich bin Data Science Student und entwickle Ende-zu-Ende Systeme, die aus realen Daten verwertbare Erkenntnisse gewinnen. Die folgenden Projekte zeigen meine Fähigkeit, maßgeschneiderte Hardware, robuste Software und hoch moderne Wahrnehmungs-Modelle zu integrieren, um komplexe operative Herausforderungen zu lösen.',
     imageUrl: '/images/profile.webp',
     imageParticleEffect: { type: 'imageAuraParticles' },
+    disableImageOnMobile: featureFlags.disableAboutImageOnMobile,
     socialLinks: (() => {
       const links = [
         { name: 'GitHub', url: 'https://github.com/coming_soon' },
@@ -143,7 +155,16 @@ export function getProjects(locale: Locale): Project[] {
   const projectOne: Project = {
     id: 'project-one',
     slug: 'BURA',
-    headline: isDE ? 'BURA \n Langstrecken-Aufklärungs-UAV' : 'BURA \n Long Range Recon UAV',
+    headline: isDE ? 'BURA \n Langstrecken-Aufklärungs-Drohne' : 'BURA \n Long Range Recon UAV',
+    headlineSegments: isDE
+      ? [
+          { text: 'BURA', bold: true, weight: 480 },
+          { text: 'Langstrecken-Aufklärung', breakBefore: true }
+        ]
+      : [
+          { text: 'BURA', bold: true, weight: 480 },
+          { text: 'Long Range Recon', breakBefore: true }
+        ],
     summary: isDE
       ? 'Ein vollständig 3D-gedrucktes UAV für Langstrecken- und mehrstündige Aufklärungsmissionen.'
       : 'A fully 3D-Printed UAV designed for long-range, multi-hour reconnaissance missions.',

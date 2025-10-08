@@ -4,7 +4,7 @@
   import type { ProjectCard } from '$lib/data/projectsData';
 
   export let cards: ProjectCard[] = [];
-  export let initialIndex = 0;
+  export let initialIndex: number | null = null;
 
   const dispatch = createEventDispatcher<{
     activate: { index: number };
@@ -22,7 +22,7 @@
   let horizontalLocked = false;
   let sequenceOffset = 0; // start index of the middle band
   let cycleWidth = 0;
-  const REPEAT = 5; // number of repeated sequences
+  const REPEAT = 1; // number of repeated sequences
 
   $: total = cards.length;
   $: hasLoop = total > 1;
@@ -36,12 +36,15 @@
   $: sequenceOffset = hasLoop ? total * Math.floor(REPEAT / 2) : 0;
 
   let mounted = false;
+  let resolvedInitialIndex = 0;
+
+  $: resolvedInitialIndex = initialIndex ?? (total > 0 ? Math.floor(total / 2) : 0);
 
   $: if (total === 0) {
     currentIndex = 0;
     currentDisplayIndex = 0;
   } else {
-    resetIndices(initialIndex, true);
+    resetIndices(resolvedInitialIndex, true);
   }
 
   $: updateCycleMetrics();
@@ -97,7 +100,7 @@
   async function initialize() {
     await tick();
     if (total === 0) return;
-    resetIndices(initialIndex, true);
+    resetIndices(resolvedInitialIndex, true);
     dispatch('activate', { index: currentIndex });
   }
 

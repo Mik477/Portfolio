@@ -19,7 +19,7 @@ export interface LegalLink {
 export const siteConfig = {
   title: "Miká Müller - Data Scientist Portfolio",
   author: "Miká Müller",
-  description: "A portfolio showcasing data science projects and expertise.",
+  description: "A portfolio showcasing data science projects and expertise",
 
   heroSection: {
     greeting: "Hello, I'm",

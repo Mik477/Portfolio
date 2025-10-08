@@ -197,9 +197,12 @@
     /* Animation */
     --card-title-transition-duration: 0.8s;
     --card-title-hover-lift: -40px;
-    /* FIX: New parameters to control font weight */
-    --card-title-initial-weight: 500; /* Starting weight (e.g., 400=normal) */
-    --card-title-hover-weight: 800;   /* Ending weight (e.g., 900=extra-bold) */
+    /* Typography */
+    --card-font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --card-title-initial-weight: 400;
+    --card-title-hover-weight: 620;
+    --card-title-letter-spacing-base: 0.0125em;
+    --card-title-letter-spacing-hover: 0.048em;
 
     --card-description-fade-duration: 1.5s;
     --card-description-slide-duration: 1.3s;
@@ -219,7 +222,7 @@
   .card-wrap:hover .card-title,
   .card-wrap.is-active .card-title {
     font-weight: var(--card-title-hover-weight);
-    letter-spacing: 0.03em;
+    letter-spacing: var(--card-title-letter-spacing-hover);
     transform: translateY(var(--card-title-hover-lift));
   }
   
@@ -285,9 +288,9 @@
     bottom: var(--card-title-bottom-anchor);
     
     font-size: clamp(1.4rem, 10vw, 2rem);
-    font-family: 'Playfair Display', serif;
+    font-family: var(--card-font-family);
     text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
-    letter-spacing: 0.01em;
+    letter-spacing: var(--card-title-letter-spacing-base);
     transform: translateY(0);
     
     /* FIX: Use the new variable for the initial weight */
@@ -315,5 +318,6 @@
     text-shadow: black 0 2px 3px;
     font-size: 0.9rem;
     line-height: 1.5;
+    font-family: var(--card-font-family);
   }
 </style>

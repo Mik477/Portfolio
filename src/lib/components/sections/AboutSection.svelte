@@ -10,7 +10,8 @@
 </script>
 
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import type { AboutContent } from '$lib/data/projectsData';
 
   import KeyboardButtons from '$lib/components/KeyboardButtons.svelte';
@@ -27,6 +28,31 @@
 
   let keyboardButtonsInstance: KeyboardButtonsInstance | null = null;
   let aboutImageEffectInstance: AboutImageEffectInstance | null = null;
+  type RenderProfileState = {
+    isMobile: boolean;
+    hasCoarsePointer?: boolean;
+    prefersReducedMotion?: boolean;
+  };
+
+  let disableImageOnMobile = false;
+  let shouldRenderImageEffect = true;
+  let profileReady = false;
+  let currentRenderProfile: RenderProfileState = { isMobile: false };
+
+  if (browser) {
+    onMount(() => {
+      const unsubscribe = renderProfile.subscribe((profile) => {
+        currentRenderProfile = profile;
+        profileReady = true;
+      });
+      return () => unsubscribe();
+    });
+  }
+
+  $: disableImageOnMobile = Boolean(data?.disableImageOnMobile);
+  $: shouldRenderImageEffect = disableImageOnMobile
+    ? profileReady && !currentRenderProfile.isMobile
+    : true;
 
   // This is called by the preload manager while the section is off-screen.
   export async function initializeEffect() {
@@ -89,11 +115,13 @@
     />
   </div>
 
-  <AboutImageEffect
-    bind:this={aboutImageEffectInstance}
-    imageUrl={data.imageUrl}
-  mobileMode={$renderProfile.isMobile}
-  />
+  {#if shouldRenderImageEffect}
+    <AboutImageEffect
+      bind:this={aboutImageEffectInstance}
+      imageUrl={data.imageUrl}
+      mobileMode={currentRenderProfile.isMobile}
+    />
+  {/if}
 </div>
 
 <style>
@@ -135,6 +163,8 @@
   justify-content: flex-start; 
   text-align: left; 
       padding: 1rem 1rem 2rem;
+      /* Reserve a small gutter on the right so text doesn't conflict with MobileNavDots */
+      padding-right: calc(1rem + clamp(32px, 8vw, 56px));
       width: 100%;
       flex-grow: 0;
       z-index: 2;

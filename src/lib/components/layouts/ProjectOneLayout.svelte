@@ -1,6 +1,6 @@
 <!-- src/lib/components/layouts/ProjectOneLayout.svelte -->
 <script lang="ts">
-  import type { Project, ProjectCard, ProjectSubPageSection } from '$lib/data/projectsData';
+  import type { Project, ProjectCard, ProjectSubPageSection, ProjectHeadlineSegment } from '$lib/data/projectsData';
   import { transitionStore } from '$lib/stores/transitionStore';
   import { page } from '$app/stores';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
@@ -9,6 +9,7 @@
 
   export let headline: string;
   export let summary: string;
+  export let headlineSegments: ProjectHeadlineSegment[] | undefined = undefined;
   export let cards: ProjectCard[];
   export let slug: string;
   export let readMoreLinkText: string | undefined = undefined;
@@ -66,7 +67,22 @@
 
 <div class="layout-container">
   <div class="text-block">
-    <h2 class="anim-headline">{headline}</h2>
+    <h2 class="anim-headline">
+      {#if headlineSegments && headlineSegments.length > 0}
+        {#each headlineSegments as segment, idx (idx)}
+          {#if segment.breakBefore}
+            <br>
+          {/if}
+          <span
+            class="headline-segment"
+            class:bold={segment.bold}
+            style:font-weight={segment.weight ?? (segment.bold ? 600 : undefined)}
+          >{segment.text}</span>
+        {/each}
+      {:else}
+        {headline}
+      {/if}
+    </h2>
     <p class="anim-summary">{summary}</p>
     {#if readMoreLinkText || readMoreFallbackLabel}
       <button class="read-more-btn anim-button" on:click={handleReadMoreClick}>
@@ -129,6 +145,10 @@
     letter-spacing: -0.02em;
     line-height: 1.1;
     text-shadow: 0 3px 15px rgba(0,0,0,0.3);
+  }
+
+  h2 .headline-segment.bold {
+    font-weight: 600;
   }
 
   p {
