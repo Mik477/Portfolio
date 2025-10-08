@@ -19,7 +19,7 @@ const assetLoadingStatus = writable<Record<string, AssetStatus>>({});
 const tasks = writable<Record<string, PreloadTask>>({});
 
 // Configuration for the initial loading screen
-export const minimumLoadingDuration = 1780; // Minimum time to show loading screen (ms)
+export const minimumLoadingDuration = 1000; // Minimum time to show loading screen (ms)
 
 /**
  * Tracks whether the initial, full-site loading sequence has completed.

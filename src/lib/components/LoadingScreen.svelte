@@ -19,9 +19,13 @@
   // Ticker class for continuous matrix-like animation
   class Ticker {
     private done = false;
-    private cycleCount = 8;
+    private cycleCount = 6;
     private cycleCurrent = 0;
-    private chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()-_=+{}|[]\\;\':"<>?,./`~'.split('');
+    private chars = [
+      '日','〇','ハ','ミ','ヒ','ウ','シ','ナ','モ','サ','ワ','ツ','オ','リ','ア','ホ','テ','マ','ケ','メ',
+      'エ','カ','キ','ム','ユ','ラ','セ','ネ','ヲ','イ','ク','コ','ソ','タ','チ','ト','ノ','フ','ヘ',
+      'ヤ','ヨ','ル','レ','ロ','∆','δ','ε','ζ','η','θ','∃','∄','∅','Д'
+    ];
     private charsCount = this.chars.length;
     private letters: HTMLSpanElement[] = [];
     private letterCount = 0;
@@ -29,6 +33,7 @@
     private animationFrameId: number | null = null;
     private originalText: string;
     private continuousMode = false;
+    private overlayTimeouts = new Map<HTMLSpanElement, number>();
 
     constructor(element: HTMLDivElement, text: string) {
       this.originalText = text;
@@ -40,9 +45,10 @@
       this.letters = [];
       for (let i = 0; i < this.originalText.length; i++) {
         const span = document.createElement('span');
-        span.setAttribute('data-orig', this.originalText[i]);
-        span.textContent = '-';
-        span.style.display = 'inline-block';
+        const origChar = this.originalText[i];
+        span.setAttribute('data-orig', origChar);
+        span.textContent = origChar === ' ' ? '\u00A0' : origChar;
+        span.classList.add('glitching');
         element.appendChild(span);
         this.letters.push(span);
       }
@@ -62,14 +68,9 @@
         // In continuous mode, randomly glitch some letters periodically
         this.letters.forEach((letter) => {
           const orig = letter.getAttribute('data-orig');
-          if (orig !== ' ' && Math.random() < 0.1) { // 10% chance per frame
-            letter.textContent = this.getChar();
-            letter.style.opacity = String(0.5 + Math.random() * 0.5);
-            
-            setTimeout(() => {
-              letter.textContent = orig || '';
-              letter.style.opacity = '1';
-            }, 100 + Math.random() * 200);
+          if (!orig || orig === ' ') return;
+          if (Math.random() < 0.1) {
+            this.triggerOverlayGlitch(letter);
           }
         });
       } else {
@@ -78,7 +79,7 @@
           if (index >= this.letterCurrent) {
             const orig = letter.getAttribute('data-orig');
             if (orig !== ' ') {
-              letter.textContent = this.getChar();
+              letter.dataset.char = this.getChar();
               letter.style.opacity = String(Math.random());
             }
           }
@@ -89,10 +90,7 @@
         } else if (this.letterCurrent < this.letterCount) {
           const currLetter = this.letters[this.letterCurrent];
           this.cycleCurrent = 0;
-          currLetter.textContent = currLetter.getAttribute('data-orig') || '';
-          currLetter.style.opacity = '1';
-          currLetter.style.transform = 'translateX(0) scale(1)';
-          currLetter.classList.add('done');
+          this.resolveLetter(currLetter);
           this.letterCurrent++;
         } else {
           this.done = true;
@@ -112,7 +110,39 @@
         cancelAnimationFrame(this.animationFrameId);
         this.animationFrameId = null;
       }
+      this.overlayTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
+      this.overlayTimeouts.clear();
       this.done = true;
+    }
+
+    private resolveLetter(letter: HTMLSpanElement) {
+      this.clearOverlay(letter);
+      letter.style.opacity = '1';
+      letter.style.transform = 'translateX(0) scale(1)';
+      letter.classList.remove('glitching');
+      letter.classList.add('done');
+    }
+
+    private triggerOverlayGlitch(letter: HTMLSpanElement) {
+      this.clearOverlay(letter);
+      letter.dataset.char = this.getChar();
+      letter.classList.add('glitching');
+      letter.style.opacity = String(0.5 + Math.random() * 0.5);
+      const timeoutId = window.setTimeout(() => {
+        this.clearOverlay(letter);
+      }, 100 + Math.random() * 200);
+      this.overlayTimeouts.set(letter, timeoutId);
+    }
+
+    private clearOverlay(letter: HTMLSpanElement) {
+      const timeoutId = this.overlayTimeouts.get(letter);
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+        this.overlayTimeouts.delete(letter);
+      }
+  letter.removeAttribute('data-char');
+      letter.classList.remove('glitching');
+      letter.style.opacity = '1';
     }
   }
 
@@ -188,12 +218,26 @@
   .loading-overlay.fade-out { opacity: 0; pointer-events: none; }
   .loading-content { position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; }
   .word {
-    color: #fff; font-family: 'Source Code Pro', 'Courier New', monospace; font-weight: 400; font-size: clamp(1.5rem, 4vw, 2.5rem); text-transform: uppercase; letter-spacing: 0.15em;
+    --loading-base-color: #fff;
+    --loading-done-color: #6f6;
+    --loading-glitch-color: var(--loading-done-color);
+    color: var(--loading-base-color);
+    font-family: 'Source Code Pro', 'Courier New', monospace; font-weight: 400; font-size: clamp(1.5rem, 4vw, 2.5rem); text-transform: uppercase; letter-spacing: 0.15em;
     text-shadow: 0 0 10px rgba(50, 255, 50, 0.5), 0 0 20px rgba(100, 255, 100, 0.5), 0 0 30px rgba(50, 255, 50, 0.3), 0 0 40px rgba(100, 255, 100, 0.2);
     position: relative; z-index: 2; animation: flicker 4s linear infinite;
   }
-  .word :global(span) { display: inline-block; transform: translateX(100%) scale(0.9); transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); will-change: transform, opacity; }
-  .word :global(.done) { color: #6f6; transform: translateX(0) scale(1) !important; }
+  .word :global(span) {
+    position: relative; display: inline-flex; justify-content: center; align-items: center; white-space: pre; color: inherit;
+    transform: translateX(100%) scale(0.9); transition: transform 500ms cubic-bezier(0.4, 0, 0.2, 1); will-change: transform, opacity;
+  }
+  .word :global(span)::after {
+    content: attr(data-char); position: absolute; inset: 0; display: flex; justify-content: center; align-items: center;
+    color: var(--loading-glitch-color); text-shadow: inherit; pointer-events: none; transform: none;
+  }
+  .word :global(span.glitching) { color: transparent; }
+  .word :global(span.glitching)::after { transform: none; }
+  .word :global(.done) { color: var(--loading-done-color); transform: translateX(0) scale(1) !important; }
+  .word :global(.done:not(.glitching))::after { content: ''; }
   .scanline-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-image: repeating-linear-gradient( 0deg, transparent, transparent 2px, rgba(50, 255, 50, 0.03) 2px, rgba(50, 255, 50, 0.03) 4px ); background-size: 100% 4px; animation: scanline 8s linear infinite; pointer-events: none; z-index: 1; }
   .scanline-overlay::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient( 180deg, transparent 0%, rgba(50, 255, 50, 0.02) 50%, transparent 100% ); animation: scanline-move 3s linear infinite; }
   @keyframes scanline { 0% { background-position: 0 0; } 100% { background-position: 0 10px; } }
