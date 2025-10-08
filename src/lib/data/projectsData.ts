@@ -159,11 +159,11 @@ export function getProjects(locale: Locale): Project[] {
     headline: isDE ? 'BURA \n Langstrecken-Aufklärungs-Drohne' : 'BURA \n Long Range Recon UAV',
     headlineSegments: isDE
       ? [
-          { text: 'BURA', bold: true, weight: 480 },
+          { text: 'BURA', bold: true, weight: 460 },
           { text: 'Langstrecken Aufklärung', breakBefore: false, fontScale: 0.92 }
         ]
       : [
-          { text: 'BURA', bold: true, weight: 480 },
+          { text: 'BURA', bold: true, weight: 460 },
           { text: 'Long Range Recon', breakBefore: true, fontScale: 0.92 }
         ],
     summary: isDE

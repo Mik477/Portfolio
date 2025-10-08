@@ -19,7 +19,7 @@
   // Ticker class for continuous matrix-like animation
   class Ticker {
     private done = false;
-    private cycleCount = 6;
+    private cycleCount = 5;
     private cycleCurrent = 0;
     private chars = [
       '日','〇','ハ','ミ','ヒ','ウ','シ','ナ','モ','サ','ワ','ツ','オ','リ','ア','ホ','テ','マ','ケ','メ',
