@@ -131,6 +131,9 @@
   .back:active { transform: translateY(2px); }
   a:focus-visible, .back:focus-visible { box-shadow: 0 0 0 3px rgba(130,214,255,0.45), 0 0 0 6px rgba(130,214,255,0.15); border-radius: 6px; }
   @media (max-width: 680px) {
+    .legal-page { padding-top: calc(clamp(1.5rem, 3vw, 3rem) + 4rem); }
+    .legal-page :global(.back-button) { top: 2.2rem; left: 0.5rem; width: 2.4rem; height: 2.4rem; }
+    .legal-page :global(.back-button svg) { width: 1.15rem; height: 1.15rem; }
     .legal-article { font-size: 0.96rem; }
     h2 { margin-top: 2rem; }
     h3 { margin-top: 1.2rem; }

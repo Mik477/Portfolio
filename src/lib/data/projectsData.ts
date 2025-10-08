@@ -159,14 +159,14 @@ export function getProjects(locale: Locale): Project[] {
     headlineSegments: isDE
       ? [
           { text: 'BURA', bold: true, weight: 480 },
-          { text: 'Langstrecken-Aufklärung', breakBefore: true }
+          { text: 'Langstrecken-Aufklärung', breakBefore: false }
         ]
       : [
           { text: 'BURA', bold: true, weight: 480 },
           { text: 'Long Range Recon', breakBefore: true }
         ],
     summary: isDE
-      ? 'Ein vollständig 3D-gedrucktes UAV für Langstrecken- und mehrstündige Aufklärungsmissionen.'
+      ? 'Ein vollständig 3D-gedruckte Drohne für Langstrecken- und mehrstündige Aufklärungsmissionen.'
       : 'A fully 3D-Printed UAV designed for long-range, multi-hour reconnaissance missions.',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-one/Drone_Sunset.webp' },

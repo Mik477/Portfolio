@@ -202,7 +202,7 @@
     --card-title-initial-weight: 400;
     --card-title-hover-weight: 620;
     --card-title-letter-spacing-base: 0.0125em;
-    --card-title-letter-spacing-hover: 0.048em;
+    --card-title-letter-spacing-hover: 0.04em;
 
     --card-description-fade-duration: 1.5s;
     --card-description-slide-duration: 1.3s;

@@ -206,7 +206,7 @@
       justify-content: flex-start;
       width: 100%;
       margin-top: auto;
-      margin-bottom: 2.5rem; /* add slight bottom spacing on mobile */
+      margin-bottom: 4rem; /* add slight bottom spacing on mobile */
     }
 
     .key-position-cta {

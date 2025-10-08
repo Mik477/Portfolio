@@ -122,6 +122,19 @@
 </div>
 
 <style>
+  :root {
+    /* === READ-MORE BUTTON TYPOGRAPHY TUNABLES === */
+    --read-more-font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    --read-more-font-weight-initial: 300;
+    --read-more-font-weight-hover: 520;
+    --read-more-letter-spacing-base: 0.0125em;
+    --read-more-letter-spacing-hover: 0.05em;
+    --read-more-transition-duration: 0.8s;
+    --read-more-transition-timing: ease;
+    --read-more-shadow-transition-duration: 0.6s;
+    --read-more-shadow-transition-timing: cubic-bezier(0.19, 1, 0.22, 1);
+  }
+
   .layout-container {
     position: relative;
     width: 100%;
@@ -166,17 +179,20 @@
     
     background-color: transparent;
     
-    font-family: 'Source Code Pro', monospace;
-    font-weight: 300;
+    font-family: var(--read-more-font-family);
+    font-weight: var(--read-more-font-weight-initial);
     font-size: 1rem;
     color: white;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: var(--read-more-letter-spacing-base);
 
     border: none;
     cursor: pointer;
     
-    transition: box-shadow 0.6s ease, font-weight 0.6s ease, letter-spacing 0.6s ease;
+    transition:
+      font-weight var(--read-more-transition-duration) var(--read-more-transition-timing),
+      letter-spacing var(--read-more-transition-duration) var(--read-more-transition-timing),
+      box-shadow var(--read-more-shadow-transition-duration) var(--read-more-shadow-transition-timing);
   }
 
   .read-more-btn span {
@@ -203,13 +219,15 @@
                 stroke 0.4s ease;
   }
 
-  .read-more-btn:hover {
+  .read-more-btn:hover,
+  .read-more-btn:focus-visible {
     box-shadow: 0 0 25px -5px rgba(255, 255, 255, 0.6);
-    font-weight: 700;
-    letter-spacing: 0.1em;
+    font-weight: var(--read-more-font-weight-hover);
+    letter-spacing: var(--read-more-letter-spacing-hover);
   }
 
-  .read-more-btn:hover rect {
+  .read-more-btn:hover rect,
+  .read-more-btn:focus-visible rect {
     stroke-width: 2px;
     stroke-dashoffset: 0;
     stroke: rgba(255, 255, 255, 1);

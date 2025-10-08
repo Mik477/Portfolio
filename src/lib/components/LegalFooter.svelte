@@ -34,7 +34,6 @@
 </script>
 
 <footer class="legal-footer" aria-label={(($page.data as any)?.messages?.common?.a11y?.legalFooter ?? 'Legal information links')}>
-	<div class="addons"><slot /></div>
 	<nav class="legal-nav" aria-label={(($page.data as any)?.messages?.common?.a11y?.legalNav ?? 'Legal Links')}>
 			{#each legalLinks as link (link.url)}
 				<button
@@ -49,7 +48,8 @@
 			{/each}
 	</nav>
 	<div class="legal-meta">© {new Date().getFullYear()}</div>
-  
+	<div class="addons"><slot /></div>
+
 	<!-- Ensure overlay can cover this: z-index below TransitionOverlay's 99999 -->
 </footer>
 
@@ -63,11 +63,14 @@
 			align-items: center;
 			justify-content: flex-end;
 			gap: 0.75rem;
+			row-gap: 0.4rem;
 			padding: 0.25rem 0.35rem;
 			font-size: 0.8rem;
 			color: rgba(255, 255, 255, 0.6);
 			pointer-events: none; /* allow clicks through except on buttons */
 			z-index: 9990;
+			flex-wrap: wrap;
+			max-width: calc(100vw - 1.5rem);
 
 		/* Typography transition parameters (scoped) */
 		--legal-link-transition-duration: 0.8s;
@@ -77,7 +80,14 @@
 		--legal-link-initial-tracking: 0.01em;
 		--legal-link-hover-tracking: 0.03em;
 		}
-			.addons { pointer-events: auto; display: inline-flex; align-items: center; }
+		.addons {
+			pointer-events: auto;
+			display: inline-flex;
+			align-items: center;
+			justify-content: flex-end;
+			flex: 0 0 auto;
+			white-space: nowrap;
+		}
 
 		.legal-nav { display: flex; gap: 0.5rem; align-items: center; }
 
@@ -171,11 +181,32 @@
 			font-size: 0.7rem;
 			color: rgba(255, 255, 255, 0.45);
 			pointer-events: none;
-			margin-left: 0.25rem;
+			white-space: nowrap;
+			flex-shrink: 0;
 		}
 
 	@media (max-width: 640px) {
-		.legal-footer { gap: 0.4rem; font-size: 0.75rem; top: 0.5rem; right: 0.5rem; }
+		.legal-footer {
+			gap: 0.35rem;
+			row-gap: 0.35rem;
+			font-size: 0.75rem;
+			top: 0.5rem;
+			right: 0.5rem;
+		}
+		.legal-nav {
+			order: 1;
+		}
+		.legal-meta {
+			order: 2;
+			margin-left: 0.35rem;
+		}
+		.addons {
+			order: 3;
+			margin-left: 0.35rem;
+		}
+		.addons :global(.lang-switch) {
+			margin-left: 0;
+		}
 	}
 </style>
 
