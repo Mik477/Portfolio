@@ -5,6 +5,8 @@
 
   export let cards: ProjectCard[] = [];
   export let initialIndex: number | null = null;
+  export let cardComponent: typeof ParallaxCard = ParallaxCard;
+  export let cardProps: Record<string, unknown> = { disableTilt: true };
 
   const dispatch = createEventDispatcher<{
     activate: { index: number };
@@ -255,12 +257,13 @@
         data-index={realIndex}
         data-clone={isMiddleSequence ? 'false' : 'true'}
       >
-        <ParallaxCard
+        <svelte:component
+          this={cardComponent}
           cardData={card}
           width="100%"
           height="auto"
-          disableTilt={true}
           active={isActive}
+          {...cardProps}
         />
       </div>
     {/each}
@@ -299,14 +302,16 @@
     opacity: 0.55;
   }
 
-  .carousel-item :global(.card-wrap) {
+  .carousel-item :global(.card-wrap),
+  .carousel-item :global(.frame-wrap) {
     margin: 0;
     width: 100%;
     aspect-ratio: 2 / 3;
     height: auto;
   }
 
-  .carousel-item :global(.card) {
+  .carousel-item :global(.card),
+  .carousel-item :global(.frame) {
     height: 100%;
     box-shadow: inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
   }
@@ -316,15 +321,18 @@
     transform: translateY(-14px);
   }
 
-  .carousel-item.active :global(.card) {
+  .carousel-item.active :global(.card),
+  .carousel-item.active :global(.frame) {
     box-shadow: inset #333 0 0 0 5px, inset rgba(255, 255, 255, 0.5) 0 0 0 6px;
   }
 
-  .carousel-item.active :global(.card-wrap) {
+  .carousel-item.active :global(.card-wrap),
+  .carousel-item.active :global(.frame-wrap) {
     pointer-events: auto;
   }
 
-  .carousel-item:not(.active) :global(.card-wrap) {
+  .carousel-item:not(.active) :global(.card-wrap),
+  .carousel-item:not(.active) :global(.frame-wrap) {
     pointer-events: none;
   }
 

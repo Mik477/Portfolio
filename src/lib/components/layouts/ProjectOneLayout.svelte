@@ -1,10 +1,12 @@
 <!-- src/lib/components/layouts/ProjectOneLayout.svelte -->
 <script lang="ts">
-  import type { Project, ProjectCard, ProjectSubPageSection, ProjectHeadlineSegment } from '$lib/data/projectsData';
+  import type { Project, ProjectCard, ProjectSubPageSection, ProjectHeadlineSegment, ProjectCardDisplayConfig } from '$lib/data/projectsData';
   import { transitionStore } from '$lib/stores/transitionStore';
   import { page } from '$app/stores';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
+  import ImageFrameCard from '$lib/components/ImageFrameCard.svelte';
   import MobileCardsCarousel from '$lib/components/MobileCardsCarousel.svelte';
+  import DesktopImageFrameCarousel from '$lib/components/DesktopImageFrameCarousel.svelte';
   import { renderProfile } from '$lib/stores/renderProfile';
 
   export let headline: string;
@@ -18,6 +20,33 @@
   export let backgroundsMobile: Project['backgrounds'] | undefined;
   // --- MODIFICATION: Added prop for subPageSections to enable intelligent preloading ---
   export let subPageSections: ProjectSubPageSection[];
+  export let cardDisplay: ProjectCardDisplayConfig | undefined = undefined;
+
+  const DEFAULT_IMAGE_FRAME_TILT = 2.2;
+
+  const PARALLAX_CARD_DIMENSIONS = {
+    widthClamp: 'clamp(12vw, 13vw, 15vw)', //min, prefferred, max
+    aspectRatio: 4 / 3
+  } as const;
+
+  const IMAGE_FRAME_CARD_DIMENSIONS = {
+    widthClamp: 'clamp(16vw, 16vw, 17vw)', //min, prefferred, max
+    aspectRatio: 340 / 260
+  } as const;
+
+  $: isImageFrameVariant = cardDisplay?.variant === 'image-frame';
+  $: desktopTilt = Math.max(0, cardDisplay?.tiltIntensity ?? DEFAULT_IMAGE_FRAME_TILT);
+  $: mobileTilt = Math.max(0, cardDisplay?.mobileTiltIntensity ?? 0);
+  $: desktopDisableTilt = isImageFrameVariant && desktopTilt === 0;
+  // Desktop card sizing: responsive clamps using vw/vh to balance on 1080p vs 1440p/4K
+  // Image-frame variant is slightly larger than parallax variant.
+  $: desktopSizing = isImageFrameVariant ? IMAGE_FRAME_CARD_DIMENSIONS : PARALLAX_CARD_DIMENSIONS;
+  $: desktopCardWidth = desktopSizing.widthClamp;
+  $: desktopCardHeight = `calc(${desktopSizing.widthClamp} * ${desktopSizing.aspectRatio.toFixed(5)})`;
+  $: mobileCardProps = isImageFrameVariant
+    ? { disableTilt: mobileTilt === 0, maxTilt: mobileTilt }
+    : { disableTilt: true };
+  $: cardAriaPrefix = (($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for');
 
   function handleCardClick(card: ProjectCard) {
     const lang = $page.params?.lang ?? 'de';
@@ -100,25 +129,38 @@
     {#if $renderProfile.isMobile}
       <MobileCardsCarousel
         cards={cards}
+        cardComponent={isImageFrameVariant ? ImageFrameCard : ParallaxCard}
+        cardProps={mobileCardProps}
         on:select={({ detail }) => handleCarouselSelect(detail.index)}
       />
     {:else}
-      {#each cards as card, i (card.id)}
-        <div class="card-wrapper anim-card" style="--card-index: {i};">
-          <button
-            type="button"
-            class="card-click-target"
-            on:click={() => handleCardClick(card)}
-            aria-label={(($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for') + ' ' + card.title}
-          >
-            <ParallaxCard
-              cardData={card}
-              width="240px"
-              height="320px"
-            />
-          </button>
-        </div>
-      {/each}
+      {#if isImageFrameVariant}
+        <DesktopImageFrameCarousel
+          cards={cards}
+          width={desktopCardWidth}
+          height={desktopCardHeight}
+          cardProps={{ disableTilt: desktopDisableTilt, maxTilt: desktopTilt }}
+          ariaLabelPrefix={cardAriaPrefix}
+          on:select={({ detail }) => handleCarouselSelect(detail.index)}
+        />
+      {:else}
+        {#each cards as card, i (card.id)}
+          <div class="card-wrapper anim-card" style="--card-index: {i};">
+            <button
+              type="button"
+              class="card-click-target"
+              on:click={() => handleCardClick(card)}
+              aria-label={`${cardAriaPrefix} ${card.title}`}
+            >
+              <ParallaxCard
+                cardData={card}
+                width={desktopCardWidth}
+                height={desktopCardHeight}
+              />
+            </button>
+          </div>
+        {/each}
+      {/if}
     {/if}
   </div>
 </div>
