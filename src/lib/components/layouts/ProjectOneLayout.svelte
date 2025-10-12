@@ -5,8 +5,10 @@
   import { page } from '$app/stores';
   import ParallaxCard from '$lib/components/ParallaxCard.svelte';
   import ImageFrameCard from '$lib/components/ImageFrameCard.svelte';
+  import ImageFrameWideCard from '$lib/components/ImageFrameWideCard.svelte';
   import MobileCardsCarousel from '$lib/components/MobileCardsCarousel.svelte';
   import DesktopImageFrameCarousel from '$lib/components/DesktopImageFrameCarousel.svelte';
+  import DesktopVerticalImageFrameCarousel from '$lib/components/DesktopVerticalImageFrameCarousel.svelte';
   import { renderProfile } from '$lib/stores/renderProfile';
 
   export let headline: string;
@@ -18,42 +20,74 @@
   export let readMoreFallbackLabel: string | undefined = undefined;
   export let backgrounds: Project['backgrounds'];
   export let backgroundsMobile: Project['backgrounds'] | undefined;
-  // --- MODIFICATION: Added prop for subPageSections to enable intelligent preloading ---
-  export let subPageSections: ProjectSubPageSection[];
+  export let subPageSections: ProjectSubPageSection[] | undefined = undefined;
+  export let paperUrl: string | undefined = undefined;
   export let cardDisplay: ProjectCardDisplayConfig | undefined = undefined;
 
   const DEFAULT_IMAGE_FRAME_TILT = 2.2;
 
   const PARALLAX_CARD_DIMENSIONS = {
-    widthClamp: 'clamp(12vw, 13vw, 15vw)', //min, prefferred, max
+    widthClamp: 'clamp(12vw, 13vw, 15vw)',
     aspectRatio: 4 / 3
   } as const;
 
   const IMAGE_FRAME_CARD_DIMENSIONS = {
-    widthClamp: 'clamp(16vw, 16vw, 17vw)', //min, prefferred, max
+    widthClamp: 'clamp(16vw, 16vw, 17vw)',
     aspectRatio: 340 / 260
   } as const;
 
+  const IMAGE_FRAME_WIDE_CARD_DIMENSIONS = {
+    widthClamp: 'clamp(32vw, 55vw, 70vw)',
+    aspectRatio: 6 / 16
+  } as const;
+
+  const MOBILE_IMAGE_FRAME_WIDE_CARD_DIMENSIONS_SECTION_TWO = {
+    widthClamp: 'clamp(68vw, 80vw, 88vw)',
+    aspectRatio: 1
+  } as const;
+
   $: isImageFrameVariant = cardDisplay?.variant === 'image-frame';
+  $: isImageFrameWideVariant = cardDisplay?.variant === 'image-frame-vertical';
   $: desktopTilt = Math.max(0, cardDisplay?.tiltIntensity ?? DEFAULT_IMAGE_FRAME_TILT);
   $: mobileTilt = Math.max(0, cardDisplay?.mobileTiltIntensity ?? 0);
-  $: desktopDisableTilt = isImageFrameVariant && desktopTilt === 0;
+  $: desktopDisableTilt = (isImageFrameVariant || isImageFrameWideVariant) && desktopTilt === 0;
   // Desktop card sizing: responsive clamps using vw/vh to balance on 1080p vs 1440p/4K
-  // Image-frame variant is slightly larger than parallax variant.
-  $: desktopSizing = isImageFrameVariant ? IMAGE_FRAME_CARD_DIMENSIONS : PARALLAX_CARD_DIMENSIONS;
+  // Image-frame variants receive dedicated aspect ratios.
+  $: desktopSizing = isImageFrameVariant
+    ? IMAGE_FRAME_CARD_DIMENSIONS
+    : isImageFrameWideVariant
+      ? IMAGE_FRAME_WIDE_CARD_DIMENSIONS
+      : PARALLAX_CARD_DIMENSIONS;
   $: desktopCardWidth = desktopSizing.widthClamp;
   $: desktopCardHeight = `calc(${desktopSizing.widthClamp} * ${desktopSizing.aspectRatio.toFixed(5)})`;
+  $: normalizedSlug = (slug ?? '').toLowerCase();
+  $: isSecondProjectSection = normalizedSlug === 'project2' || normalizedSlug === 'project-two';
+  $: mobileWideCardDimensions = isImageFrameWideVariant && isSecondProjectSection
+    ? MOBILE_IMAGE_FRAME_WIDE_CARD_DIMENSIONS_SECTION_TWO
+    : null;
   $: mobileCardProps = isImageFrameVariant
     ? { disableTilt: mobileTilt === 0, maxTilt: mobileTilt }
-    : { disableTilt: true };
+    : isImageFrameWideVariant
+      ? { disableTilt: mobileTilt === 0, maxTilt: mobileTilt, useMobileImage: true }
+      : { disableTilt: true };
+  $: mobileCardComponent = isImageFrameVariant
+    ? ImageFrameCard
+    : isImageFrameWideVariant
+      ? ImageFrameWideCard
+      : ParallaxCard;
   $: cardAriaPrefix = (($page.data as any)?.messages?.common?.projects?.viewDetailsPrefix ?? 'View details for');
+  $: hasSubPages = subPageSections && subPageSections.length > 0;
+  $: hasPaperUrl = paperUrl && paperUrl.length > 0;
 
   function handleCardClick(card: ProjectCard) {
+    // Only navigate if project has subpages and card has aspectLink
+    if (!hasSubPages || !card.aspectLink) return;
+    
     const lang = $page.params?.lang ?? 'de';
     let hash = '';
     if (card.aspectLink) {
       const targetId = card.aspectLink.replace(/^#/, '');
-      const target = subPageSections.find(s => s.id === targetId);
+      const target = subPageSections!.find(s => s.id === targetId);
       const resolvedBackground = target
         ? ($renderProfile.isMobile && target.backgroundMobile ? target.backgroundMobile : target.background)
         : undefined;
@@ -69,6 +103,15 @@
   }
 
   function handleReadMoreClick() {
+    // If project has paperUrl, download it instead of navigating
+    if (hasPaperUrl) {
+      window.open(paperUrl, '_blank');
+      return;
+    }
+
+    // Otherwise, navigate to project subpage (original behavior)
+    if (!hasSubPages) return;
+    
     // --- MODIFICATION: Preload the background for the FIRST sub-section (the overview). ---
     // The overview's background is the first image in the main `backgrounds` array.
     const activeBackgrounds = ($renderProfile.isMobile && backgroundsMobile && backgroundsMobile.length > 0)
@@ -127,15 +170,31 @@
 
   <div class="cards-block">
     {#if $renderProfile.isMobile}
-      <MobileCardsCarousel
-        cards={cards}
-        cardComponent={isImageFrameVariant ? ImageFrameCard : ParallaxCard}
-        cardProps={mobileCardProps}
-        on:select={({ detail }) => handleCarouselSelect(detail.index)}
-      />
+      <div
+        class="mobile-carousel-wrapper"
+        style:--mobile-card-flex-basis={mobileWideCardDimensions ? mobileWideCardDimensions.widthClamp : null}
+        style:--mobile-card-max-width={mobileWideCardDimensions ? mobileWideCardDimensions.widthClamp : null}
+        style:--mobile-card-aspect={mobileWideCardDimensions ? mobileWideCardDimensions.aspectRatio : null}
+      >
+        <MobileCardsCarousel
+          cards={cards}
+          cardComponent={mobileCardComponent}
+          cardProps={mobileCardProps}
+          on:select={({ detail }) => handleCarouselSelect(detail.index)}
+        />
+      </div>
     {:else}
       {#if isImageFrameVariant}
         <DesktopImageFrameCarousel
+          cards={cards}
+          width={desktopCardWidth}
+          height={desktopCardHeight}
+          cardProps={{ disableTilt: desktopDisableTilt, maxTilt: desktopTilt }}
+          ariaLabelPrefix={cardAriaPrefix}
+          on:select={({ detail }) => handleCarouselSelect(detail.index)}
+        />
+      {:else if isImageFrameWideVariant}
+        <DesktopVerticalImageFrameCarousel
           cards={cards}
           width={desktopCardWidth}
           height={desktopCardHeight}

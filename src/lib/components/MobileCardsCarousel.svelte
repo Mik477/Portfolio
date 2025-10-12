@@ -291,8 +291,8 @@
   }
 
   .carousel-item {
-    flex: 0 0 calc(100% - 2 * var(--carousel-peek));
-    max-width: 480px;
+    flex: 0 0 var(--mobile-card-flex-basis, calc(100% - 2 * var(--carousel-peek)));
+    max-width: var(--mobile-card-max-width, 480px);
     scroll-snap-align: center;
     scroll-snap-stop: always;
     display: flex;
@@ -306,8 +306,12 @@
   .carousel-item :global(.frame-wrap) {
     margin: 0;
     width: 100%;
-    aspect-ratio: 2 / 3;
     height: auto;
+    aspect-ratio: var(--mobile-card-aspect, 2 / 3);
+  }
+
+  .carousel-item :global(.frame-wrap[data-dynamic-aspect='true']) {
+    aspect-ratio: auto;
   }
 
   .carousel-item :global(.card),

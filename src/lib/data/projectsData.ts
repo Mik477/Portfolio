@@ -6,12 +6,13 @@ export interface ProjectCard {
   id: string; // Unique ID for this card, e.g., 'p1_capability'
   title: string;
   cardImage?: string; // Path to the small, optimized image for the main page card
+  cardImageMobile?: string; // Optional mobile-specific image variant
   description?: string; // Short description for the card
   aspectLink?: string; // Anchor link for the subpage section, e.g., '#capability'
 }
 
 export interface ProjectCardDisplayConfig {
-  variant: 'parallax' | 'image-frame';
+  variant: 'parallax' | 'image-frame' | 'image-frame-vertical';
   tiltIntensity?: number;
   mobileTiltIntensity?: number;
 }
@@ -63,8 +64,9 @@ export interface Project {
   }[];
   tags?: string[];
   cards: ProjectCard[];
-  subPageSections: ProjectSubPageSection[];
+  subPageSections?: ProjectSubPageSection[];
   readMoreLinkText?: string;
+  paperUrl?: string; // Optional PDF link for projects without subpages
   cardDisplay?: ProjectCardDisplayConfig;
 }
 
@@ -255,128 +257,72 @@ export function getProjects(locale: Locale): Project[] {
   const projectTwo: Project = {
     id: 'project-two',
     slug: 'Project2',
-    headline: isDE ? 'VIO // Einsatzleitsystem' : 'VIO // Mission Intelligence Console',
+    headline: isDE ? 'VIO // Hierarchisches Multi Object Tracking' : 'VIO // Hierarchical Multi Object Tracking',
     headlineSegments: isDE
       ? [
           { text: 'VIO', bold: true, weight: 520 },
-          { text: 'Einsatzleit-System', breakBefore: true, fontScale: 0.9 }
+          { text: 'Hierarchisches Multi Object Tracking', breakBefore: true, fontScale: 0.9 }
         ]
       : [
           { text: 'VIO', bold: true, weight: 520 },
-          { text: 'Mission Intelligence Console', breakBefore: true, fontScale: 0.9 }
+          { text: 'Hierarchichal Multi Object Tracking', breakBefore: true, fontScale: 0.9 }
         ],
     summary: isDE
-      ? 'Ein KI-gestütztes Einsatzleit-System, das Luftbilder, Telemetrie und Einsatzberichte zu einem gemeinsamen Lagebild fusioniert.'
-      : 'An AI-assisted mission console that fuses aerial imagery, telemetry and operator annotations into a single live picture.',
+      ? 'Ein post-hoc hierarchisches Framework für YOLO und ähnliche Modelle, das unsichere Detektionen validiert und den Tracking-Recall drastisch verbessert.'
+      : 'Enhancing YOLO like models with a post-hoc hierarchical framework to validate uncertain detections and dramatically improve tracking recall.',
     backgrounds: [
-      { type: 'image', value: '/images/projects/project-two/Vio.webp' }
+      { type: 'image', value: '/images/projects/project-two/bg1.jpg' }
     ],
     backgroundsMobile: [
-      { type: 'image', value: '/images/projects/project-two/Vio.webp' }
+      { type: 'image', value: '/images/projects/project-two/bg_mobile.jpg' }
     ],
     tags: isDE
       ? ['Mission Control', 'Sensorfusion', 'Echtzeit-Analytik']
       : ['Mission Control', 'Sensor Fusion', 'Realtime Analytics'],
     cardDisplay: {
-      variant: 'image-frame',
+      variant: 'image-frame-vertical',
       tiltIntensity: 1.4,
       mobileTiltIntensity: 0
     },
     cards: [
       {
         id: 'p2_live_ops',
-        title: isDE ? 'Live-Lagebild' : 'Live Operations Feed',
-        cardImage: '/images/projects/project-two/H_CUT_1_Fog.png',
-        description: isDE
-          ? 'Telemetrie, Karten und Drohnenvideo verschmelzen zu einem synchronisierten Lagebild.'
-          : 'Telemetry, maps and drone video merge into one synchronized feed.',
-        aspectLink: '#live-ops'
+        title: isDE ? '' : '',
+        cardImage: '/images/projects/project-two/Wide_1_Fog.png',
+        cardImageMobile: '/images/projects/project-two/Mobile_1_Fog.png',
+        description: isDE ? '' : ''
       },
       {
         id: 'p2_adaptive_ui',
-        title: isDE ? 'Adaptive Missions-UI' : 'Adaptive Mission UI',
-        cardImage: '/images/projects/project-two/H_1_Fog.png',
-        description: isDE
-          ? 'Bedienoberfläche passt sich Crew-Rollen an und reduziert Funkverkehr.'
-          : 'The interface adapts to crew roles while reducing voice chatter.',
-        aspectLink: '#adaptive-ui'
+        title: isDE ? '' : '',
+        cardImage: '/images/projects/project-two/Wide_2_Vehicle.png',
+        cardImageMobile: '/images/projects/project-two/Mobile_2_Vehicle.png',
+        description: isDE ? '' : ''
       },
       {
         id: 'p2_ai_insights',
-        title: isDE ? 'Insight Engine' : 'Insight Engine',
-        cardImage: '/images/projects/project-two/card-insights-small.webp',
-        description: isDE
-          ? 'KI markiert Gefahren, generiert Einsatznotizen und priorisiert Aufgaben live.'
-          : 'AI flags hazards, drafts mission notes and prioritises tasks in real time.',
-        aspectLink: '#analytics'
+        title: isDE ? '' : '',
+        cardImage: '/images/projects/project-two/Wide_3_dark.png',
+        cardImageMobile: '/images/projects/project-two/Mobile_3_dark.png',
+        description: isDE ? '' : ''
       },
       {
         id: 'p2_collab_overlay',
-        title: isDE ? 'Collaborative Overlay' : 'Collaboration Overlay',
-        cardImage: '/images/projects/project-two/Vio.webp',
-        description: isDE
-          ? 'Geteilte Markierungen und Statusupdates synchronisieren sich für jede Rolle in Sekunden.'
-          : 'Shared callouts and status tags sync across every role in seconds.',
-        aspectLink: '#collaboration'
+        title: isDE ? '' : '',
+        cardImage: '/images/projects/project-two/Wide_4_Occlusions.png',
+        cardImageMobile: '/images/projects/project-two/Mobile_4_Occlusions.png',
+        description: isDE ? '' : ''
       },
       {
         id: 'p2_after_action',
-        title: isDE ? 'Nachbereitungsmodus' : 'After-Action Mode',
-        cardImage: '/images/projects/project-two/card-design-small.webp',
-        description: isDE
-          ? 'Zeitachsen-Clips, Erkenntnisse und Aufgabenlisten verdichten sich zu exportierbaren Einsatzpaketen.'
-          : 'Timeline clips, insights and task lists condense into export-ready mission packets.',
-        aspectLink: '#debrief'
+        title: isDE ? '' : '',
+        cardImage: '/images/projects/project-two/Wide_5_distance.png',
+        cardImageMobile: '/images/projects/project-two/Mobile_5_distance.png',
+        description: isDE ? '' : ''
       }
     ],
-    subPageSections: [
-      {
-        id: 'live-ops',
-        title: isDE ? 'Gemeinsames Lagebild' : 'Unified Mission Picture',
-        content: isDE
-          ? 'VIO verbindet Drohnen, stationäre Kameras und GPS-Tracker in einer Zeitleiste. Einsatzleitungen erkennen Konflikte oder Lücken sofort und können Luftaufnahmen mit Telemetrie-Fakten referenzieren.'
-          : 'VIO stitches drones, fixed cameras and GPS trackers into one scrub-able timeline. Commanders spot conflicts or blind spots instantly and cross-reference aerial imagery with telemetry facts.',
-        background: { type: 'image', value: '/images/projects/project-two/Vio.webp' },
-        backgroundMobile: { type: 'image', value: '/images/projects/project-two/Vio.webp' }
-      },
-      {
-        id: 'adaptive-ui',
-        title: isDE ? 'Rollenbasierte Arbeitsfläche' : 'Role-aware Workflows',
-        content: isDE
-          ? 'Operator:innen erhalten modulare Bedienpanels: Taktik, Technik und Pilotenansicht stellen nur relevante Widgets zusammen. Die UI lernt aus Einsatzmustern und blendet Nebeninfos automatisch aus.'
-          : 'Operators receive modular work panels: tacticians, technicians and pilots each see curated widgets. The UI learns from mission patterns and hides secondary details automatically.',
-        background: { type: 'image', value: '/images/projects/project-two/Vio.webp' },
-        backgroundMobile: { type: 'image', value: '/images/projects/project-two/Vio.webp' }
-      },
-      {
-        id: 'analytics',
-        title: isDE ? 'Echtzeit-Insights' : 'Realtime Insights',
-        content: isDE
-          ? 'Ein Insight-Engine markiert Gefahrenzonen, fasst Sprachkommandos zu Einsatznotizen zusammen und priorisiert Tasks für die Nachteams. Alle Befunde lassen sich in Einsatzberichte exportieren.'
-          : 'An insight engine flags hazards, transcribes radio calls into mission notes and queues follow-up actions for relief crews. Findings export directly into the debrief package.',
-        background: { type: 'image', value: '/images/projects/project-two/Vio.webp' },
-        backgroundMobile: { type: 'image', value: '/images/projects/project-two/Vio.webp' }
-      },
-      {
-        id: 'collaboration',
-        title: isDE ? 'Crew-Kollaboration' : 'Crew Collaboration',
-        content: isDE
-          ? 'Gemeinsame Layer verbinden Funksprüche, Skizzen und Gefahrenmarker auf einer einzigen Leinwand. Jede Änderung wird sofort für Leitstand, Einsatzkräfte und Drohnenpiloten synchronisiert.'
-          : 'Shared overlays blend radio snippets, sketches and hazard markers onto one canvas. Updates sync instantly for command, field teams and drone pilots.',
-        background: { type: 'image', value: '/images/projects/project-two/Vio.webp' },
-        backgroundMobile: { type: 'image', value: '/images/projects/project-two/Vio.webp' }
-      },
-      {
-        id: 'debrief',
-        title: isDE ? 'Nachbereitung & Reports' : 'Debrief & Reports',
-        content: isDE
-          ? 'Der Nachbereitungsmodus aggregiert Timeline-Clips, KI-Funde und Aufgabenlisten zu einem strukturierten Einsatzbericht. Exportiert wird wahlweise als PDF, Missionspaket oder API-Feed.'
-          : 'After-action mode bundles timeline clips, AI findings and task queues into a structured mission report. Export as PDF, mission bundle or API feed.',
-        background: { type: 'image', value: '/images/projects/project-two/Vio.webp' },
-        backgroundMobile: { type: 'image', value: '/images/projects/project-two/Vio.webp' }
-      }
-    ],
-    readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
+    readMoreLinkText: isDE ? 'Paper ansehen' : 'View Paper',
+    paperUrl: '/papers/vio-hierarchical-tracking.pdf' // TODO: Add actual PDF file
   };
 
   return [projectOne, projectTwo];
