@@ -87,9 +87,9 @@
     <p class="error-page__status" aria-hidden="true">{status}</p>
     <svg
       class="face"
-      viewBox="0 -15 320 410"
+      viewBox="0 0 320 380"
       width="320px"
-      height="410px"
+      height="380px"
       aria-label="A 404 becomes a face, looks to the sides, and blinks. The 4s slide up, the 0 slides down, and then a mouth appears."
       role="img"
     >
@@ -245,38 +245,44 @@
   }
 
   .face__eyes,
+  .face__eye-lid,
+  .face__mouth-left,
+  .face__mouth-right,
   .face__nose,
+  .face__pupil {
+    animation: eyes 1s 1.3s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+  }
+
+  .face__eye-lid,
+  .face__pupil {
+    animation-duration: 4s;
+    animation-delay: 2.3s;
+    animation-iteration-count: infinite;
+  }
+
+  .face__eye-lid {
+    animation-name: eye-lid;
+  }
+
   .face__mouth-left,
   .face__mouth-right {
-    /* Start invisible to prevent teleport flash */
-    opacity: 0;
-    animation: eyes 1s 0.3s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+    animation-timing-function: cubic-bezier(0.33, 1, 0.68, 1);
+  }
+
+  .face__mouth-left {
+    animation-name: mouth-left;
+  }
+
+  .face__mouth-right {
+    animation-name: mouth-right;
   }
 
   .face__nose {
     animation-name: nose;
   }
 
-  .face__mouth-left {
-    animation: eyes 1s 0.3s cubic-bezier(0.33, 1, 0.68, 1) forwards;
-    animation-name: mouth-left;
-  }
-
-  .face__mouth-right {
-    animation: eyes 1s 0.3s cubic-bezier(0.33, 1, 0.68, 1) forwards;
-    animation-name: mouth-right;
-  }
-
-  .face__eye-lid {
-    animation:
-      eyes 1s 0.3s cubic-bezier(0.65, 0, 0.35, 1) forwards,
-      eye-lid 4s 1.3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-  }
-
   .face__pupil {
-    animation:
-      eyes 1s 0.3s cubic-bezier(0.65, 0, 0.35, 1) forwards,
-      pupil 4s 1.3s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+    animation-name: pupil;
   }
 
   @keyframes eye-lid {
@@ -293,15 +299,10 @@
 
   @keyframes eyes {
     from {
-      opacity: 0;
       transform: translateY(112.5px);
     }
-    1% {
-      opacity: 1;
-    }
     to {
-      opacity: 1;
-      transform: translateY(0);
+      transform: translateY(15px);
     }
   }
 
@@ -331,14 +332,9 @@
   @keyframes mouth-left {
     from,
     50% {
-      opacity: 0;
       stroke-dashoffset: -102;
     }
-    51% {
-      opacity: 1;
-    }
     to {
-      opacity: 1;
       stroke-dashoffset: 0;
     }
   }
@@ -346,28 +342,18 @@
   @keyframes mouth-right {
     from,
     50% {
-      opacity: 0;
       stroke-dashoffset: 102;
     }
-    51% {
-      opacity: 1;
-    }
     to {
-      opacity: 1;
       stroke-dashoffset: 0;
     }
   }
 
   @keyframes nose {
     from {
-      opacity: 0;
       transform: translate(0, 0);
     }
-    1% {
-      opacity: 1;
-    }
     to {
-      opacity: 1;
       transform: translate(0, 22.5px);
     }
   }
