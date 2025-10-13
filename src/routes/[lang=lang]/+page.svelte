@@ -567,30 +567,81 @@
 		}
 	function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
 
-	// --- Mobile swipe detection (no drag-follow, swipe triggers only) ---
+	// --- Modern Mobile Swipe Detection ---
+	// State tracking
 	let touchStartY = 0;
 	let touchStartX = 0;
 	let touchStartTime = 0;
-	let touchIntent: 'next' | 'prev' | null = null;
-	const SWIPE_DIST = 70; // px
-	const SWIPE_VELOCITY = 0.35; // px/ms
-	const HORIZ_DEADZONE = 60; // px, ignore if mostly horizontal
-	const SWIPE_INTENT_DIST = 24; // px before locking intent
-	const SWIPE_INTENT_DOMINANCE = 1.35; // vertical must outweigh horizontal by this factor
-	const PREVENT_REFRESH_DIST = 16; // px before blocking pull-to-refresh
+	let touchIntent: 'next' | 'prev' | 'interact' | null = null;
+	let isInteractingWithEffect = false;
 
-		function onTouchStart(e: TouchEvent) {
-			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+	// Modernized thresholds (more forgiving)
+	const SWIPE_MIN_DISTANCE = 50; // px (reduced from 70)
+	const SWIPE_MIN_VELOCITY = 0.25; // px/ms (reduced from 0.35)
+	const HORIZ_TOLERANCE = 80; // px (increased from 60 to be more lenient)
+	const INTENT_LOCK_DISTANCE = 20; // px before locking direction intent (reduced from 24)
+	const VERTICAL_BIAS_FACTOR = 1.2; // vertical must be 20% more than horizontal (reduced from 1.35)
+	const PULL_REFRESH_THRESHOLD = 12; // px before blocking pull-to-refresh (reduced from 16)
+	
+	// Effect interaction detection threshold
+	const EFFECT_INTERACTION_THRESHOLD = 15; // px of movement before considering it an effect interaction
+
+	/**
+	 * Check if touch is in an area with interactive effects (hero or contact sections)
+	 */
+	function isTouchOnInteractiveEffect(target: EventTarget | null): boolean {
+		if (!target || !(target instanceof Element)) return false;
+		
+		// Check if touching navigation dots (always prioritize these)
+		if (target.closest('.mobile-dots')) return false;
+		
+		const currentIdx = get(currentSectionIndex);
+		// Hero section (index 0) has particle effect
+		if (currentIdx === 0) return true;
+		// Contact section has ContactEffect
+		if (allSectionsData[currentIdx]?.id === 'contact') return true;
+		
+		return false;
+	}
+
+	function onTouchStart(e: TouchEvent) {
+		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		
+		// CRITICAL: Check if touch is on navigation dots - if so, don't handle it here
+		const target = e.target;
+		if (target && target instanceof Element && target.closest('.mobile-dots')) {
+			return; // Let the navigation dots handle this touch
+		}
+		
 		const t = e.changedTouches[0];
+		if (!t) return;
+
 		touchStartY = t.clientY;
 		touchStartX = t.clientX;
 		touchStartTime = performance.now();
 		touchIntent = null;
+		isInteractingWithEffect = false;
+
+		// Detect if we're starting on an interactive effect area
+		if (isTouchOnInteractiveEffect(e.target)) {
+			// Mark as potential effect interaction, but don't commit yet
+			// We'll decide based on gesture pattern in touchmove
+			isInteractingWithEffect = true;
+		}
 	}
-		function onTouchMove(e: TouchEvent) {
-			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+
+	function onTouchMove(e: TouchEvent) {
+		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		
+		// CRITICAL: Check if touch is on navigation dots - if so, don't handle it here
+		const target = e.target;
+		if (target && target instanceof Element && target.closest('.mobile-dots')) {
+			return; // Let the navigation dots handle this touch
+		}
+		
 		const t = e.changedTouches[0];
 		if (!t) return;
+
 		const currentY = t.clientY;
 		const currentX = t.clientX;
 		const dy = currentY - touchStartY;
@@ -598,39 +649,88 @@
 		const absDy = Math.abs(dy);
 		const absDx = Math.abs(dx);
 
-		if (absDx > HORIZ_DEADZONE) {
+		// Check if this looks like horizontal gesture (carousel, etc.)
+		if (absDx > HORIZ_TOLERANCE && absDx > absDy * 1.5) {
 			touchIntent = null;
 			return;
 		}
 
-		const verticalDominant = absDy > absDx * SWIPE_INTENT_DOMINANCE;
-		if (!touchIntent && absDy >= SWIPE_INTENT_DIST && verticalDominant) {
-			touchIntent = dy < 0 ? 'next' : 'prev';
+		// Determine if vertical movement is dominant
+		const isVerticalDominant = absDy > absDx * VERTICAL_BIAS_FACTOR;
+
+		// Intent locking logic
+		if (!touchIntent && absDy >= INTENT_LOCK_DISTANCE) {
+			if (isInteractingWithEffect && absDy < EFFECT_INTERACTION_THRESHOLD * 2) {
+				// Small movements on effect areas = interaction, not navigation
+				touchIntent = 'interact';
+			} else if (isVerticalDominant) {
+				// Clear vertical swipe = navigation intent
+				touchIntent = dy < 0 ? 'next' : 'prev';
+			}
 		}
 
+		// Pull-to-refresh prevention (only at top of page)
 		const scroller = (document.scrollingElement as HTMLElement | null) ?? document.body;
 		const atTop = scroller ? scroller.scrollTop <= 0 : window.scrollY <= 0;
-		if (dy > 0 && atTop && verticalDominant && (absDy >= PREVENT_REFRESH_DIST || touchIntent === 'prev')) {
-			// Block native pull-to-refresh while keeping slow interactions available
-			e.preventDefault();
+		
+		if (dy > 0 && atTop && isVerticalDominant) {
+			// Block pull-to-refresh for navigation gestures or when intent locked upward
+			if (absDy >= PULL_REFRESH_THRESHOLD || touchIntent === 'prev') {
+				e.preventDefault();
+			}
 		}
 	}
-		function onTouchEnd(e: TouchEvent) {
-			if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+
+	function onTouchEnd(e: TouchEvent) {
+		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		
+		// CRITICAL: Check if touch is on navigation dots - if so, don't handle it here
+		const target = e.target;
+		if (target && target instanceof Element && target.closest('.mobile-dots')) {
+			return; // Let the navigation dots handle this touch
+		}
+		
 		const t = e.changedTouches[0];
+		if (!t) return;
+
 		const dy = t.clientY - touchStartY;
 		const dx = t.clientX - touchStartX;
 		const dt = Math.max(1, performance.now() - touchStartTime);
-		if (Math.abs(dx) > HORIZ_DEADZONE) {
+		const absDy = Math.abs(dy);
+		const absDx = Math.abs(dx);
+
+		// Don't navigate if this was marked as effect interaction
+		if (touchIntent === 'interact') {
 			touchIntent = null;
-			return; // likely horizontal gesture (e.g., carousels)
+			isInteractingWithEffect = false;
+			return;
 		}
-		const v = Math.abs(dy) / dt; // px/ms
-		if (Math.abs(dy) > SWIPE_DIST || v > SWIPE_VELOCITY) {
-			const dir = touchIntent === 'next' ? 1 : touchIntent === 'prev' ? -1 : (dy < 0 ? 1 : -1); // swipe up -> next
+
+		// Ignore if too horizontal
+		if (absDx > HORIZ_TOLERANCE && absDx > absDy * 1.5) {
+			touchIntent = null;
+			isInteractingWithEffect = false;
+			return;
+		}
+
+		// Calculate velocity
+		const velocity = absDy / dt; // px/ms
+
+		// Trigger navigation if: distance OR velocity threshold met (OR logic, not AND)
+		const shouldNavigate = absDy > SWIPE_MIN_DISTANCE || velocity > SWIPE_MIN_VELOCITY;
+
+		if (shouldNavigate) {
+			// Use locked intent if available, otherwise infer from direction
+			const dir = touchIntent === 'next' ? 1 
+				: touchIntent === 'prev' ? -1 
+				: (dy < 0 ? 1 : -1); // swipe up -> next
+			
 			mobileNavigateTo(get(currentSectionIndex) + dir, 'swipe');
 		}
+
+		// Reset state
 		touchIntent = null;
+		isInteractingWithEffect = false;
 	}
 </script>
 

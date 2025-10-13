@@ -17,6 +17,7 @@
 
   let mainEl: HTMLElement;
   let requestedPath = '';
+  let pathLoaded = false;
   const headingId = 'error-heading';
 
   const parseLocaleFromPath = (pathname: string): 'en' | 'de' | undefined => {
@@ -68,6 +69,10 @@
     mainEl?.focus();
     if (browser) {
       requestedPath = decodeURI(location.pathname);
+      // Use requestAnimationFrame to ensure smooth fade-in after path is set
+      requestAnimationFrame(() => {
+        pathLoaded = true;
+      });
     }
   });
 </script>
@@ -112,12 +117,11 @@
     {#if showErrorDetails}
       <p class="error-page__details">{errorMessage}</p>
     {/if}
-    {#if requestedPath}
-      <p class="error-page__path">
-        <span class="error-page__path-label">{requestedUrlLabel}:</span>
-        <code>{requestedPath}</code>
-      </p>
-    {/if}
+    <!-- Always render the path container to prevent layout shift -->
+    <p class="error-page__path" class:loaded={pathLoaded}>
+      <span class="error-page__path-label">{requestedUrlLabel}:</span>
+      <code>{requestedPath || '\u00A0'}</code>
+    </p>
     <a class="error-page__cta" href={homeHref}>{ctaLabel}</a>
   </main>
 </div>
@@ -173,12 +177,19 @@
     font-size: 0.9rem;
     max-width: 32ch;
     color: inherit;
-    opacity: 0.8;
+    opacity: 0;
     display: flex;
     align-items: center;
     gap: 0.35rem;
     flex-wrap: wrap;
     justify-content: center;
+    transition: opacity 0.9s ease-out;
+    /* Reserve minimum height to prevent layout shift */
+    min-height: 1.5em;
+  }
+
+  .error-page__path.loaded {
+    opacity: 0.8;
   }
 
   .error-page__path-label {
@@ -192,6 +203,8 @@
     background-color: light-dark(rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.08));
     padding: 0.1em 0.4em;
     border-radius: 0.45em;
+    /* Smooth transition for when content appears */
+    transition: background-color var(--trans-dur);
   }
 
   h1 {
@@ -235,6 +248,8 @@
   .face__nose,
   .face__mouth-left,
   .face__mouth-right {
+    /* Start invisible to prevent teleport flash */
+    opacity: 0;
     animation: eyes 1s 0.3s cubic-bezier(0.65, 0, 0.35, 1) forwards;
   }
 
@@ -278,9 +293,14 @@
 
   @keyframes eyes {
     from {
+      opacity: 0;
       transform: translateY(112.5px);
     }
+    1% {
+      opacity: 1;
+    }
     to {
+      opacity: 1;
       transform: translateY(15px);
     }
   }
@@ -311,9 +331,14 @@
   @keyframes mouth-left {
     from,
     50% {
+      opacity: 0;
       stroke-dashoffset: -102;
     }
+    51% {
+      opacity: 1;
+    }
     to {
+      opacity: 1;
       stroke-dashoffset: 0;
     }
   }
@@ -321,18 +346,28 @@
   @keyframes mouth-right {
     from,
     50% {
+      opacity: 0;
       stroke-dashoffset: 102;
     }
+    51% {
+      opacity: 1;
+    }
     to {
+      opacity: 1;
       stroke-dashoffset: 0;
     }
   }
 
   @keyframes nose {
     from {
+      opacity: 0;
       transform: translate(0, 0);
     }
+    1% {
+      opacity: 1;
+    }
     to {
+      opacity: 1;
       transform: translate(0, 22.5px);
     }
   }
