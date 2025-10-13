@@ -87,9 +87,9 @@
     <p class="error-page__status" aria-hidden="true">{status}</p>
     <svg
       class="face"
-      viewBox="0 0 320 380"
+      viewBox="0 -15 320 410"
       width="320px"
-      height="380px"
+      height="410px"
       aria-label="A 404 becomes a face, looks to the sides, and blinks. The 4s slide up, the 0 slides down, and then a mouth appears."
       role="img"
     >
@@ -301,7 +301,7 @@
     }
     to {
       opacity: 1;
-      transform: translateY(15px);
+      transform: translateY(0);
     }
   }
 
