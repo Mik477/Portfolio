@@ -1081,6 +1081,12 @@ export class CreateParticles {
   }
   private onTouchStart(event: TouchEvent) {
     if (event.touches.length > 0) {
+      // Check if touch is hitting navigation dots - if so, let it through
+      const target = event.target as HTMLElement;
+      if (target && target.closest && target.closest('.mobile-dots')) {
+        return; // Don't handle this touch; let navigation dots handle it
+      }
+      
       const cx = event.touches[0].clientX, cy = event.touches[0].clientY;
       this.updateMousePosition(cx, cy);
       this.isPressed = true; this.data.ease = .01; this.hasMouseMoved = true;
@@ -1091,6 +1097,12 @@ export class CreateParticles {
   }
   private onTouchMove(event: TouchEvent) {
     if (event.touches.length > 0) {
+      // Check if touch is hitting navigation dots - if so, let it through
+      const target = event.target as HTMLElement;
+      if (target && target.closest && target.closest('.mobile-dots')) {
+        return; // Don't handle this touch; let navigation dots handle it
+      }
+      
       const cx = event.touches[0].clientX, cy = event.touches[0].clientY;
       this.hasMouseMoved = true;
       if (this.lastPointerClientX !== null && this.lastPointerClientY !== null) {
@@ -1105,7 +1117,15 @@ export class CreateParticles {
     }
     event.preventDefault();
   }
-  private onTouchEnd(event: TouchEvent) { this.isPressed = false; this.data.ease = .05; event.preventDefault(); }
+  private onTouchEnd(event: TouchEvent) {
+    // Check if touch is hitting navigation dots - if so, let it through
+    const target = event.target as HTMLElement;
+    if (target && target.closest && target.closest('.mobile-dots')) {
+      return; // Don't handle this touch; let navigation dots handle it
+    }
+    
+    this.isPressed = false; this.data.ease = .05; event.preventDefault();
+  }
   
   private updateMousePosition(clientX: number, clientY: number) {
     const rect = this.hostContainer.getBoundingClientRect();
