@@ -322,7 +322,7 @@ export function getProjects(locale: Locale): Project[] {
       }
     ],
     readMoreLinkText: isDE ? 'Paper ansehen' : 'View Paper',
-    paperUrl: '/papers/vio-hierarchical-tracking.pdf' // TODO: Add actual PDF file
+    paperUrl: '/papers/Redacted_Report_Mika_Mueller.pdf'
   };
 
   return [projectOne, projectTwo];

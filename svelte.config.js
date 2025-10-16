@@ -17,7 +17,7 @@ const config = {
 		adapter: adapter({
 			pages: 'build',
 			assets: 'build',
-			fallback: null,
+			fallback: '404.html', // Fallback for client-side routing
 			precompress: false, // Disabled for now to rule out host issues with compressed variants
 			strict: true
 		}),
@@ -39,6 +39,7 @@ const config = {
 			},
 			entries: [
 				'*',
+				'/', // Root page with client-side IP geolocation
 				'/404',
 				'/en', '/de',
 				'/en/404', '/de/404',

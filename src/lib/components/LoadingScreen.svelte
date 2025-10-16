@@ -1,7 +1,7 @@
 <!-- src/lib/components/LoadingScreen.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { overallLoadingState, initialSiteLoadComplete, minimumLoadingDuration } from '$lib/stores/preloadingStore';
+  import { overallLoadingState, initialSiteLoadComplete, minimumLoadingDuration, localeDetectionStatus } from '$lib/stores/preloadingStore';
   import { page } from '$app/stores';
   import { get } from 'svelte/store';
 
@@ -15,6 +15,9 @@
   
   let loadingStartTime = Date.now();
   let minimumDurationTimer: number | undefined;
+  
+  // Track current locale detection status for dynamic messaging
+  let currentLocaleStatus = get(localeDetectionStatus);
   
   // Ticker class for continuous matrix-like animation
   class Ticker {
@@ -176,8 +179,42 @@
     if (status === 'error' && textElement) {
       clearTimeout(minimumDurationTimer);
       if (tickerInstance) tickerInstance.destroy();
-  const msg = (($page.data as any)?.messages?.common?.loading?.error) ?? 'ERROR LOADING';
-  tickerInstance = new Ticker(textElement, msg);
+      const msg = (($page.data as any)?.messages?.common?.loading?.error) ?? 'ERROR LOADING';
+      tickerInstance = new Ticker(textElement, msg);
+      tickerInstance.start();
+    }
+  });
+
+  // Subscribe to locale detection status for dynamic messaging
+  const unsubLocaleStatus = localeDetectionStatus.subscribe(status => {
+    currentLocaleStatus = status;
+    
+    if (!textElement || isFadingOut) return;
+    
+    // Update loading message based on locale detection status
+    let msg = 'LOADING...';
+    
+    switch (status) {
+      case 'detecting':
+        msg = 'DETECTING LANGUAGE...';
+        break;
+      case 'found-cookie':
+        msg = 'WELCOME BACK...';
+        break;
+      case 'detected':
+        msg = 'LANGUAGE DETECTED...';
+        break;
+      case 'error':
+        msg = 'REDIRECTING...';
+        break;
+      default:
+        msg = (($page.data as any)?.messages?.common?.loading?.loading) ?? 'LOADING...';
+    }
+    
+    // Update ticker with new message
+    if (tickerInstance && status !== 'idle') {
+      tickerInstance.destroy();
+      tickerInstance = new Ticker(textElement, msg);
       tickerInstance.start();
     }
   });
@@ -196,6 +233,7 @@
     clearTimeout(minimumDurationTimer);
     unsubOverallState();
     unsubInitialLoad();
+    unsubLocaleStatus();
   });
 </script>
 

@@ -4,6 +4,10 @@ import { writable, derived, get } from 'svelte/store';
 export type TaskStatus = 'idle' | 'pending' | 'loading' | 'loaded' | 'error';
 export type AssetStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
+// Locale detection status for root page geolocation
+export type LocaleDetectionStatus = 'idle' | 'detecting' | 'found-cookie' | 'detected' | 'error';
+export const localeDetectionStatus = writable<LocaleDetectionStatus>('idle');
+
 export interface PreloadTask {
   id: string;
   status: TaskStatus;
