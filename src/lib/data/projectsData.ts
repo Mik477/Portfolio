@@ -180,29 +180,25 @@ export function getProjects(locale: Locale): Project[] {
       : 'A fully 3D-Printed UAV designed for long-range, multi-hour reconnaissance missions.',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-one/Drone_Sunset.webp' },
+      { type: 'image', value: '/images/projects/project-one/Sonnenblumen.webp' },
       { type: 'image', value: '/images/projects/project-one/clouds.webp' },
+      { type: 'image', value: '/images/projects/project-one/LightClouds1.webp' },
+      { type: 'image', value: '/images/projects/project-one/Trees.webp' },
       { type: 'image', value: '/images/projects/project-one/Me_and_Drone.webp' },
       { type: 'image', value: '/images/projects/project-one/Drone_close_clouds.webp' }
     ],
     backgroundsMobile: [
-      { type: 'image', value: '/images/projects/project-one/mobile2_Drone_Sunset.jpg' },
-      { type: 'image', value: '/images/projects/project-one/mobile_clouds.jpg' },
-      { type: 'image', value: '/images/projects/project-one/Me_and_Drone.webp' },
-      { type: 'image', value: '/images/projects/project-one/mobile_Drone_close_clouds.jpg' }
+      { type: 'image', value: '/images/projects/project-one/mobile2_Drone_Sunset.webp' },
+      { type: 'image', value: '/images/projects/project-one/Drone_Trees.webp' },
+      { type: 'image', value: '/images/projects/project-one/Drone_Front.webp' },      
+      { type: 'image', value: '/images/projects/project-one/mobile_clouds.jpg' },      
+      { type: 'image', value: '/images/projects/project-one/Drone_Sunflowers_Wide.webp' },      
+      { type: 'image', value: '/images/projects/project-one/mobile_Drone_close_clouds.jpg' }     
     ],
     tags: isDE
       ? ['3D‑Druck', 'UAV‑Design', 'Luft- und Raumfahrttechnik', 'Elektronik']
       : ['3D Printing', 'UAV Design', 'Aerospace Engineering', 'Electronics'],
     cards: [
-      {
-        id: 'p1_capability',
-        title: isDE ? 'Fähigkeiten' : 'Capability',
-        cardImage: '/images/projects/project-one/card1_cropped.webp',
-        description: isDE
-          ? 'Ausgefeilte Sensorik für fortgeschrittene autonome Funktionen'
-          : 'Elaborate Sensor Array for advanced autonomous capabilities',
-        aspectLink: '#capability'
-      },
       {
         id: 'p1_3d_printing',
         title: isDE ? '3D‑Druck' : '3D-Printing',
@@ -212,6 +208,15 @@ export function getProjects(locale: Locale): Project[] {
           : 'Fully 3D-printed Airframe using LW-PLA and ASA',
         aspectLink: '#3d-printing'
       },
+      {
+        id: 'p1_capability',
+        title: isDE ? 'Fähigkeiten' : 'Capability',
+        cardImage: '/images/projects/project-one/card1_cropped.webp',
+        description: isDE
+          ? 'Ausgefeilte Sensorik für fortgeschrittene autonome Funktionen'
+          : 'Elaborate Sensor Array for advanced autonomous capabilities',
+        aspectLink: '#capability'
+      },      
       {
         id: 'p1_testing',
         title: isDE ? 'Tests' : 'Testing',
