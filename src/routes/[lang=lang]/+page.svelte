@@ -567,24 +567,28 @@
 		}
 	function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
 
-	// --- Modern Mobile Swipe Detection ---
+	// --- Natural Mobile Scroll Navigation with Progressive Drag ---
 	// State tracking
 	let touchStartY = 0;
 	let touchStartX = 0;
 	let touchStartTime = 0;
-	let touchIntent: 'next' | 'prev' | 'interact' | null = null;
+	let touchIntent: 'vertical' | 'horizontal' | 'interact' | null = null;
 	let isInteractingWithEffect = false;
+	let isDragging = false;
+	let currentDragOffset = 0; // Current visual offset during drag
+	let dragVelocity = 0; // Track velocity for momentum
+	let lastTouchY = 0;
+	let lastTouchTime = 0;
 
-	// Modernized thresholds (more forgiving)
-	const SWIPE_MIN_DISTANCE = 50; // px (reduced from 70)
-	const SWIPE_MIN_VELOCITY = 0.25; // px/ms (reduced from 0.35)
-	const HORIZ_TOLERANCE = 80; // px (increased from 60 to be more lenient)
-	const INTENT_LOCK_DISTANCE = 20; // px before locking direction intent (reduced from 24)
-	const VERTICAL_BIAS_FACTOR = 1.2; // vertical must be 20% more than horizontal (reduced from 1.35)
-	const PULL_REFRESH_THRESHOLD = 12; // px before blocking pull-to-refresh (reduced from 16)
-	
-	// Effect interaction detection threshold
-	const EFFECT_INTERACTION_THRESHOLD = 15; // px of movement before considering it an effect interaction
+	// Natural scrolling thresholds (much more forgiving)
+	const DRAG_THRESHOLD = 8; // px before starting drag (very low for immediate feedback)
+	const SNAP_THRESHOLD = 0.25; // 25% of screen height to trigger section change
+	const VELOCITY_THRESHOLD = 0.15; // px/ms for momentum-based navigation (very low)
+	const HORIZ_TOLERANCE = 100; // px before canceling vertical gesture
+	const RUBBER_BAND_FACTOR = 0.4; // Resistance at boundaries (0-1, lower = more resistance)
+	const MOMENTUM_MULTIPLIER = 180; // Convert velocity to distance for momentum
+	const MIN_MOMENTUM_DISTANCE = 30; // Minimum px for momentum to trigger navigation
+	const MAX_VISUAL_FEEDBACK = 0.15; // Cap visual feedback at 15% of screen (just a nudge)
 
 	/**
 	 * Check if touch is in an area with interactive effects (hero or contact sections)
@@ -604,13 +608,210 @@
 		return false;
 	}
 
+	/**
+	 * Forward touch events to particle effects for simultaneous interaction
+	 */
+	function forwardTouchToParticleEffect(event: TouchEvent, type: 'start' | 'move' | 'end') {
+		const currentIdx = get(currentSectionIndex);
+		
+		// Forward to hero particle effect
+		if (currentIdx === 0 && heroSectionInstance) {
+			// The HeroParticleEffect component handles its own touch events
+			// We just ensure our handler doesn't prevent them
+			return;
+		}
+		
+		// Forward to contact sphere effect
+		if (allSectionsData[currentIdx]?.id === 'contact') {
+			const contactSection = sectionInstancesArray[currentIdx];
+			// The ContactEffect component handles its own touch events
+			return;
+		}
+	}
+
+	/**
+	 * Apply rubber-band effect at boundaries
+	 */
+	function applyRubberBand(offset: number, atBoundary: boolean): number {
+		if (!atBoundary) return offset;
+		// Apply resistance: further you drag, more resistance you feel
+		return offset * RUBBER_BAND_FACTOR * (1 - Math.abs(offset) / (window.innerHeight * 2));
+	}
+
+	/**
+	 * Update visual position during drag (progressive feedback)
+	 */
+	function updateDragPosition(offset: number) {
+		if (!get(renderProfile).isMobile) return;
+		
+		const sections = document.querySelectorAll('.full-screen-section');
+		const particleLayer = document.querySelector('.particle-effect-layer') as HTMLElement;
+		const currentIdx = get(currentSectionIndex);
+		const currentSection = sections[currentIdx] as HTMLElement;
+		const viewportHeight = window.innerHeight;
+		
+		// Determine if at boundary
+		const atTopBoundary = currentIdx === 0 && offset > 0;
+		const atBottomBoundary = currentIdx === sections.length - 1 && offset < 0;
+		const atBoundary = atTopBoundary || atBottomBoundary;
+		
+		// Scale the visual feedback:
+		// Dragging 100vh (full screen) should only show MAX_VISUAL_FEEDBACK (20%)
+		// This means the feedback is dampened/scaled down
+		const scaledOffset = offset * MAX_VISUAL_FEEDBACK;
+		
+		// Apply rubber-band at boundaries
+		const effectiveOffset = applyRubberBand(scaledOffset, atBoundary);
+		const progress = effectiveOffset / viewportHeight;
+		
+		// Apply drag feedback to the hero particle layer (only when on hero section)
+		if (particleLayer && currentIdx === 0) {
+			gsap.set(particleLayer, {
+				yPercent: progress * 100,
+				force3D: true
+			});
+		}
+		
+		if (currentSection) {
+			gsap.set(currentSection, { 
+				yPercent: progress * 100,
+				force3D: true
+			});
+		}
+		
+		// Show subtle preview of next/prev section
+		if (!atBoundary) {
+			const nextIdx = offset < 0 ? currentIdx + 1 : currentIdx - 1;
+			if (nextIdx >= 0 && nextIdx < sections.length) {
+				const nextSection = sections[nextIdx] as HTMLElement;
+				const direction = offset < 0 ? 1 : -1;
+				gsap.set(nextSection, { 
+					yPercent: direction * 100 + progress * 100,
+					autoAlpha: 1,
+					force3D: true
+				});
+			}
+		}
+	}
+
+	/**
+	 * Reset drag state and snap to nearest section
+	 */
+	function finishDragAndSnap(finalVelocity: number) {
+		if (!get(renderProfile).isMobile) return;
+		
+		isDragging = false;
+		const viewportHeight = window.innerHeight;
+		const currentIdx = get(currentSectionIndex);
+		const dragPercent = Math.abs(currentDragOffset) / viewportHeight;
+		
+		// Calculate momentum distance
+		const momentumDistance = Math.abs(finalVelocity) * MOMENTUM_MULTIPLIER;
+		
+		// Determine if should navigate to next/prev section
+		let shouldNavigate = false;
+		let direction = 0;
+		
+		// Check velocity-based momentum
+		if (momentumDistance > MIN_MOMENTUM_DISTANCE && Math.abs(finalVelocity) > VELOCITY_THRESHOLD) {
+			shouldNavigate = true;
+			direction = currentDragOffset < 0 ? 1 : -1; // Drag up = next, drag down = prev
+		}
+		// Check distance-based threshold
+		else if (dragPercent > SNAP_THRESHOLD) {
+			shouldNavigate = true;
+			direction = currentDragOffset < 0 ? 1 : -1;
+		}
+		
+		// Navigate or snap back
+		if (shouldNavigate) {
+			const targetIdx = currentIdx + direction;
+			// Boundary check
+			if (targetIdx >= 0 && targetIdx < allSectionsData.length) {
+				// Reset sections to default positions before navigation to avoid conflicts
+				const sections = document.querySelectorAll('.full-screen-section');
+				const particleLayer = document.querySelector('.particle-effect-layer') as HTMLElement;
+				
+				// Reset particle layer if currently on hero section
+				if (particleLayer && currentIdx === 0) {
+					gsap.set(particleLayer, { yPercent: 0, force3D: true });
+				}
+				
+				sections.forEach((section, idx) => {
+					if (idx === currentIdx) {
+						gsap.set(section, { yPercent: 0, autoAlpha: 1 });
+					} else {
+						gsap.set(section, { yPercent: 100, autoAlpha: 0 });
+					}
+				});
+				// Now trigger the normal navigation animation
+				mobileNavigateTo(targetIdx, 'swipe');
+			} else {
+				// At boundary, snap back
+				snapBackToCurrentSection();
+			}
+		} else {
+			// Not enough movement, snap back
+			snapBackToCurrentSection();
+		}
+		
+		// Reset drag offset
+		currentDragOffset = 0;
+	}
+
+	/**
+	 * Animate back to current section (cancel gesture)
+	 */
+	function snapBackToCurrentSection() {
+		const sections = document.querySelectorAll('.full-screen-section');
+		const particleLayer = document.querySelector('.particle-effect-layer') as HTMLElement;
+		if (sections.length === 0) return;
+		
+		const currentIdx = get(currentSectionIndex);
+		const currentSection = sections[currentIdx] as HTMLElement;
+		
+		// Reset particle layer if on hero section
+		if (particleLayer && currentIdx === 0) {
+			gsap.to(particleLayer, {
+				yPercent: 0,
+				duration: 0.4,
+				ease: 'power2.out',
+				force3D: true
+			});
+		}
+		
+		gsap.to(currentSection, {
+			yPercent: 0,
+			duration: 0.4,
+			ease: 'power2.out',
+			force3D: true
+		});
+		
+		// Hide any visible adjacent sections
+		[currentIdx - 1, currentIdx + 1].forEach(idx => {
+			if (idx >= 0 && idx < sections.length) {
+				const section = sections[idx] as HTMLElement;
+				const direction = idx < currentIdx ? -1 : 1;
+				gsap.to(section, {
+					yPercent: direction * 100,
+					duration: 0.4,
+					ease: 'power2.out',
+					force3D: true,
+					onComplete: () => {
+						gsap.set(section, { autoAlpha: 0 });
+					}
+				});
+			}
+		});
+	}
+
 	function onTouchStart(e: TouchEvent) {
 		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
 		
-		// CRITICAL: Check if touch is on navigation dots - if so, don't handle it here
+		// Check if touch is on navigation dots
 		const target = e.target;
 		if (target && target instanceof Element && target.closest('.mobile-dots')) {
-			return; // Let the navigation dots handle this touch
+			return;
 		}
 		
 		const t = e.changedTouches[0];
@@ -618,25 +819,30 @@
 
 		touchStartY = t.clientY;
 		touchStartX = t.clientX;
+		lastTouchY = t.clientY;
 		touchStartTime = performance.now();
+		lastTouchTime = touchStartTime;
 		touchIntent = null;
 		isInteractingWithEffect = false;
+		isDragging = false;
+		currentDragOffset = 0;
+		dragVelocity = 0;
 
-		// Detect if we're starting on an interactive effect area
+		// Check if starting on interactive effect
 		if (isTouchOnInteractiveEffect(e.target)) {
-			// Mark as potential effect interaction, but don't commit yet
-			// We'll decide based on gesture pattern in touchmove
 			isInteractingWithEffect = true;
+			// Forward touch to particle effects (they handle their own events)
+			forwardTouchToParticleEffect(e, 'start');
 		}
 	}
 
 	function onTouchMove(e: TouchEvent) {
 		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
 		
-		// CRITICAL: Check if touch is on navigation dots - if so, don't handle it here
+		// Check if touch is on navigation dots
 		const target = e.target;
 		if (target && target instanceof Element && target.closest('.mobile-dots')) {
-			return; // Let the navigation dots handle this touch
+			return;
 		}
 		
 		const t = e.changedTouches[0];
@@ -644,38 +850,64 @@
 
 		const currentY = t.clientY;
 		const currentX = t.clientX;
+		const currentTime = performance.now();
 		const dy = currentY - touchStartY;
 		const dx = currentX - touchStartX;
 		const absDy = Math.abs(dy);
 		const absDx = Math.abs(dx);
 
-		// Check if this looks like horizontal gesture (carousel, etc.)
-		if (absDx > HORIZ_TOLERANCE && absDx > absDy * 1.5) {
-			touchIntent = null;
-			return;
+		// Calculate instantaneous velocity for momentum
+		const timeDelta = Math.max(1, currentTime - lastTouchTime);
+		const moveDelta = currentY - lastTouchY;
+		dragVelocity = moveDelta / timeDelta; // px/ms
+		lastTouchY = currentY;
+		lastTouchTime = currentTime;
+
+		// Forward touch to particle effects for simultaneous interaction
+		if (isInteractingWithEffect) {
+			forwardTouchToParticleEffect(e, 'move');
 		}
 
-		// Determine if vertical movement is dominant
-		const isVerticalDominant = absDy > absDx * VERTICAL_BIAS_FACTOR;
-
-		// Intent locking logic
-		if (!touchIntent && absDy >= INTENT_LOCK_DISTANCE) {
-			if (isInteractingWithEffect && absDy < EFFECT_INTERACTION_THRESHOLD * 2) {
-				// Small movements on effect areas = interaction, not navigation
-				touchIntent = 'interact';
-			} else if (isVerticalDominant) {
-				// Clear vertical swipe = navigation intent
-				touchIntent = dy < 0 ? 'next' : 'prev';
+		// Determine intent if not yet set
+		if (!touchIntent && (absDy > DRAG_THRESHOLD || absDx > DRAG_THRESHOLD)) {
+			// Check if horizontal gesture (carousel interaction)
+			if (absDx > absDy * 1.5 && absDx > HORIZ_TOLERANCE * 0.5) {
+				touchIntent = 'horizontal';
+				return;
+			}
+			// For effect areas: Always allow both particle interaction AND navigation
+			// Don't lock into 'interact' mode - let both happen together
+			// The visual nudge provides feedback that navigation is possible
+			else if (absDy > absDx * 0.7) {
+				touchIntent = 'vertical';
+				isDragging = true;
 			}
 		}
 
-		// Pull-to-refresh prevention (only at top of page)
-		const scroller = (document.scrollingElement as HTMLElement | null) ?? document.body;
-		const atTop = scroller ? scroller.scrollTop <= 0 : window.scrollY <= 0;
-		
-		if (dy > 0 && atTop && isVerticalDominant) {
-			// Block pull-to-refresh for navigation gestures or when intent locked upward
-			if (absDy >= PULL_REFRESH_THRESHOLD || touchIntent === 'prev') {
+		// Handle based on intent
+		if (touchIntent === 'horizontal') {
+			return; // Let other handlers manage this
+		}
+
+		// Handle vertical dragging with progressive feedback
+		// This works alongside particle interaction on hero/contact sections
+		if (touchIntent === 'vertical' && isDragging) {
+			// Cancel horizontal if too much horizontal movement
+			if (absDx > HORIZ_TOLERANCE) {
+				touchIntent = 'horizontal';
+				isDragging = false;
+				snapBackToCurrentSection();
+				return;
+			}
+
+			// Update drag offset and visual feedback (shows navigation possibility)
+			currentDragOffset = dy;
+			updateDragPosition(dy);
+
+			// Prevent pull-to-refresh at top
+			const scroller = (document.scrollingElement as HTMLElement | null) ?? document.body;
+			const atTop = scroller ? scroller.scrollTop <= 0 : window.scrollY <= 0;
+			if (dy > 0 && atTop && absDy > DRAG_THRESHOLD) {
 				e.preventDefault();
 			}
 		}
@@ -684,53 +916,28 @@
 	function onTouchEnd(e: TouchEvent) {
 		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
 		
-		// CRITICAL: Check if touch is on navigation dots - if so, don't handle it here
+		// Check if touch is on navigation dots
 		const target = e.target;
 		if (target && target instanceof Element && target.closest('.mobile-dots')) {
-			return; // Let the navigation dots handle this touch
-		}
-		
-		const t = e.changedTouches[0];
-		if (!t) return;
-
-		const dy = t.clientY - touchStartY;
-		const dx = t.clientX - touchStartX;
-		const dt = Math.max(1, performance.now() - touchStartTime);
-		const absDy = Math.abs(dy);
-		const absDx = Math.abs(dx);
-
-		// Don't navigate if this was marked as effect interaction
-		if (touchIntent === 'interact') {
-			touchIntent = null;
-			isInteractingWithEffect = false;
 			return;
 		}
 
-		// Ignore if too horizontal
-		if (absDx > HORIZ_TOLERANCE && absDx > absDy * 1.5) {
-			touchIntent = null;
-			isInteractingWithEffect = false;
-			return;
+		// Forward touch end to particle effects
+		if (isInteractingWithEffect) {
+			forwardTouchToParticleEffect(e, 'end');
 		}
 
-		// Calculate velocity
-		const velocity = absDy / dt; // px/ms
-
-		// Trigger navigation if: distance OR velocity threshold met (OR logic, not AND)
-		const shouldNavigate = absDy > SWIPE_MIN_DISTANCE || velocity > SWIPE_MIN_VELOCITY;
-
-		if (shouldNavigate) {
-			// Use locked intent if available, otherwise infer from direction
-			const dir = touchIntent === 'next' ? 1 
-				: touchIntent === 'prev' ? -1 
-				: (dy < 0 ? 1 : -1); // swipe up -> next
-			
-			mobileNavigateTo(get(currentSectionIndex) + dir, 'swipe');
+		// If was dragging, finish with momentum
+		if (isDragging && touchIntent === 'vertical') {
+			finishDragAndSnap(dragVelocity);
 		}
 
 		// Reset state
 		touchIntent = null;
 		isInteractingWithEffect = false;
+		isDragging = false;
+		currentDragOffset = 0;
+		dragVelocity = 0;
 	}
 </script>
 

@@ -24,10 +24,10 @@
       const useMobileBackgrounds = $renderProfile.isMobile && Array.isArray(project.backgroundsMobile) && project.backgroundsMobile.length > 0;
       const overviewSource = useMobileBackgrounds ? project.backgroundsMobile! : project.backgrounds;
       const overviewBackground = overviewSource?.[0] ?? project.backgrounds[0];
-      const mappedSubSections = project.subPageSections.map((section) => ({
+      const mappedSubSections = project.subPageSections?.map((section) => ({
         ...section,
         background: ($renderProfile.isMobile && section.backgroundMobile) ? section.backgroundMobile : section.background
-      }));
+      })) ?? [];
       allSubSections = [
         { id: 'overview', title: project.headline, content: project.summary, background: overviewBackground },
         ...mappedSubSections
@@ -51,17 +51,26 @@
   const transitionDuration = 1.1;
   let suppressHashUpdate = false; // prevent feedback loop when programmatically updating hash
 
-  // --- Mobile swipe detection state ---
+  // --- Natural Mobile Scroll Navigation with Progressive Drag ---
   let touchStartY = 0;
   let touchStartX = 0;
   let touchStartTime = 0;
-  let touchIntent: 'next' | 'prev' | null = null;
-  const SWIPE_DIST = 70; // px
-  const SWIPE_VELOCITY = 0.35; // px/ms
-  const HORIZ_DEADZONE = 60; // px, ignore if mostly horizontal
-  const SWIPE_INTENT_DIST = 24; // px before locking intent
-  const SWIPE_INTENT_DOMINANCE = 1.35; // vertical must outweigh horizontal by this factor
-  const PREVENT_REFRESH_DIST = 16; // px before blocking pull-to-refresh
+  let touchIntent: 'vertical' | 'horizontal' | null = null;
+  let isDragging = false;
+  let currentDragOffset = 0;
+  let dragVelocity = 0;
+  let lastTouchY = 0;
+  let lastTouchTime = 0;
+
+  // Natural scrolling thresholds
+  const DRAG_THRESHOLD = 8; // px before starting drag
+  const SNAP_THRESHOLD = 0.25; // 25% of screen height to trigger section change
+  const VELOCITY_THRESHOLD = 0.15; // px/ms for momentum-based navigation
+  const HORIZ_TOLERANCE = 100; // px before canceling vertical gesture
+  const RUBBER_BAND_FACTOR = 0.4; // Resistance at boundaries
+  const MOMENTUM_MULTIPLIER = 180; // Convert velocity to distance
+  const MIN_MOMENTUM_DISTANCE = 30; // Minimum px for momentum navigation
+  const MAX_VISUAL_FEEDBACK = 0.20; // Cap visual feedback at 20% of screen (just a nudge)
 
   onMount(() => {
     const runPreloadAndSetup = async () => {
@@ -75,7 +84,7 @@
 
       project.backgrounds.forEach(enqueueAsset);
       project.backgroundsMobile?.forEach(enqueueAsset);
-      project.subPageSections.forEach((section) => {
+      project.subPageSections?.forEach((section) => {
         enqueueAsset(section.background);
         enqueueAsset(section.backgroundMobile);
       });
@@ -151,14 +160,161 @@
     window.addEventListener('hashchange', handleHashChange);
   }
 
+  /**
+   * Apply rubber-band effect at boundaries
+   */
+  function applyRubberBand(offset: number, atBoundary: boolean): number {
+    if (!atBoundary) return offset;
+    return offset * RUBBER_BAND_FACTOR * (1 - Math.abs(offset) / (window.innerHeight * 2));
+  }
+
+  /**
+   * Update visual position during drag (progressive feedback)
+   */
+  function updateDragPosition(offset: number) {
+    if (!get(renderProfile).isMobile || sectionElements.length === 0) return;
+    
+    const currentIdx = currentSectionIndex;
+    const currentSection = sectionElements[currentIdx];
+    const viewportHeight = window.innerHeight;
+    
+    // Determine if at boundary
+    const atTopBoundary = currentIdx === 0 && offset > 0;
+    const atBottomBoundary = currentIdx === sectionElements.length - 1 && offset < 0;
+    const atBoundary = atTopBoundary || atBottomBoundary;
+    
+    // Scale the visual feedback:
+    // Dragging 100vh (full screen) should only show MAX_VISUAL_FEEDBACK (20%)
+    // This means the feedback is dampened/scaled down
+    const scaledOffset = offset * MAX_VISUAL_FEEDBACK;
+    
+    // Apply rubber-band at boundaries
+    const effectiveOffset = applyRubberBand(scaledOffset, atBoundary);
+    const progress = effectiveOffset / viewportHeight;
+    
+    if (currentSection) {
+      gsap.set(currentSection, { 
+        yPercent: progress * 100,
+        force3D: true
+      });
+    }
+    
+    // Show subtle preview of next/prev section
+    if (!atBoundary) {
+      const nextIdx = offset < 0 ? currentIdx + 1 : currentIdx - 1;
+      if (nextIdx >= 0 && nextIdx < sectionElements.length) {
+        const nextSection = sectionElements[nextIdx];
+        const direction = offset < 0 ? 1 : -1;
+        gsap.set(nextSection, { 
+          yPercent: direction * 100 + progress * 100,
+          autoAlpha: 1,
+          force3D: true
+        });
+      }
+    }
+  }
+
+  /**
+   * Reset drag state and snap to nearest section
+   */
+  function finishDragAndSnap(finalVelocity: number) {
+    if (!get(renderProfile).isMobile) return;
+    
+    isDragging = false;
+    const viewportHeight = window.innerHeight;
+    const currentIdx = currentSectionIndex;
+    const dragPercent = Math.abs(currentDragOffset) / viewportHeight;
+    
+    // Calculate momentum distance
+    const momentumDistance = Math.abs(finalVelocity) * MOMENTUM_MULTIPLIER;
+    
+    // Determine if should navigate
+    let shouldNavigate = false;
+    let direction = 0;
+    
+    // Check velocity-based momentum
+    if (momentumDistance > MIN_MOMENTUM_DISTANCE && Math.abs(finalVelocity) > VELOCITY_THRESHOLD) {
+      shouldNavigate = true;
+      direction = currentDragOffset < 0 ? 1 : -1;
+    }
+    // Check distance-based threshold
+    else if (dragPercent > SNAP_THRESHOLD) {
+      shouldNavigate = true;
+      direction = currentDragOffset < 0 ? 1 : -1;
+    }
+    
+    // Navigate or snap back
+    if (shouldNavigate) {
+      const targetIdx = currentIdx + direction;
+      if (targetIdx >= 0 && targetIdx < sectionElements.length) {
+        // Reset sections to default positions before navigation to avoid conflicts
+        sectionElements.forEach((section, idx) => {
+          if (idx === currentIdx) {
+            gsap.set(section, { yPercent: 0, autoAlpha: 1 });
+          } else {
+            gsap.set(section, { yPercent: 100, autoAlpha: 0 });
+          }
+        });
+        // Now trigger the normal navigation animation
+        navigateToSection(targetIdx);
+      } else {
+        snapBackToCurrentSection();
+      }
+    } else {
+      snapBackToCurrentSection();
+    }
+    
+    currentDragOffset = 0;
+  }
+
+  /**
+   * Animate back to current section (cancel gesture)
+   */
+  function snapBackToCurrentSection() {
+    if (sectionElements.length === 0) return;
+    
+    const currentIdx = currentSectionIndex;
+    const currentSection = sectionElements[currentIdx];
+    
+    gsap.to(currentSection, {
+      yPercent: 0,
+      duration: 0.4,
+      ease: 'power2.out',
+      force3D: true
+    });
+    
+    // Hide any visible adjacent sections
+    [currentIdx - 1, currentIdx + 1].forEach(idx => {
+      if (idx >= 0 && idx < sectionElements.length) {
+        const section = sectionElements[idx];
+        const direction = idx < currentIdx ? -1 : 1;
+        gsap.to(section, {
+          yPercent: direction * 100,
+          duration: 0.4,
+          ease: 'power2.out',
+          force3D: true,
+          onComplete: () => {
+            gsap.set(section, { autoAlpha: 0 });
+          }
+        });
+      }
+    });
+  }
+
   function onTouchStart(e: TouchEvent) {
     if (!get(renderProfile).isMobile || !get(isContentLoaded) || isAnimating) return;
     const t = e.changedTouches[0];
     if (!t) return;
+
     touchStartY = t.clientY;
     touchStartX = t.clientX;
+    lastTouchY = t.clientY;
     touchStartTime = performance.now();
+    lastTouchTime = touchStartTime;
     touchIntent = null;
+    isDragging = false;
+    currentDragOffset = 0;
+    dragVelocity = 0;
   }
 
   function onTouchMove(e: TouchEvent) {
@@ -168,51 +324,74 @@
 
     const currentY = t.clientY;
     const currentX = t.clientX;
+    const currentTime = performance.now();
     const dy = currentY - touchStartY;
     const dx = currentX - touchStartX;
     const absDy = Math.abs(dy);
     const absDx = Math.abs(dx);
 
-    if (absDx > HORIZ_DEADZONE) {
-      touchIntent = null;
+    // Calculate instantaneous velocity
+    const timeDelta = Math.max(1, currentTime - lastTouchTime);
+    const moveDelta = currentY - lastTouchY;
+    dragVelocity = moveDelta / timeDelta;
+    lastTouchY = currentY;
+    lastTouchTime = currentTime;
+
+    // Determine intent if not yet set
+    if (!touchIntent && (absDy > DRAG_THRESHOLD || absDx > DRAG_THRESHOLD)) {
+      // Check if horizontal gesture
+      if (absDx > absDy * 1.5 && absDx > HORIZ_TOLERANCE * 0.5) {
+        touchIntent = 'horizontal';
+        return;
+      }
+      // Otherwise, vertical navigation
+      else if (absDy > absDx * 0.7) {
+        touchIntent = 'vertical';
+        isDragging = true;
+      }
+    }
+
+    // Handle based on intent
+    if (touchIntent === 'horizontal') {
       return;
     }
 
-    const verticalDominant = absDy > absDx * SWIPE_INTENT_DOMINANCE;
-    if (!touchIntent && absDy >= SWIPE_INTENT_DIST && verticalDominant) {
-      touchIntent = dy < 0 ? 'next' : 'prev';
-    }
+    // Handle vertical dragging with progressive feedback
+    if (touchIntent === 'vertical' && isDragging) {
+      // Cancel if too much horizontal movement
+      if (absDx > HORIZ_TOLERANCE) {
+        touchIntent = 'horizontal';
+        isDragging = false;
+        snapBackToCurrentSection();
+        return;
+      }
 
-    const scroller = (document.scrollingElement as HTMLElement | null) ?? document.body;
-    const atTop = scroller ? scroller.scrollTop <= 0 : window.scrollY <= 0;
-    if (dy > 0 && atTop && verticalDominant && (absDy >= PREVENT_REFRESH_DIST || touchIntent === 'prev')) {
-      e.preventDefault();
+      // Update drag offset and visual feedback
+      currentDragOffset = dy;
+      updateDragPosition(dy);
+
+      // Prevent pull-to-refresh at top
+      const scroller = (document.scrollingElement as HTMLElement | null) ?? document.body;
+      const atTop = scroller ? scroller.scrollTop <= 0 : window.scrollY <= 0;
+      if (dy > 0 && atTop && absDy > DRAG_THRESHOLD) {
+        e.preventDefault();
+      }
     }
   }
 
   function onTouchEnd(e: TouchEvent) {
-    if (!get(renderProfile).isMobile || !get(isContentLoaded) || isAnimating) {
-      touchIntent = null;
-      return;
+    if (!get(renderProfile).isMobile || !get(isContentLoaded) || isAnimating) return;
+
+    // If was dragging, finish with momentum
+    if (isDragging && touchIntent === 'vertical') {
+      finishDragAndSnap(dragVelocity);
     }
-    const t = e.changedTouches[0];
-    if (!t) {
-      touchIntent = null;
-      return;
-    }
-    const dy = t.clientY - touchStartY;
-    const dx = t.clientX - touchStartX;
-    const dt = Math.max(1, performance.now() - touchStartTime);
-    if (Math.abs(dx) > HORIZ_DEADZONE) {
-      touchIntent = null;
-      return;
-    }
-    const v = Math.abs(dy) / dt;
-    if (Math.abs(dy) > SWIPE_DIST || v > SWIPE_VELOCITY) {
-      const dir = touchIntent === 'next' ? 1 : touchIntent === 'prev' ? -1 : (dy < 0 ? 1 : -1);
-      navigateToSection(currentSectionIndex + dir);
-    }
+
+    // Reset state
     touchIntent = null;
+    isDragging = false;
+    currentDragOffset = 0;
+    dragVelocity = 0;
   }
 
   function navigateToSection(newIndex: number) {

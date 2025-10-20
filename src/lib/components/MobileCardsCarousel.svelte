@@ -208,17 +208,15 @@
   }
 
   function handleTouchMove(event: TouchEvent) {
-    if (horizontalLocked) {
-      event.stopPropagation();
-      return;
-    }
+    // Don't stop propagation - let parent handlers decide what to do
+    // The parent's touch handlers will detect horizontal intent and ignore
     if (event.touches.length !== 1) return;
     const touch = event.touches[0];
     const dx = Math.abs(touch.clientX - touchStartX);
     const dy = Math.abs(touch.clientY - touchStartY);
     if (dx > dy && dx > 6) {
       horizontalLocked = true;
-      event.stopPropagation();
+      // Removed stopPropagation() - parent needs to detect horizontal gestures too
     }
   }
 
