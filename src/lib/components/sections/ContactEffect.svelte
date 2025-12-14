@@ -2,7 +2,7 @@
 <script context="module" lang="ts">
   // Public instance API for the orchestrator to call.
   export type ContactEffectInstance = {
-    initializeEffect: () => Promise<void>;
+    initializeEffect: (signal?: AbortSignal) => Promise<void>;
     onEnterSection: () => void;
     onLeaveSection: () => void;
     onTransitionComplete: () => void;
@@ -26,18 +26,43 @@
   let container: HTMLDivElement;
   let effectInstance: RaymarchingEffect | null = null;
   let isInitialized = false;
+  let initPromise: Promise<void> | null = null;
 
   // -----------------------------
   // Animation Lifecycle API
   // -----------------------------
-  export async function initializeEffect(): Promise<void> {
+  export async function initializeEffect(signal?: AbortSignal): Promise<void> {
     if (isInitialized) return;
-    await tick();
-    if (!container) return;
+    if (signal?.aborted) return;
+    if (initPromise) return initPromise;
 
-    effectInstance = new RaymarchingEffect(container);
-    await effectInstance.init();
-    isInitialized = true;
+    initPromise = (async () => {
+      await tick();
+      if (!container) return;
+      if (signal?.aborted) return;
+
+      const instance = new RaymarchingEffect(container);
+      try {
+        await instance.init(signal);
+      } catch (e) {
+        // Abort (or init failure): ensure we leave no partial resources behind.
+        instance.dispose();
+        if (signal?.aborted) return;
+        throw e;
+      }
+
+      if (signal?.aborted) {
+        instance.dispose();
+        return;
+      }
+
+      effectInstance = instance;
+      isInitialized = true;
+    })().finally(() => {
+      initPromise = null;
+    });
+
+    return initPromise;
   }
 
   export function onEnterSection(): void {
@@ -85,6 +110,7 @@
       effectInstance = null;
     }
     isInitialized = false;
+    initPromise = null;
   }
 
   onMount(() => {
@@ -121,6 +147,10 @@
     private bloomComposer!: EffectComposer;
     private finalComposer!: EffectComposer;
     private bloomPass!: UnrealBloomPass;
+
+    private renderTarget: THREE.WebGLRenderTarget | null = null;
+    private bloomRenderTarget: THREE.WebGLRenderTarget | null = null;
+    private finalPassMaterial: THREE.ShaderMaterial | null = null;
 
     // Animation & input
     private clock: THREE.Clock;
@@ -235,14 +265,17 @@
       }
     }
 
-    // init is async because we attempt to dynamically import the optimized shader (fallback handled)
-    public async init(): Promise<void> {
+    // init is async because we dynamically import the shader source.
+    public async init(signal?: AbortSignal): Promise<void> {
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       this.scene = new THREE.Scene();
       this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
       this.camera.position.z = 1;
 
       this.setupRenderer();
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       const frag = await this.loadShaderWithFallback();
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       this.setupMaterial(frag);
 
       const geometry = new THREE.PlaneGeometry(2, 2);
@@ -254,6 +287,8 @@
 
       // warm GPU/state
       try { this.finalComposer.render(); } catch (e) { /* noop */ }
+
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
   window.addEventListener('mousemove', this.boundOnMouseMove, { passive: true });
   // Mouse click locks the position as well (desktop parity with tap)
@@ -408,26 +443,25 @@
       const halfW = Math.max(1, Math.round(baseW * 0.5));
       const halfH = Math.max(1, Math.round(baseH * 0.5));
 
-      const renderTarget = new THREE.WebGLRenderTarget(baseW, baseH, { format: THREE.RGBAFormat });
-      const bloomRenderTarget = new THREE.WebGLRenderTarget(halfW, halfH, { format: THREE.RGBAFormat });
+      this.renderTarget = new THREE.WebGLRenderTarget(baseW, baseH, { format: THREE.RGBAFormat });
+      this.bloomRenderTarget = new THREE.WebGLRenderTarget(halfW, halfH, { format: THREE.RGBAFormat });
 
       const renderScene = new RenderPass(this.scene, this.camera);
       this.bloomPass = new UnrealBloomPass(new THREE.Vector2(halfW, halfH), 0.30, 0.5, 0.20);
 
-      this.bloomComposer = new EffectComposer(this.renderer, bloomRenderTarget);
+      this.bloomComposer = new EffectComposer(this.renderer, this.bloomRenderTarget);
       this.bloomComposer.renderToScreen = false;
       this.bloomComposer.addPass(renderScene);
       this.bloomComposer.addPass(this.bloomPass);
 
-      this.finalComposer = new EffectComposer(this.renderer, renderTarget);
+      this.finalComposer = new EffectComposer(this.renderer, this.renderTarget);
       this.finalComposer.addPass(renderScene);
 
       // Compose bloom + base while preserving transparency (apply bloom only where base has alpha)
-      const finalPass = new ShaderPass(
-        new THREE.ShaderMaterial({
+      this.finalPassMaterial = new THREE.ShaderMaterial({
           uniforms: {
             baseTexture: { value: null },
-            bloomTexture: { value: bloomRenderTarget.texture }
+            bloomTexture: { value: this.bloomRenderTarget.texture }
           },
           vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
           fragmentShader: `
@@ -443,9 +477,9 @@
           `,
           transparent: true,
           depthWrite: false
-        }),
-        "baseTexture"
-      );
+        });
+
+      const finalPass = new ShaderPass(this.finalPassMaterial, "baseTexture");
 
       const fxaaPass = new ShaderPass(FXAAShader);
       fxaaPass.material.uniforms['resolution'].value.set(1 / this.container.clientWidth, 1 / this.container.clientHeight);
@@ -799,6 +833,7 @@
     public dispose(): void {
       this.isDisposed = true;
       this.stopAnimationLoop();
+      try { gsap.killTweensOf(this.targetMouse); } catch {}
       window.removeEventListener('mousemove', this.boundOnMouseMove);
   window.removeEventListener('mousedown', this.boundOnMouseDown as any);
   window.removeEventListener('touchstart', this.boundOnTouchStart as any);
@@ -818,6 +853,22 @@
       try {
         (this.bloomComposer as any)?.dispose?.();
         (this.finalComposer as any)?.dispose?.();
+      } catch (e) { /* ignore */ }
+
+      try {
+        this.finalPassMaterial?.dispose();
+        this.finalPassMaterial = null;
+      } catch (e) { /* ignore */ }
+
+      try {
+        this.bloomPass?.dispose?.();
+      } catch (e) { /* ignore */ }
+
+      try {
+        this.bloomRenderTarget?.dispose();
+        this.bloomRenderTarget = null;
+        this.renderTarget?.dispose();
+        this.renderTarget = null;
       } catch (e) { /* ignore */ }
 
       try {

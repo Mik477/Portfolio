@@ -44,6 +44,7 @@
   let h2El: HTMLHeadingElement;
   let pEl: HTMLParagraphElement;
   let keyPositionElements: Element[] = [];
+  let enterTimeline: gsap.core.Timeline | null = null;
 
   onMount(() => {
     if (wrapperEl) {
@@ -61,7 +62,7 @@
   export function onEnterSection() {
     // Force initialization attempt immediately when entering (covers direct jumps where preload didn't run)
     if (contactEffectInstance) {
-      try { initializeEffect(); } catch {}
+      void initializeEffect().catch(() => {});
       contactEffectInstance.onEnterSection();
     }
 
@@ -71,7 +72,8 @@
     gsap.set(pEl, { autoAlpha: 0, y: 20 });
     gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
 
-    gsap.timeline({
+    enterTimeline?.kill();
+    enterTimeline = gsap.timeline({
       delay: 0.5,
       onComplete: () => { dispatch('animationComplete'); }
     })
@@ -92,12 +94,21 @@
 
   export function onLeaveSection() {
     contactEffectInstance?.onLeaveSection();
+
+    enterTimeline?.kill();
+    enterTimeline = null;
+
     const all = [h2El, pEl, ...keyPositionElements];
     gsap.killTweensOf(all);
     gsap.set(all, { autoAlpha: 0 });
   }
 
   export function onUnload() {
+    // Ensure our own animations are cleared even if unload happens without a leave.
+    enterTimeline?.kill();
+    enterTimeline = null;
+    const all = [h2El, pEl, ...keyPositionElements];
+    gsap.killTweensOf(all);
     contactEffectInstance?.onUnload();
   }
 

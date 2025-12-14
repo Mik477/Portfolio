@@ -1,6 +1,6 @@
 <script lang="ts">
   import { browser } from '$app/environment';
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
 
   export let status = 404;
   export let locale: 'en' | 'de' | undefined = undefined;
@@ -19,6 +19,8 @@
   let requestedPath = '';
   let pathLoaded = false;
   const headingId = 'error-heading';
+  let isDestroyed = false;
+  let pathRevealRafId: number | null = null;
 
   const parseLocaleFromPath = (pathname: string): 'en' | 'de' | undefined => {
     const segment = pathname.split('/').filter(Boolean)[0];
@@ -70,9 +72,19 @@
     if (browser) {
       requestedPath = decodeURI(location.pathname);
       // Use requestAnimationFrame to ensure smooth fade-in after path is set
-      requestAnimationFrame(() => {
+      pathRevealRafId = requestAnimationFrame(() => {
+        pathRevealRafId = null;
+        if (isDestroyed) return;
         pathLoaded = true;
       });
+    }
+  });
+
+  onDestroy(() => {
+    isDestroyed = true;
+    if (pathRevealRafId !== null) {
+      cancelAnimationFrame(pathRevealRafId);
+      pathRevealRafId = null;
     }
   });
 </script>

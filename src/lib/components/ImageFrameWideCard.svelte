@@ -27,6 +27,8 @@
   let hasMeasuredAspect = false;
   let imageAspect = 16 / 9;
 
+  let isDestroyed = false;
+
   // Target transforms (degrees / px)
   let targetRotX = 0;
   let targetRotY = 0;
@@ -48,6 +50,7 @@
   $: tiltDisabled = effectiveTilt === 0;
 
   function updateRect() {
+    if (isDestroyed) return;
     if (!frameWrapElement) return;
     const rect = frameWrapElement.getBoundingClientRect();
     rectWidth = rect.width;
@@ -82,6 +85,10 @@
   }
 
   function animateFrame() {
+    if (isDestroyed) {
+      rafId = null;
+      return;
+    }
     rafId = null;
     const nextRotX = rotX + (targetRotX - rotX) * SMOOTHING;
     const nextRotY = rotY + (targetRotY - rotY) * SMOOTHING;
@@ -105,6 +112,7 @@
   }
 
   function scheduleAnimation() {
+    if (isDestroyed) return;
     if (rafId === null) {
       rafId = requestAnimationFrame(animateFrame);
     }
@@ -187,6 +195,8 @@
     imageToken += 1;
     const token = imageToken;
 
+    if (isDestroyed) return;
+
     if (!src) {
       hasMeasuredAspect = false;
       imageAspect = 16 / 9;
@@ -195,6 +205,7 @@
 
     try {
       const aspect = await fetchImageAspect(src);
+      if (isDestroyed) return;
       if (token !== imageToken) return;
       if (aspect > 0) {
         imageAspect = aspect;
@@ -236,6 +247,8 @@
   });
 
   onDestroy(() => {
+    isDestroyed = true;
+    imageToken += 1; // invalidate in-flight image work
     cancelAnimation();
     detachPointer();
     resizeObserver?.disconnect();

@@ -38,6 +38,7 @@
   $: sequenceOffset = hasLoop ? total * Math.floor(REPEAT / 2) : 0;
 
   let mounted = false;
+  let isDestroyed = false;
   let resolvedInitialIndex = 0;
 
   $: resolvedInitialIndex = initialIndex ?? (total > 0 ? Math.floor(total / 2) : 0);
@@ -58,7 +59,7 @@
   }
 
   function queueSnap(options: { immediate?: boolean; behavior?: ScrollBehavior } = {}) {
-    if (!viewport) return;
+    if (!viewport || !mounted || isDestroyed) return;
     const { immediate = false, behavior = 'smooth' } = options;
     const node = itemNodes[currentDisplayIndex];
     if (!node) return;
@@ -101,6 +102,7 @@
 
   async function initialize() {
     await tick();
+    if (!mounted || isDestroyed) return;
     if (total === 0) return;
     resetIndices(resolvedInitialIndex, true);
     dispatch('activate', { index: currentIndex });
@@ -108,6 +110,7 @@
 
   onMount(() => {
     mounted = true;
+    isDestroyed = false;
     initialize();
     if (typeof ResizeObserver !== 'undefined' && viewport) {
       resizeObserver = new ResizeObserver(() => {
@@ -119,6 +122,7 @@
 
   onDestroy(() => {
     mounted = false;
+    isDestroyed = true;
     if (resizeObserver) {
       resizeObserver.disconnect();
       resizeObserver = null;
@@ -130,9 +134,11 @@
   });
 
   function handleScroll() {
+    if (!mounted || isDestroyed) return;
     if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => {
       scrollFrame = null;
+      if (!mounted || isDestroyed) return;
       updateActiveFromScroll();
     });
   }

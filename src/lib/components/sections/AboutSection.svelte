@@ -6,6 +6,7 @@
     initializeEffect?: () => Promise<void>;
     // Add the new optional method to its type definition
     onTransitionComplete?: () => void;
+    onUnload?: () => void;
   };
 </script>
 
@@ -34,10 +35,10 @@
     prefersReducedMotion?: boolean;
   };
 
-  let disableImageOnMobile = false;
   let shouldRenderImageEffect = true;
   let profileReady = false;
   let currentRenderProfile: RenderProfileState = { isMobile: false };
+  let hasEntered = false;
 
   if (browser) {
     onMount(() => {
@@ -45,14 +46,23 @@
         currentRenderProfile = profile;
         profileReady = true;
       });
-      return () => unsubscribe();
+      return () => {
+        unsubscribe();
+      };
     });
   }
 
-  $: disableImageOnMobile = Boolean(data?.disableImageOnMobile);
-  $: shouldRenderImageEffect = disableImageOnMobile
-    ? profileReady && !currentRenderProfile.isMobile
-    : true;
+  // Requirement: entire About image + effect is disabled on mobile.
+  $: shouldRenderImageEffect = profileReady && !currentRenderProfile.isMobile;
+
+  // Reactive recovery: If the effect component mounts AFTER we have already entered
+  // (e.g. due to renderProfile delay or conditional rendering), ensure it gets the enter signal.
+  $: if (shouldRenderImageEffect && aboutImageEffectInstance && hasEntered) {
+      // Use a small timeout to ensure the component is fully mounted and bound
+      setTimeout(() => {
+          aboutImageEffectInstance?.onEnterSection();
+      }, 0);
+  }
 
   // This is called by the preload manager while the section is off-screen.
   export async function initializeEffect() {
@@ -64,15 +74,13 @@
   // This is called at the START of the page transition.
   // It should only contain lightweight animations.
   export function onEnterSection(): void {
+    hasEntered = true;
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onEnterSection();
     }
     if (aboutImageEffectInstance) {
-      // Lazy init safeguard: if preloading was skipped for some reason, initialize now (non-blocking)
-      // @ts-ignore best-effort check
-      if ((aboutImageEffectInstance as any).initializeEffect && !(aboutImageEffectInstance as any).isInitialized) {
-        try { (aboutImageEffectInstance as any).initializeEffect(); } catch {}
-      }
+      // Lazy init safeguard: if preloading was skipped, initialize now (non-blocking)
+      void aboutImageEffectInstance.initializeEffect?.().catch(() => {});
       // The image effect's onEnterSection just starts a simple fade-in.
       aboutImageEffectInstance.onEnterSection();
     }
@@ -89,12 +97,18 @@
 
   // This is called when navigating away from the section.
   export function onLeaveSection(): void {
+    hasEntered = false;
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onLeaveSection();
     }
     if (aboutImageEffectInstance) {
       aboutImageEffectInstance.onLeaveSection();
     }
+  }
+
+  export function onUnload(): void {
+    keyboardButtonsInstance?.onUnload?.();
+    aboutImageEffectInstance?.onUnload?.();
   }
 
   function handleAnimationComplete() {
@@ -119,7 +133,6 @@
     <AboutImageEffect
       bind:this={aboutImageEffectInstance}
       imageUrl={data.imageUrl}
-      mobileMode={currentRenderProfile.isMobile}
     />
   {/if}
 </div>

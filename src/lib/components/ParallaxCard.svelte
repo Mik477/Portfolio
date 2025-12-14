@@ -23,6 +23,9 @@
   let needsFrame = false;
   let lastPointerX = 0;
   let lastPointerY = 0;
+  let isDestroyed = false;
+  let resizeObserver: ResizeObserver | null = null;
+  let intersectionObserver: IntersectionObserver | null = null;
   // Adaptive fidelity (lightweight moving average)
   let frameTimes: number[] = [];
   const FRAME_WINDOW = 50;
@@ -42,9 +45,10 @@
     rectTop = rect.top;
 
     // Observe size changes
-    const ro = new ResizeObserver(entries => {
+    resizeObserver = new ResizeObserver(entries => {
       for (const entry of entries) {
         if (entry.target === cardWrapElement) {
+          if (isDestroyed) return;
           const cr = entry.contentRect;
           elementWidth = cr.width;
           elementHeight = cr.height;
@@ -54,10 +58,10 @@
         }
       }
     });
-    ro.observe(cardWrapElement);
+    resizeObserver.observe(cardWrapElement);
 
     // IntersectionObserver to gate work when offscreen
-    const io = new IntersectionObserver((entries) => {
+    intersectionObserver = new IntersectionObserver((entries) => {
       entries.forEach(e => {
         if (e.target === cardWrapElement) {
           if (!e.isIntersecting) {
@@ -68,14 +72,22 @@
         }
       });
     }, { root: null, threshold: 0 });
-    io.observe(cardWrapElement);
-
-    // Cleanup
-    onDestroy(() => { ro.disconnect(); io.disconnect(); cancelRaf(); });
+    intersectionObserver.observe(cardWrapElement);
   });
 
   onDestroy(() => {
-    if (mouseLeaveDelay) clearTimeout(mouseLeaveDelay);
+    isDestroyed = true;
+    needsFrame = false;
+    cancelRaf();
+    detachPointer();
+    if (mouseLeaveDelay !== null) {
+      window.clearTimeout(mouseLeaveDelay);
+      mouseLeaveDelay = null;
+    }
+    resizeObserver?.disconnect();
+    resizeObserver = null;
+    intersectionObserver?.disconnect();
+    intersectionObserver = null;
   });
 
   $: mousePX = mouseX / elementWidth;
@@ -90,9 +102,11 @@
   $: cardBgImage = cardData.cardImage ? `background-image: url(${cardData.cardImage});` : '';
 
   function scheduleFrame() {
+    if (isDestroyed) return;
     if (rafId !== null) return; // already scheduled
     rafId = requestAnimationFrame(() => {
       rafId = null;
+      if (isDestroyed) return;
       // Update frame-time window
       const now = performance.now();
       const prev = (scheduleFrame as any)._prev || now;
@@ -122,14 +136,14 @@
   function cancelRaf() { if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; } }
 
   function handlePointerMove(e: PointerEvent) {
-    if (disableTilt || !cardWrapElement) return;
+    if (disableTilt || isDestroyed || !cardWrapElement) return;
     lastPointerX = e.clientX; lastPointerY = e.clientY;
     needsFrame = true;
     scheduleFrame();
   }
 
   function attachPointer() {
-    if (!cardWrapElement || hasPointer || disableTilt) return;
+    if (!cardWrapElement || isDestroyed || hasPointer || disableTilt) return;
     hasPointer = true;
     cardWrapElement.addEventListener('pointermove', handlePointerMove);
     // Update cached rect on enter for accuracy
@@ -143,13 +157,18 @@
   }
 
   function handleMouseEnter() {
-    if (disableTilt) return;
-    if (mouseLeaveDelay) clearTimeout(mouseLeaveDelay);
+    if (disableTilt || isDestroyed) return;
+    if (mouseLeaveDelay !== null) {
+      window.clearTimeout(mouseLeaveDelay);
+      mouseLeaveDelay = null;
+    }
     attachPointer();
   }
 
   function handleMouseLeave() {
+    if (isDestroyed) return;
     mouseLeaveDelay = window.setTimeout(() => {
+      if (isDestroyed) return;
       mouseX = 0;
       mouseY = 0;
     }, 1000);

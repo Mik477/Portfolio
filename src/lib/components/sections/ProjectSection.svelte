@@ -3,7 +3,10 @@
   export type ProjectSectionInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
-    initializeEffect?: () => Promise<void>;
+	initializeEffect?: (signal?: AbortSignal) => Promise<void>;
+	getPreloadAssets?: () => string[];
+	primeFirstFrame?: (signal?: AbortSignal) => Promise<void>;
+	onUnload?: () => void;
   };
 </script>
 
@@ -32,6 +35,22 @@
   let isCycling = false;
   let isInitialized = false;
   let initializationPromise: Promise<void> | null = null;
+  let enterTimeline: gsap.core.Timeline | null = null;
+  let isUnmounted = false;
+
+  function createAbortError(message: string) {
+    try {
+      return new DOMException(message, 'AbortError');
+    } catch {
+      const err = new Error(message);
+      (err as any).name = 'AbortError';
+      return err;
+    }
+  }
+
+  function assertNotAborted(signal?: AbortSignal) {
+    if (signal?.aborted) throw createAbortError('Warmup cancelled');
+  }
 
   $: {
     const fallback = project.backgrounds;
@@ -49,11 +68,9 @@
   }
 
   function resetBackgroundCycle() {
+    stopCycleAndAnimations();
     currentImageIndex = 0;
     activeLayer = 'A';
-    clearTimeout(cycleTimer);
-    cycleTimer = undefined;
-    isCycling = false;
     isInitialized = false;
     initializationPromise = null;
     if (bgLayerA) {
@@ -64,6 +81,29 @@
     }
     if (sectionWrapperEl && activeBackgrounds.length > 0) {
       void ensureInitialized();
+    }
+  }
+
+  function stopCycleAndAnimations(): void {
+    isCycling = false;
+    if (cycleTimer !== undefined) {
+      clearTimeout(cycleTimer);
+      cycleTimer = undefined;
+    }
+
+    enterTimeline?.kill();
+    enterTimeline = null;
+
+    gsap.killTweensOf([bgLayerA, bgLayerB]);
+
+    if (sectionWrapperEl) {
+      const animatableElements = gsap.utils.toArray(
+        sectionWrapperEl.querySelectorAll('.anim-headline, .anim-summary, .anim-card, .anim-button')
+      );
+      if (animatableElements.length > 0) {
+        gsap.killTweensOf(animatableElements);
+        gsap.set(animatableElements, { autoAlpha: 0 });
+      }
     }
   }
 
@@ -168,6 +208,7 @@
     });
 
     requestAnimationFrame(() => {
+      if (isUnmounted || !isCycling) return;
       gsap.to(hiddenLayer, {
         scale: 'var(--image-zoom-amount)',
         ease: 'none',
@@ -185,6 +226,7 @@
         ease: 'power2.inOut',
         duration: crossfadeDuration,
         onComplete: () => {
+          if (isUnmounted || !isCycling) return;
           gsap.killTweensOf(visibleLayer);
           gsap.set(visibleLayer, { opacity: 0 });
           activeLayer = activeLayer === 'A' ? 'B' : 'A';
@@ -194,14 +236,16 @@
     });
   }
 
-  async function ensureInitialized() {
+  async function ensureInitialized(signal?: AbortSignal) {
     if (isInitialized || initializationPromise) {
       return initializationPromise ?? Promise.resolve();
     }
 
     initializationPromise = (async () => {
+		assertNotAborted(signal);
       await tick();
-  const initialImageSrc = activeBackgrounds[currentImageIndex]?.value;
+		assertNotAborted(signal);
+		const initialImageSrc = activeBackgrounds[currentImageIndex]?.value;
       if (!initialImageSrc) return;
 
       try {
@@ -209,11 +253,12 @@
       } catch (error) {
         console.warn(error);
       }
+		assertNotAborted(signal);
 
-  const layers = { A: bgLayerA, B: bgLayerB };
-  activeLayer = 'A';
-  const visibleLayer = layers[activeLayer];
-  const hiddenLayer = activeLayer === 'A' ? layers.B : layers.A;
+		const layers = { A: bgLayerA, B: bgLayerB };
+		activeLayer = 'A';
+		const visibleLayer = layers[activeLayer];
+		const hiddenLayer = activeLayer === 'A' ? layers.B : layers.A;
 
       if (visibleLayer) {
         gsap.set(visibleLayer, { backgroundImage: `url(${initialImageSrc})`, opacity: 1, scale: 1, transformOrigin: '50% 50%' });
@@ -227,6 +272,7 @@
         void loadAndDecodeImage(secondImageSrc);
       }
 
+		assertNotAborted(signal);
       isInitialized = true;
     })().finally(() => {
       initializationPromise = null;
@@ -235,12 +281,34 @@
     return initializationPromise;
   }
 
-  export function initializeEffect() {
-    return ensureInitialized();
+  export function initializeEffect(signal?: AbortSignal) {
+    return ensureInitialized(signal);
   }
 
+	export function getPreloadAssets(): string[] {
+		const urls: string[] = [];
+		// Respect the currently selected background list (mobile vs desktop).
+		if (activeBackgrounds?.length) {
+			urls.push(activeBackgrounds[0]?.value);
+			if (activeBackgrounds.length > 1) urls.push(activeBackgrounds[1]?.value);
+		}
+		project?.cards?.forEach(card => {
+			if (card?.cardImage) urls.push(card.cardImage);
+		});
+		return urls.filter(Boolean);
+	}
+
+	// Phase 3: cheap first-frame prime without making the section visible.
+	export async function primeFirstFrame(signal?: AbortSignal): Promise<void> {
+		await ensureInitialized(signal);
+		assertNotAborted(signal);
+		await tick();
+		assertNotAborted(signal);
+		await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+	}
+
   export function onEnterSection() {
-    void ensureInitialized();
+	void ensureInitialized().catch(() => {});
   const initialImageSrc = activeBackgrounds[currentImageIndex]?.value;
   if (!initialImageSrc) return;
     const layers = { A: bgLayerA, B: bgLayerB };
@@ -267,33 +335,29 @@
     if (cards.length > 0) gsap.set(cards, { autoAlpha: 0, scale: 0.95, y: 20 });
     if (button) gsap.set(button, { autoAlpha: 0, y: 10, scale: 0.95 });
     
-    const tl = gsap.timeline({
+    enterTimeline?.kill();
+    enterTimeline = gsap.timeline({
       delay: 0.2,
       onComplete: () => { dispatch('animationComplete'); }
     });
 
-    if (headline) tl.to(headline, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 'start');
-    if (summary) tl.to(summary, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 'start+=0.15');
-    if (cards.length > 0) tl.to(cards, { autoAlpha: 1, scale: 1, y: 0, duration: 1.2, stagger: 0.1, ease: 'expo.out' }, 'start+=0.25');
-    if (button) tl.to(button, { autoAlpha: 1, y: 0, scale: 1, duration: 1.2, ease: 'expo.out' }, 'start+=0.4');
+    if (headline) enterTimeline.to(headline, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 'start');
+    if (summary) enterTimeline.to(summary, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 'start+=0.15');
+    if (cards.length > 0) enterTimeline.to(cards, { autoAlpha: 1, scale: 1, y: 0, duration: 1.2, stagger: 0.1, ease: 'expo.out' }, 'start+=0.25');
+    if (button) enterTimeline.to(button, { autoAlpha: 1, y: 0, scale: 1, duration: 1.2, ease: 'expo.out' }, 'start+=0.4');
   }
 
   export function onLeaveSection() {
-    isCycling = false;
-    clearTimeout(cycleTimer);
-    
-    gsap.killTweensOf([bgLayerA, bgLayerB]);
+    stopCycleAndAnimations();
+  }
 
-    const animatableElements = gsap.utils.toArray(sectionWrapperEl.querySelectorAll('.anim-headline, .anim-summary, .anim-card, .anim-button'));
-    if (animatableElements.length > 0) {
-      gsap.killTweensOf(animatableElements);
-      gsap.set(animatableElements, { autoAlpha: 0 });
-    }
+  export function onUnload(): void {
+    stopCycleAndAnimations();
   }
   
   onDestroy(() => {
-    clearTimeout(cycleTimer);
-    gsap.killTweensOf([bgLayerA, bgLayerB]);
+    isUnmounted = true;
+    stopCycleAndAnimations();
   });
 </script>
 

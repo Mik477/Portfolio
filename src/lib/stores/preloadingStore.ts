@@ -22,6 +22,9 @@ const assetLoadingStatus = writable<Record<string, AssetStatus>>({});
 // This store tracks tasks for the initial site loading screen
 const tasks = writable<Record<string, PreloadTask>>({});
 
+// Track in-flight loads so multiple callers can await the same work.
+const inFlightAssetPromises = new Map<string, Promise<void>>();
+
 // Configuration for the initial loading screen
 export const minimumLoadingDuration = 1000; // Minimum time to show loading screen (ms)
 
@@ -153,52 +156,64 @@ export const startLoadingTask = (taskId: string, priority: number = 1) => {
  * @returns A promise that resolves when all assets are loaded, or rejects on the first error.
  */
 export async function preloadAssets(urls: string[]): Promise<void> {
-  const promises: Promise<unknown>[] = [];
+  const promises: Promise<void>[] = [];
 
   for (const url of urls) {
     const status = preloadingStore.getAssetStatus(url);
-    if (status === 'loaded' || status === 'loading') {
+    if (status === 'loaded') continue;
+    if (status === 'loading') {
+      const existing = inFlightAssetPromises.get(url);
+      if (existing) promises.push(existing);
       continue;
     }
     
     preloadingStore.setAssetStatus(url, 'loading');
 
-    const promise = new Promise((resolve, reject) => {
-      // Basic image preloader
+    const promise: Promise<void> = new Promise((resolve, reject) => {
+      // Image preloader with decode guarantee (when supported)
       if (/\.(jpg|jpeg|png|webp|gif|svg)$/i.test(url)) {
         const img = new Image();
         img.decoding = 'async';
         let settled = false;
 
+        const cleanup = () => {
+          img.onload = null;
+          img.onerror = null;
+        };
+
         const markLoaded = () => {
           if (settled) return;
           settled = true;
+          cleanup();
           preloadingStore.setAssetStatus(url, 'loaded');
-          resolve(url);
+          resolve();
         };
 
-        const markError = () => {
+        const markError = (err?: unknown) => {
           if (settled) return;
           settled = true;
+          cleanup();
           preloadingStore.setAssetStatus(url, 'error');
-          reject(new Error(`Failed to load image: ${url}`));
+          reject(err instanceof Error ? err : new Error(`Failed to load image: ${url}`));
         };
 
-        img.onload = markLoaded;
-        img.onerror = markError;
+        img.onload = () => {
+          if (typeof img.decode === 'function') {
+            img
+              .decode()
+              .then(markLoaded)
+              .catch(() => {
+                // Some browsers reject decode even though the image is usable.
+                if (img.complete && img.naturalWidth > 0) markLoaded();
+                else markError();
+              });
+          } else {
+            markLoaded();
+          }
+        };
+        img.onerror = () => markError(new Error(`Failed to load image: ${url}`));
         img.src = url;
-
-        if (typeof img.decode === 'function') {
-          img
-            .decode()
-            .then(markLoaded)
-            .catch(() => {
-              if (img.complete && img.naturalWidth > 0) {
-                markLoaded();
-              }
-            });
-        }
-      } 
+      }
       // Basic font preloader (for .json from FontLoader)
       else if (/\.json$/i.test(url)) {
         fetch(url)
@@ -208,7 +223,7 @@ export async function preloadAssets(urls: string[]): Promise<void> {
           })
           .then(() => {
             preloadingStore.setAssetStatus(url, 'loaded');
-            resolve(url);
+            resolve();
           })
           .catch(error => {
             preloadingStore.setAssetStatus(url, 'error');
@@ -218,9 +233,14 @@ export async function preloadAssets(urls: string[]): Promise<void> {
       // Add other file types (videos, etc.) here if needed
       else {
         console.warn(`Preloading not implemented for file type: ${url}`);
-        resolve(url); // Resolve unsupported types immediately
+        resolve(); // Resolve unsupported types immediately
       }
-    });
+    })
+      .finally(() => {
+        inFlightAssetPromises.delete(url);
+      });
+
+    inFlightAssetPromises.set(url, promise);
     promises.push(promise);
   }
 

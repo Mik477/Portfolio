@@ -13,6 +13,7 @@
   let frameWrapElement: HTMLDivElement;
   let resizeObserver: ResizeObserver | null = null;
   let pointerAttached = false;
+  let isDestroyed = false;
 
   let rectWidth = 0;
   let rectHeight = 0;
@@ -40,7 +41,7 @@
   $: tiltDisabled = effectiveTilt === 0;
 
   function updateRect() {
-    if (!frameWrapElement) return;
+    if (!frameWrapElement || isDestroyed) return;
     const rect = frameWrapElement.getBoundingClientRect();
     rectWidth = rect.width;
     rectHeight = rect.height;
@@ -49,7 +50,7 @@
   }
 
   function attachPointer() {
-    if (!frameWrapElement || pointerAttached || tiltDisabled) return;
+    if (!frameWrapElement || isDestroyed || pointerAttached || tiltDisabled) return;
     frameWrapElement.addEventListener('pointermove', handlePointerMove);
     frameWrapElement.addEventListener('pointerenter', handlePointerEnter);
     frameWrapElement.addEventListener('pointerleave', handlePointerLeave);
@@ -74,6 +75,10 @@
   }
 
   function animateFrame() {
+    if (isDestroyed) {
+      rafId = null;
+      return;
+    }
     rafId = null;
     const nextRotX = rotX + (targetRotX - rotX) * SMOOTHING;
     const nextRotY = rotY + (targetRotY - rotY) * SMOOTHING;
@@ -97,17 +102,18 @@
   }
 
   function scheduleAnimation() {
-    if (rafId === null) {
+    if (!isDestroyed && rafId === null) {
       rafId = requestAnimationFrame(animateFrame);
     }
   }
 
   function handlePointerEnter() {
-    if (tiltDisabled) return;
+    if (tiltDisabled || isDestroyed) return;
     updateRect();
   }
 
   function handlePointerLeave() {
+    if (isDestroyed) return;
     targetRotX = 0;
     targetRotY = 0;
     targetTranslateX = 0;
@@ -116,7 +122,7 @@
   }
 
   function handlePointerMove(event: PointerEvent) {
-    if (tiltDisabled || !rectWidth || !rectHeight) return;
+    if (tiltDisabled || isDestroyed || !rectWidth || !rectHeight) return;
     const { clientX, clientY } = event;
     const relativeX = (clientX - rectLeft) / rectWidth;
     const relativeY = (clientY - rectTop) / rectHeight;
@@ -136,7 +142,10 @@
   onMount(() => {
     updateRect();
     if (typeof ResizeObserver !== 'undefined' && frameWrapElement) {
-      resizeObserver = new ResizeObserver(() => updateRect());
+      resizeObserver = new ResizeObserver(() => {
+        if (isDestroyed) return;
+        updateRect();
+      });
       resizeObserver.observe(frameWrapElement);
     }
     if (!tiltDisabled) {
@@ -145,6 +154,7 @@
   });
 
   onDestroy(() => {
+    isDestroyed = true;
     cancelAnimation();
     detachPointer();
     resizeObserver?.disconnect();

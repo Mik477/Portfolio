@@ -4,11 +4,12 @@
   export type KeyboardButtonsInstance = {
     onEnterSection: () => void;
     onLeaveSection: () => void;
+    onUnload?: () => void;
   };
 </script>
 
 <script lang="ts">
-  import { onMount, createEventDispatcher } from 'svelte';
+  import { onDestroy, onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
   import type { SocialLink } from '$lib/data/siteConfig';
   import { page } from '$app/stores';
@@ -25,6 +26,7 @@
   let h2El: HTMLHeadingElement;
   let pEl: HTMLParagraphElement;
   let keyPositionElements: Element[] = [];
+  let enterTimeline: gsap.core.Timeline | null = null;
 
   onMount(() => {
     if (wrapperElement) {
@@ -35,6 +37,9 @@
   export function onEnterSection() {
     if (!h2El || !pEl || keyPositionElements.length === 0) return;
 
+    enterTimeline?.kill();
+    enterTimeline = null;
+
     // 1. Set the initial "hidden" state for all elements.
     gsap.set(h2El, { autoAlpha: 0, y: 30 });
     gsap.set(pEl, { autoAlpha: 0, y: 20 });
@@ -42,7 +47,7 @@
     gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
 
     // 2. Create the animation timeline.
-    gsap.timeline({
+    enterTimeline = gsap.timeline({
       delay: 0.5,
       onComplete: () => {
         dispatch('animationComplete');
@@ -75,10 +80,17 @@
   export function onLeaveSection() {
     const allElements = [h2El, pEl, ...keyPositionElements];
     if (allElements.some(el => !el)) return;
+
+    enterTimeline?.kill();
+    enterTimeline = null;
     
     // Hard reset for interrupt-safety.
     gsap.killTweensOf(allElements);
     gsap.set(allElements, { autoAlpha: 0 });
+  }
+
+  export function onUnload() {
+    onLeaveSection();
   }
 
   const getLink = (name: string): string => {
@@ -103,6 +115,10 @@
       try { window.location.hash = '#contact'; } catch {}
     }
   };
+
+  onDestroy(() => {
+    onUnload();
+  });
 </script>
 
 <div class="about-text-block" bind:this={wrapperElement}>

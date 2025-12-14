@@ -3,12 +3,14 @@
 	import { page } from '$app/stores';
 	import { ArrowLeft } from 'lucide-svelte';
 	import { transitionStore } from '$lib/stores/transitionStore';
+	import { renderProfile } from '$lib/stores/renderProfile';
 	export let to: string | undefined = undefined; // optional override
 	export let label: string | undefined = undefined; // optional override label
 	let showButton = false;
 	$: locale = ($page.params?.lang === 'en' ? 'en' : ($page.params?.lang === 'de' ? 'de' : 'de'));
 	$: targetHref = to ?? (locale ? `/${locale}` : '/');
 	$: ariaLabel = label ?? (locale === 'en' ? 'Back to home' : 'Zurück zur Startseite');
+	$: isTallLayout = $renderProfile.layoutProfile === 'tall';
 
 	onMount(() => {
 		const t = setTimeout(() => { showButton = true; }, 300);
@@ -18,7 +20,7 @@
 	function handleClick() { transitionStore.fadeToBlackAndNavigate(targetHref); }
 </script>
 
-<button class="back-button" class:visible={showButton} aria-label={ariaLabel} on:click={handleClick}>
+<button class="back-button" class:visible={showButton} class:tall={isTallLayout} aria-label={ariaLabel} on:click={handleClick}>
 	<ArrowLeft size={24} />
 </button>
 
@@ -27,5 +29,5 @@
 	.back-button.visible { opacity: 1; transform: scale(1); pointer-events: auto; }
 	.back-button:hover, .back-button:focus-visible { background-color: rgba(50,50,52,0.9); }
 	.back-button:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(130,214,255,0.45), 0 0 0 6px rgba(130,214,255,0.15); }
-	@media (max-width: 640px) { .back-button { top: 1rem; left: 1rem; width: 2.75rem; height: 2.75rem; } }
+	.back-button.tall { top: 1rem; left: 1rem; width: 2.75rem; height: 2.75rem; }
 </style>

@@ -33,6 +33,7 @@
   let baseCardHeight: number = CARD_HEIGHT_FALLBACK;
   let resizeObserver: ResizeObserver | null = null;
   let lastMeasuredHeight = 0;
+  let isDestroyed = false;
 
   $: total = cards.length;
   $: cardLayout = cards.map((_, idx) => {
@@ -112,6 +113,7 @@
   }
 
   function measureActiveCardHeight() {
+    if (isDestroyed) return;
     let measured = 0;
     if (carouselElement) {
       const frameWrap = carouselElement.querySelector('.carousel-card.active .frame-wrap') as HTMLElement | null;
@@ -140,6 +142,7 @@
     measureActiveCardHeight();
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
+        if (isDestroyed) return;
         measureActiveCardHeight();
       });
       if (carouselElement) resizeObserver.observe(carouselElement);
@@ -147,17 +150,16 @@
   });
 
   afterUpdate(() => {
-    measureActiveCardHeight();
+    if (!isDestroyed) measureActiveCardHeight();
   });
 
   onDestroy(() => {
+    isDestroyed = true;
     if (wheelCooldownTimer) {
       clearTimeout(wheelCooldownTimer);
       wheelCooldownTimer = null;
     }
-    if (resizeObserver && carouselElement) {
-      resizeObserver.unobserve(carouselElement);
-    }
+    resizeObserver?.disconnect();
     resizeObserver = null;
   });
 

@@ -10,6 +10,8 @@ export class BloomEffect {
     private scene: THREE.Scene;
     // MODIFIED: Camera type is now more generic to support Orthographic camera
     private camera: THREE.PerspectiveCamera | THREE.OrthographicCamera;
+
+    private fixedPixelRatio: number | null = null;
     
     public composer: EffectComposer;
     private renderPass: RenderPass;
@@ -28,15 +30,21 @@ export class BloomEffect {
         scene: THREE.Scene, 
         camera: THREE.PerspectiveCamera | THREE.OrthographicCamera,
         width: number, 
-        height: number
+        height: number,
+        opts?: { pixelRatio?: number }
     ) {
         this.renderer = renderer;
         this.scene = scene;
         this.camera = camera;
 
+        this.fixedPixelRatio = typeof opts?.pixelRatio === 'number' && Number.isFinite(opts.pixelRatio)
+            ? opts.pixelRatio
+            : null;
+
         this.composer = new EffectComposer(this.renderer);
         this.composer.setSize(width, height);
-        this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        const pr = this.fixedPixelRatio ?? Math.min(window.devicePixelRatio, 2);
+        this.composer.setPixelRatio(pr);
 
         // 1. Render the original scene
         this.renderPass = new RenderPass(this.scene, this.camera);
@@ -62,7 +70,8 @@ export class BloomEffect {
 
     public setSize(width: number, height: number): void {
         this.composer.setSize(width, height);
-        this.composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        const pr = this.fixedPixelRatio ?? Math.min(window.devicePixelRatio, 2);
+        this.composer.setPixelRatio(pr);
     }
 
     public updateParameters(params: { threshold?: number; strength?: number; radius?: number }): void {

@@ -9,6 +9,8 @@
   let isFadingOut = false;
   let textElement: HTMLDivElement;
   let tickerInstance: Ticker | null = null;
+  let hideScreenTimer: number | undefined;
+  let isDestroyed = false;
   
   const fadeOutDuration = 800; // ms
   const fadeOutDelay = 200; // ms
@@ -34,6 +36,7 @@
     private letterCount = 0;
     private letterCurrent = 0;
     private animationFrameId: number | null = null;
+    private isRunning = false;
     private originalText: string;
     private continuousMode = false;
     private overlayTimeouts = new Map<HTMLSpanElement, number>();
@@ -63,6 +66,9 @@
     }
 
     public start(): void {
+      if (this.isRunning) return;
+      this.done = false;
+      this.isRunning = true;
       this.loop();
     }
     
@@ -116,6 +122,7 @@
       this.overlayTimeouts.forEach(timeoutId => clearTimeout(timeoutId));
       this.overlayTimeouts.clear();
       this.done = true;
+      this.isRunning = false;
     }
 
     private resolveLetter(letter: HTMLSpanElement) {
@@ -156,12 +163,16 @@
     const remainingMinimumTime = Math.max(0, minimumLoadingDuration - elapsedTime);
     
     minimumDurationTimer = setTimeout(() => {
+      if (isDestroyed) return;
       if (tickerInstance) {
         tickerInstance.destroy();
+        tickerInstance = null;
       }
       isFadingOut = true;
       
-      setTimeout(() => {
+      clearTimeout(hideScreenTimer);
+      hideScreenTimer = window.setTimeout(() => {
+        if (isDestroyed) return;
         showScreen = false;
       }, fadeOutDuration + fadeOutDelay);
     }, remainingMinimumTime);
@@ -178,7 +189,10 @@
     
     if (status === 'error' && textElement) {
       clearTimeout(minimumDurationTimer);
-      if (tickerInstance) tickerInstance.destroy();
+      if (tickerInstance) {
+        tickerInstance.destroy();
+        tickerInstance = null;
+      }
       const msg = (($page.data as any)?.messages?.common?.loading?.error) ?? 'ERROR LOADING';
       tickerInstance = new Ticker(textElement, msg);
       tickerInstance.start();
@@ -214,6 +228,7 @@
     // Update ticker with new message
     if (tickerInstance && status !== 'idle') {
       tickerInstance.destroy();
+      tickerInstance = null;
       tickerInstance = new Ticker(textElement, msg);
       tickerInstance.start();
     }
@@ -229,8 +244,13 @@
   });
 
   onDestroy(() => {
-    if (tickerInstance) tickerInstance.destroy();
+    isDestroyed = true;
+    if (tickerInstance) {
+      tickerInstance.destroy();
+      tickerInstance = null;
+    }
     clearTimeout(minimumDurationTimer);
+    clearTimeout(hideScreenTimer);
     unsubOverallState();
     unsubInitialLoad();
     unsubLocaleStatus();

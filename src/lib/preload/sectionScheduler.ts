@@ -21,9 +21,16 @@ export class LegacySectionScheduler {
 	private sectionStatesStore = sectionStates;
 	private prediction: PredictionStrategy;
 	private debug: boolean;
+	private autoPrepareNeighbors: boolean;
 	private maxConcurrent = 3;
 	private activeFetches = 0;
-	private queue: Array<() => Promise<void>> = [];
+	private queue: Array<{
+		run: () => Promise<void>;
+		resolve: () => void;
+		reject: (e: unknown) => void;
+		signal: AbortSignal;
+	}> = [];
+	private abortController = new AbortController();
 	private lastNavIndex = 0;
 	private navHistory: number[] = [];
 	private unloadDistance = 4; // sections farther than this from active may be unloaded
@@ -32,6 +39,7 @@ export class LegacySectionScheduler {
 		this.env = env;
 		this.prediction = config.prediction ?? new DirectionalPredictionStrategy();
 		this.debug = !!config.debug;
+		this.autoPrepareNeighbors = config.autoPrepareNeighbors ?? true;
 	}
 
 	setDebug(v: boolean) { this.debug = v; }
@@ -47,22 +55,93 @@ export class LegacySectionScheduler {
 
 	private log(...args: any[]) { if (this.debug) console.info('[Scheduler]', ...args); }
 
-	private enqueue(task: () => Promise<void>) {
-		this.queue.push(task);
+	private createAbortError(message: string) {
+		try {
+			return new DOMException(message, 'AbortError');
+		} catch {
+			const err = new Error(message);
+			(err as any).name = 'AbortError';
+			return err;
+		}
+	}
+
+	private assertNotAborted(signal?: AbortSignal) {
+		if (signal?.aborted) throw this.createAbortError('Scheduler cancelled');
+	}
+
+	private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+		this.assertNotAborted(signal);
+		return new Promise<void>((resolve, reject) => {
+			let timeoutId: number | undefined;
+			const onAbort = () => {
+				if (timeoutId != null) clearTimeout(timeoutId);
+				reject(this.createAbortError('Scheduler cancelled'));
+			};
+			signal?.addEventListener('abort', onAbort, { once: true });
+			timeoutId = window.setTimeout(() => {
+				signal?.removeEventListener('abort', onAbort);
+				resolve();
+			}, ms);
+		});
+	}
+
+	private raf(signal?: AbortSignal): Promise<void> {
+		this.assertNotAborted(signal);
+		return new Promise<void>((resolve, reject) => {
+			let rafId: number | undefined;
+			const onAbort = () => {
+				if (rafId != null) cancelAnimationFrame(rafId);
+				reject(this.createAbortError('Scheduler cancelled'));
+			};
+			signal?.addEventListener('abort', onAbort, { once: true });
+			rafId = requestAnimationFrame(() => {
+				signal?.removeEventListener('abort', onAbort);
+				resolve();
+			});
+		});
+	}
+
+	private enqueue(task: () => Promise<void>, signal: AbortSignal): Promise<void> {
+		if (signal.aborted) return Promise.reject(this.createAbortError('Scheduler cancelled'));
+		let resolve!: () => void;
+		let reject!: (e: unknown) => void;
+		const promise = new Promise<void>((res, rej) => {
+			resolve = res;
+			reject = rej;
+		});
+		this.queue.push({ run: task, resolve, reject, signal });
 		this.drain();
+		return promise;
 	}
 
 	private drain() {
 		while (this.activeFetches < this.maxConcurrent && this.queue.length) {
-			const fn = this.queue.shift()!;
+			const item = this.queue.shift()!;
+			if (item.signal.aborted) {
+				item.reject(this.createAbortError('Scheduler cancelled'));
+				continue;
+			}
 			this.activeFetches++;
 			updateQueue(this.activeFetches, this.queue.length);
-			fn().catch(()=>{}).finally(() => {
-				this.activeFetches--;
-				updateQueue(this.activeFetches, this.queue.length);
-				this.drain();
-			});
+			item.run()
+				.then(() => item.resolve())
+				.catch((e) => item.reject(e))
+				.finally(() => {
+					this.activeFetches--;
+					updateQueue(this.activeFetches, this.queue.length);
+					this.drain();
+				});
 		}
+		updateQueue(this.activeFetches, this.queue.length);
+	}
+
+	dispose() {
+		this.abortController.abort('disposed');
+		const err = this.createAbortError('Scheduler disposed');
+		for (const item of this.queue) {
+			try { item.reject(err); } catch {}
+		}
+		this.queue.length = 0;
 		updateQueue(this.activeFetches, this.queue.length);
 	}
 
@@ -75,6 +154,10 @@ export class LegacySectionScheduler {
 		const currentStates = get(this.sectionStatesStore);
 		const desiredStates: SectionState[] = sections.map((_, i) => {
 			if (i === activeIndex) return 'ACTIVE';
+			// When staged warmup is the default, let it drive neighbor readiness.
+			if (!this.autoPrepareNeighbors && (i === activeIndex - 1 || i === activeIndex + 1)) {
+				return currentStates[i];
+			}
 			if (i === activeIndex - 1 || i === activeIndex + 1) return 'READY';
 			return 'COOLDOWN';
 		});
@@ -86,7 +169,9 @@ export class LegacySectionScheduler {
 			const desiredState = desiredStates[i];
 			if (currentState !== desiredState) {
 				if ((currentState === 'IDLE' || currentState === 'COOLDOWN') && desiredState === 'READY') {
-					tasks.push(this.prepareSection(i));
+					if (this.autoPrepareNeighbors) {
+						tasks.push(this.prepareSection(i));
+					}
 				}
 				if (currentState === 'READY' && desiredState === 'COOLDOWN') {
 					tasks.push(this.coolDownSection(i));
@@ -100,6 +185,8 @@ export class LegacySectionScheduler {
 
 	async prepareSection(index: number) {
 		const { sections, sectionInstances, sectionElements } = this.env;
+		const signal = this.abortController.signal;
+		this.assertNotAborted(signal);
 		const currentState = get(this.sectionStatesStore)[index];
 		if (currentState !== 'IDLE' && currentState !== 'COOLDOWN') return;
 		const sectionInfo = sections[index];
@@ -112,18 +199,23 @@ export class LegacySectionScheduler {
 		recordFetchStart(sectionInfo.id, index);
 		const urls = this.getSectionAssetUrls(index);
 		if (urls.length > 0) {
-			await new Promise<void>((resolve) => {
-				this.enqueue(async () => {
-					try { await preloadAssets(urls); } finally { resolve(); recordFetchEnd(sectionInfo.id); }
-				});
-			});
+			try {
+				await this.enqueue(async () => {
+					this.assertNotAborted(signal);
+					await preloadAssets(urls);
+				}, signal);
+			} finally {
+				recordFetchEnd(sectionInfo.id);
+			}
 		} else { recordFetchEnd(sectionInfo.id); }
+		this.assertNotAborted(signal);
 
 		// Stage 2: effect init
 		this.sectionStatesStore.update(states => { states[index] = 'EFFECT_INIT'; return states; });
 		recordInitStart(sectionInfo.id);
-		if (instance.initializeEffect) await instance.initializeEffect();
+		if (instance.initializeEffect) await instance.initializeEffect(signal);
 		recordInitEnd(sectionInfo.id);
+		this.assertNotAborted(signal);
 
 		// Legacy PRELOADING transitional state (optional) — keep for compatibility
 		this.sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
@@ -132,13 +224,14 @@ export class LegacySectionScheduler {
 			gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
 			instance.onEnterSection();
 			instance.onTransitionComplete?.();
-			await new Promise(resolve => setTimeout(resolve, 200));
+			await this.sleep(200, signal);
+			this.assertNotAborted(signal);
 			instance.onLeaveSection();
 			gsap.set(element, { yPercent: 100, autoAlpha: 0 });
 		} else if (sectionInfo.id.startsWith('project-')) {
 			gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
-			await new Promise(resolve => requestAnimationFrame(resolve));
-			await new Promise(resolve => requestAnimationFrame(resolve));
+			await this.raf(signal);
+			await this.raf(signal);
 			gsap.set(element, { yPercent: 100, autoAlpha: 0 });
 		}
 

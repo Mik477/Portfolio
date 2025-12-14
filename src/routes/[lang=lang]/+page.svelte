@@ -9,6 +9,13 @@
 	import { sectionStates, type SectionState } from '$lib/stores/sectionStateStore';
 	import { renderProfile } from '$lib/stores/renderProfile';
 	import { gsap } from 'gsap';
+	import {
+		computeInstantVelocityPxPerMs,
+		decideGestureIntent,
+		shouldCancelVerticalGesture,
+		computeDragProgress,
+		decideSwipeNavigation
+	} from '$lib/utils/gestureNavigation';
 
 	// Component Imports
 	import LoadingScreen from '$lib/components/LoadingScreen.svelte';
@@ -23,7 +30,7 @@
 	interface IAnimatedComponent {
 		onEnterSection: () => void;
 		onLeaveSection: () => void;
-		initializeEffect?: () => Promise<void>;
+		initializeEffect?: (signal?: AbortSignal) => Promise<void>;
 		onTransitionComplete?: () => void;
 		onUnload?: () => void;
 	}
@@ -99,6 +106,14 @@
 
 	// Page & Animation State
 	let visibilityHideTimeoutId: number | undefined;
+	let isDestroyed = false;
+	const rafIds = new Set<number>();
+	const timeoutIds = new Set<number>();
+	let activeMasterTransitionTl: gsap.core.Timeline | null = null;
+	let navUnlockDelayedCall: gsap.core.Tween | null = null;
+	let initialRevealTimeoutId: number | null = null;
+	let initialRevealEndTimeoutId: number | null = null;
+	let orchestratorAbortController: AbortController | null = null;
 	let isTabHiddenAndPaused = false;
 	const HIDE_BUFFER_DURATION = 15000;
 	let sectionElements: HTMLElement[] = [];
@@ -110,6 +125,7 @@
 	const particleFadeInDuration = 1.5;
 	let unsubInitialLoadComplete: (() => void) | undefined;
 	let hasStartedInitialReveal = false;
+	let resizeTimer: number | null = null;
 
 	// --- HASH NAVIGATION STATE (declared early so usable everywhere) ---
 	let initialHashFragment: string | null = null; // raw fragment captured on first mount
@@ -123,6 +139,26 @@
 	let showLoadingScreen = true; // controls LoadingScreen rendering
 
 	// --- Focus management helpers ---
+	function safeRaf(cb: () => void): number {
+		const id = requestAnimationFrame(() => {
+			rafIds.delete(id);
+			if (isDestroyed) return;
+			cb();
+		});
+		rafIds.add(id);
+		return id;
+	}
+
+	function safeTimeout(cb: () => void, delayMs: number): number {
+		const id = window.setTimeout(() => {
+			timeoutIds.delete(id);
+			if (isDestroyed) return;
+			cb();
+		}, delayMs);
+		timeoutIds.add(id);
+		return id;
+	}
+
 	function isElementVisible(el: Element): boolean {
 		if (!(el instanceof HTMLElement)) return false;
 		if (el.hidden) return false;
@@ -161,7 +197,7 @@
 		const target = findFocusTarget(el);
 		if (target) {
 			// Use rAF to ensure styles/layout are settled post-transition
-			requestAnimationFrame(() => {
+			safeRaf(() => {
 				try { target.focus({ preventScroll: true } as any); } catch {}
 				// move virtual cursor into view without jarring scroll (sections are full-screen)
 				try { target.scrollIntoView({ block: 'nearest' }); } catch {}
@@ -192,7 +228,7 @@
 		if (!title) return;
 		// Clear then set to ensure screen readers announce changes
 		liveMessage = '';
-		requestAnimationFrame(() => { liveMessage = title; });
+		safeRaf(() => { liveMessage = title; });
 	}
   
 	let particleLayerPointerEvents = 'none';
@@ -210,7 +246,47 @@
 
 	// Phase 1: extracted legacy preload manager -> LegacySectionScheduler
 	import { LegacySectionScheduler } from '$lib/preload/sectionScheduler';
+	// Phase 2: staged warmup scheduler (behind local flag)
+	import { StagedSectionScheduler } from '$lib/preload/stagedSectionScheduler';
+	import { schedulerMetrics, beginTransitionMetric, markTransitionMetric } from '$lib/preload/schedulerMetricsStore';
 	let legacyScheduler: LegacySectionScheduler | null = null;
+	let stagedScheduler: StagedSectionScheduler | null = null;
+	let jumpWarmupAbortController: AbortController | null = null;
+	const USE_STAGED_WARMUP_FOR_JUMP_PRELOAD = true;
+	const USE_STAGED_WARMUP_FOR_BACKGROUND_WARMUP = true;
+	let backgroundWarmupAbortController: AbortController | null = null;
+
+	function scheduleBackgroundWarmup(activeIndex: number) {
+		if (isDestroyed) return;
+		if (!USE_STAGED_WARMUP_FOR_BACKGROUND_WARMUP) return;
+		// Cancel any queued warmups from previous navigation.
+		backgroundWarmupAbortController?.abort();
+		backgroundWarmupAbortController = new AbortController();
+		const signal = backgroundWarmupAbortController.signal;
+
+		// Keep it simple and deterministic for Phase 3: warm immediate neighbors.
+		// (No UX impact: fire-and-forget, idle-mode)
+		const candidates = [activeIndex - 1, activeIndex + 1].filter(
+			i => i >= 0 && i < allSectionsData.length && i !== activeIndex
+		);
+		for (const idx of candidates) {
+			void ensureStagedScheduler().warmSection(idx, {
+				priority: 20,
+				mode: 'idle',
+				signal
+			}).catch(() => {});
+		}
+	}
+
+	// Phase 1 perf instrumentation (opt-in via ?perf=1)
+	let perfMetricsEnabled = false;
+	let lastNavCause: 'wheel' | 'key' | 'dot' | 'swipe' | 'hash' | 'unknown' = 'unknown';
+	let lastNavTriggerAt: number | null = null;
+	function markNavCause(cause: typeof lastNavCause) {
+		if (!perfMetricsEnabled) return;
+		lastNavCause = cause;
+		lastNavTriggerAt = performance.now();
+	}
 
 	function ensureScheduler() {
 		if (!legacyScheduler) {
@@ -219,7 +295,7 @@
 				sectionElements,
 				sectionInstances,
 				contactSectionIndex
-			}, { debug: false });
+			}, { debug: false, autoPrepareNeighbors: false });
 		} else {
 			legacyScheduler.updateEnv({
 				sections: allSectionsData as any,
@@ -231,17 +307,61 @@
 		return legacyScheduler;
 	}
 
+	function ensureStagedScheduler() {
+		if (!stagedScheduler) {
+			stagedScheduler = new StagedSectionScheduler({
+				sections: allSectionsData as any,
+				sectionElements,
+				sectionInstances,
+				contactSectionIndex
+			}, { debug: false });
+		} else {
+			stagedScheduler.updateEnv({
+				sections: allSectionsData as any,
+				sectionElements,
+				sectionInstances,
+				contactSectionIndex
+			});
+		}
+		return stagedScheduler;
+	}
+
 	function handleAnimationComplete() {
-		// Phase 2: use predictive warmup instead of static +2 preload
-		ensureScheduler().predictiveWarmup(get(currentSectionIndex));
+		if (isDestroyed) return;
+		// Phase 3: staged scheduler owns warmup.
+		scheduleBackgroundWarmup(get(currentSectionIndex));
+	}
+
+	function handleResize() {
+		if (resizeTimer !== null) clearTimeout(resizeTimer);
+		resizeTimer = window.setTimeout(() => {
+			if (isDestroyed) return;
+			const currentIndex = get(currentSectionIndex);
+			const currentInstance = sectionInstances.get(allSectionsData[currentIndex].id);
+			
+			if (currentInstance) {
+				// Force a visual refresh of the current section to handle layout changes
+				// 1. Cleanup/Hide
+				currentInstance.onLeaveSection();
+				
+				// 2. Restart/Show (next frame)
+				safeRaf(() => {
+					if (isDestroyed) return;
+					currentInstance.onEnterSection();
+					currentInstance.onTransitionComplete?.();
+				});
+			}
+		}, 250);
 	}
 
 	async function handleVisibilityChange() {
+		if (isDestroyed) return;
 		const currentIndex = get(currentSectionIndex);
 		const currentInstance = sectionInstances.get(allSectionsData[currentIndex].id);
 		if (!currentInstance) return;
 		if (document.hidden) {
 			visibilityHideTimeoutId = window.setTimeout(() => {
+				if (isDestroyed) return;
 				if (document.hidden && !isTabHiddenAndPaused) {
 					currentInstance.onLeaveSection();
 					isTabHiddenAndPaused = true;
@@ -252,22 +372,29 @@
 			if (isTabHiddenAndPaused) {
 				if (currentInstance.onUnload && currentInstance.initializeEffect) {
 					currentInstance.onUnload();
-					await currentInstance.initializeEffect();
+					await currentInstance.initializeEffect(orchestratorAbortController?.signal);
 				}
+				if (isDestroyed) return;
 				currentInstance.onEnterSection();
-				requestAnimationFrame(() => {
+				safeRaf(() => {
 					currentInstance.onTransitionComplete?.();
 				});
 				isTabHiddenAndPaused = false;
 				ensureScheduler().updateNeighborStates(currentIndex);
-				ensureScheduler().predictiveWarmup(currentIndex);
+				scheduleBackgroundWarmup(currentIndex);
 			}
 		}
 	}
 
 	onMount(() => {
 		const mountLogic = async () => {
+			isDestroyed = false;
+			orchestratorAbortController?.abort();
+			orchestratorAbortController = new AbortController();
+			const orchestratorSignal = orchestratorAbortController.signal;
+
 			await tick();
+			if (isDestroyed) return;
 			// --- HASH NAVIGATION: capture initial hash (without leading '#') ---
 			if (typeof window !== 'undefined') {
 				const raw = window.location.hash?.trim();
@@ -324,34 +451,40 @@
 					const secId = allSectionsData[targetIdx].id;
 					const inst = sectionInstances.get(secId);
 					if (inst?.initializeEffect) {
-						try { await inst.initializeEffect(); } catch {}
+						try { await inst.initializeEffect(orchestratorSignal); } catch {}
 					}
+					if (isDestroyed) return;
 					inst?.onEnterSection();
-					requestAnimationFrame(() => inst?.onTransitionComplete?.());
+					safeRaf(() => inst?.onTransitionComplete?.());
 				}
 
 			const setupInitialLoad = async () => {
 				if (!isDeepLinkStart) {
-					await Promise.all([heroReadyPromise, ensureScheduler().prepareSection(1)]);
+					await Promise.all([
+						heroReadyPromise,
+						ensureStagedScheduler().warmSection(1, { priority: 100, mode: 'immediate' })
+					]);
+					if (isDestroyed) return;
 					ensureScheduler().updateNeighborStates(0);
-					ensureScheduler().predictiveWarmup(0);
+					scheduleBackgroundWarmup(0);
 					initialSiteLoadComplete.set(true);
 				} else if (initialHashTargetIndex && initialHashTargetIndex > 0) {
 					// Preload neighbors of target section instead of hero neighbors
 					const t = initialHashTargetIndex;
 					const preloadPromises: Promise<void>[] = [];
-					if (t - 1 >= 0) preloadPromises.push(ensureScheduler().prepareSection(t - 1));
-					if (t + 1 < allSectionsData.length) preloadPromises.push(ensureScheduler().prepareSection(t + 1));
+					if (t - 1 >= 0) preloadPromises.push(ensureStagedScheduler().warmSection(t - 1, { priority: 80, mode: 'immediate' }));
+					if (t + 1 < allSectionsData.length) preloadPromises.push(ensureStagedScheduler().warmSection(t + 1, { priority: 80, mode: 'immediate' }));
 					await Promise.all(preloadPromises);
+					if (isDestroyed) return;
 					ensureScheduler().updateNeighborStates(t);
-					ensureScheduler().predictiveWarmup(t);
+					scheduleBackgroundWarmup(t);
 					initialSiteLoadComplete.set(true);
 					// Immediately end initial reveal state
 					isInitialReveal.set(false);
 				}
 			};
 
-			setupInitialLoad();
+			void setupInitialLoad();
 
 			onHashChange = () => {
 				if (suppressNextHashUpdate) { suppressNextHashUpdate = false; return; }
@@ -360,10 +493,10 @@
 				if (raw && raw.length > 1) {
 					const fragment = decodeURIComponent(raw.substring(1));
 					const idx = allSectionsData.findIndex(s => s.id === fragment);
-					if (idx >= 0) navigateToSection(idx);
+					if (idx >= 0) { markNavCause('hash'); navigateToSection(idx); }
 				} else {
 					// Empty hash -> go back to hero
-					if (get(currentSectionIndex) !== 0) navigateToSection(0);
+					if (get(currentSectionIndex) !== 0) { markNavCause('hash'); navigateToSection(0); }
 				}
 			};
 			window.addEventListener('hashchange', onHashChange);
@@ -372,7 +505,9 @@
 				window.addEventListener('wheel', handleWheel, { passive: false });
 				window.addEventListener('keydown', handleKeyDown);
 			}
+			perfMetricsEnabled = new URLSearchParams(window.location.search).has('perf');
 			document.addEventListener('visibilitychange', handleVisibilityChange);
+			window.addEventListener('resize', handleResize);
 		};
 
 		mountLogic();
@@ -383,11 +518,32 @@
 	});
 
 		return () => {
+			isDestroyed = true;
+			orchestratorAbortController?.abort();
+			orchestratorAbortController = null;
+			legacyScheduler?.dispose();
+			backgroundWarmupAbortController?.abort();
+			backgroundWarmupAbortController = null;
+			jumpWarmupAbortController?.abort();
+			jumpWarmupAbortController = null;
+			activeMasterTransitionTl?.kill();
+			activeMasterTransitionTl = null;
+			navUnlockDelayedCall?.kill();
+			navUnlockDelayedCall = null;
+
+			for (const id of rafIds) cancelAnimationFrame(id);
+			rafIds.clear();
+			for (const id of timeoutIds) clearTimeout(id);
+			timeoutIds.clear();
+			if (initialRevealTimeoutId !== null) { clearTimeout(initialRevealTimeoutId); initialRevealTimeoutId = null; }
+			if (initialRevealEndTimeoutId !== null) { clearTimeout(initialRevealEndTimeoutId); initialRevealEndTimeoutId = null; }
+
 			if (!get(renderProfile).isMobile) {
 				window.removeEventListener('wheel', handleWheel);
 				window.removeEventListener('keydown', handleKeyDown);
 			}
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
+			window.removeEventListener('resize', handleResize);
 			if (onHashChange) window.removeEventListener('hashchange', onHashChange);
 			if (unsubInitialLoadComplete) unsubInitialLoadComplete();
 			sectionBackgroundZooms.forEach(tween => tween?.kill());
@@ -408,29 +564,50 @@
 		if (hasStartedInitialReveal) return;
 		hasStartedInitialReveal = true;
 
-		setTimeout(() => {
+		initialRevealTimeoutId = safeTimeout(() => {
 			if (heroSectionInstance) {
 				heroSectionInstance.onTransitionToHeroComplete();
-				ensureScheduler().predictiveWarmup(0);
+				scheduleBackgroundWarmup(0);
 			}
-			setTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
+			initialRevealEndTimeoutId = safeTimeout(() => { isInitialReveal.set(false); }, particleFadeInDuration * 1000);
 		}, initialRevealDelay);
 	}
   
 	async function navigateToSection(newIndex: number) { 
+		if (isDestroyed) return;
 		if (get(isInitialReveal)) return; 
 		const oldIndex = get(currentSectionIndex); 
 		if (get(isAnimating) || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return; 
+
+		let transitionMetricId: string | null = null;
+		if (perfMetricsEnabled) {
+			const triggerAt = lastNavTriggerAt ?? performance.now();
+			const cause = lastNavTriggerAt ? lastNavCause : 'unknown';
+			lastNavCause = 'unknown';
+			lastNavTriggerAt = null;
+			transitionMetricId = beginTransitionMetric({
+				cause,
+				fromIndex: oldIndex,
+				toIndex: newIndex,
+				targetSectionId: allSectionsData[newIndex]?.id,
+				triggerAt
+			});
+			markTransitionMetric(transitionMetricId, 'navigateStartAt');
+		}
+
 		// If jumping more than one section ahead/behind, proactively preload target before animating
 		if (Math.abs(newIndex - oldIndex) > 1) {
-			const targetId = allSectionsData[newIndex].id;
-			const targetInstance = sectionInstances.get(targetId);
-			try { await ensureScheduler().prepareSection(newIndex); } catch {}
-			// Make sure instance map has updated (in rare cases of dynamic data)
-			if (targetInstance && targetInstance.initializeEffect) {
-				try { await targetInstance.initializeEffect(); } catch {}
-			}
+			try {
+				jumpWarmupAbortController?.abort();
+				jumpWarmupAbortController = new AbortController();
+				await ensureStagedScheduler().warmSection(newIndex, {
+					priority: 100,
+					mode: 'immediate',
+					signal: jumpWarmupAbortController.signal
+				});
+			} catch {}
 		}
+		if (isDestroyed) return;
 		// Update dots immediately to animate grow/shrink during transition
 		navActiveIndex.set(newIndex);
 
@@ -438,7 +615,7 @@
 		const targetId = allSectionsData[newIndex].id;
 		const targetInstance = sectionInstances.get(targetId);
 		if (targetInstance && targetInstance.initializeEffect) {
-			try { targetInstance.initializeEffect(); } catch {}
+			try { void targetInstance.initializeEffect(orchestratorAbortController?.signal); } catch {}
 		}
     
 		isAnimating.set(true); 
@@ -459,16 +636,63 @@
 		const targetSectionEl = sectionElements[newIndex]; 
 		const direction = newIndex > oldIndex ? 1 : -1; 
     
-		const masterTransitionTl = gsap.timeline({ 
+		if (perfMetricsEnabled && transitionMetricId) {
+			markTransitionMetric(transitionMetricId, 'timelineCreatedAt');
+		}
+
+		activeMasterTransitionTl?.kill();
+		activeMasterTransitionTl = gsap.timeline({ 
 			onComplete: () => { 
+				if (isDestroyed) return;
 				currentSectionIndex.set(newIndex); 
 				// Record navigation for direction-aware prediction
 				ensureScheduler().recordNavigation(newIndex);
+				if (perfMetricsEnabled && transitionMetricId) {
+					markTransitionMetric(transitionMetricId, 'completeAt');
+					try {
+						const metrics = get(schedulerMetrics);
+						const t = metrics.transitionHistory?.find(x => x.id === transitionMetricId);
+						const targetId = allSectionsData[newIndex]?.id;
+						const sec = targetId ? metrics.timings[targetId] : undefined;
+						const triggerAt = t?.triggerAt;
+						const fetchStartAt = sec?.fetchStart;
+						const fetchEndAt = sec?.fetchEnd;
+						const initStartAt = sec?.initStart;
+						const initEndAt = sec?.initEnd;
+						const fetchStartedBeforeTrigger =
+							triggerAt != null && fetchStartAt != null ? fetchStartAt <= triggerAt : undefined;
+						const fetchFinishedBeforeTrigger =
+							triggerAt != null && fetchEndAt != null ? fetchEndAt <= triggerAt : undefined;
+						const initStartedBeforeTrigger =
+							triggerAt != null && initStartAt != null ? initStartAt <= triggerAt : undefined;
+						const initFinishedBeforeTrigger =
+							triggerAt != null && initEndAt != null ? initEndAt <= triggerAt : undefined;
+						const firstFrameMs =
+							t?.firstFrameAt != null ? (t.firstFrameAt - t.triggerAt) : undefined;
+						const fetchMs = sec?.fetchStart != null && sec?.fetchEnd != null ? (sec.fetchEnd - sec.fetchStart) : undefined;
+						const initMs = sec?.initStart != null && sec?.initEnd != null ? (sec.initEnd - sec.initStart) : undefined;
+						const totalMs = t?.completeAt != null ? (t.completeAt - t.triggerAt) : undefined;
+						console.info('[Perf] transition', {
+							cause: t?.cause,
+							from: t?.fromIndex,
+							to: t?.toIndex,
+							targetId,
+							totalMs,
+							firstFrameMs,
+							fetchStartedBeforeTrigger,
+							fetchFinishedBeforeTrigger,
+							fetchMs,
+							initStartedBeforeTrigger,
+							initFinishedBeforeTrigger,
+							initMs
+						});
+					} catch {}
+				}
 				isTransitioning.set(false);
 				isLeavingHero.set(false);
 				ensureScheduler().updateNeighborStates(newIndex);
-				ensureScheduler().predictiveWarmup(newIndex);
-				requestAnimationFrame(() => newInstance?.onTransitionComplete?.());
+				scheduleBackgroundWarmup(newIndex);
+				safeRaf(() => newInstance?.onTransitionComplete?.());
 				if (allSectionsData[newIndex].id === 'hero' && heroSectionInstance) {
 					 heroSectionInstance.onTransitionToHeroComplete();
 				}
@@ -480,13 +704,20 @@
 		}); 
     
 		gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 }); 
-		masterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
-		masterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
-		masterTransitionTl.call(() => {
+		activeMasterTransitionTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
+		activeMasterTransitionTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide"); 
+		if (perfMetricsEnabled && transitionMetricId) {
+			safeRaf(() => {
+				try { markTransitionMetric(transitionMetricId!, 'firstFrameAt'); } catch {}
+			});
+		}
+		activeMasterTransitionTl.call(() => {
 				sectionBackgroundZooms[newIndex]?.restart();
 		}, [], `slide+=${transitionDuration * 0.1}`);
 
-		gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
+		navUnlockDelayedCall?.kill();
+		navUnlockDelayedCall = gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
+			if (isDestroyed) return;
 			isAnimating.set(false); 
 			// After animation complete, update hash (avoid doing for hero index 0 to keep URL clean?)
 			const id = allSectionsData[newIndex].id;
@@ -503,6 +734,7 @@
 					}
 				}
 			}
+			navUnlockDelayedCall = null;
 		}); 
 	}
 
@@ -518,6 +750,7 @@
 	}
 	function mobileNavigateTo(newIndex: number, _cause: 'swipe'|'dot') {
 		if (!get(renderProfile).isMobile) return navigateToSection(newIndex);
+		markNavCause(_cause);
 		tryVibrate(15);
 	    navigateToSection(newIndex);
 	}
@@ -563,9 +796,10 @@
 			}
 
 			lastWheelDir = dir;
+			markNavCause('wheel');
 			navigateToSection(get(currentSectionIndex) + dir);
 		}
-	function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); } }
+	function handleKeyDown(event: KeyboardEvent) { if (get(isInitialReveal) || get(isAnimating)) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } const currentTime = Date.now(); if (currentTime - lastScrollTime < scrollDebounce) { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', ' ', 'Home', 'End'].includes(event.key)) event.preventDefault(); return; } let newIndex = get(currentSectionIndex); let shouldScroll = false; switch (event.key) { case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break; case 'ArrowUp': case 'PageUp': newIndex--; shouldScroll = true; break; case 'Home': newIndex = 0; shouldScroll = true; break; case 'End': newIndex = sectionElements.length - 1; shouldScroll = true; break; } if (shouldScroll && newIndex !== get(currentSectionIndex)) { event.preventDefault(); lastScrollTime = currentTime; markNavCause('key'); navigateToSection(newIndex); } }
 
 	// --- Natural Mobile Scroll Navigation with Progressive Drag ---
 	// State tracking
@@ -630,15 +864,6 @@
 	}
 
 	/**
-	 * Apply rubber-band effect at boundaries
-	 */
-	function applyRubberBand(offset: number, atBoundary: boolean): number {
-		if (!atBoundary) return offset;
-		// Apply resistance: further you drag, more resistance you feel
-		return offset * RUBBER_BAND_FACTOR * (1 - Math.abs(offset) / (window.innerHeight * 2));
-	}
-
-	/**
 	 * Update visual position during drag (progressive feedback)
 	 */
 	function updateDragPosition(offset: number) {
@@ -655,14 +880,13 @@
 		const atBottomBoundary = currentIdx === sections.length - 1 && offset < 0;
 		const atBoundary = atTopBoundary || atBottomBoundary;
 		
-		// Scale the visual feedback:
-		// Dragging 100vh (full screen) should only show MAX_VISUAL_FEEDBACK (20%)
-		// This means the feedback is dampened/scaled down
-		const scaledOffset = offset * MAX_VISUAL_FEEDBACK;
-		
-		// Apply rubber-band at boundaries
-		const effectiveOffset = applyRubberBand(scaledOffset, atBoundary);
-		const progress = effectiveOffset / viewportHeight;
+		const { progress } = computeDragProgress({
+			dragOffsetPx: offset,
+			maxVisualFeedback: MAX_VISUAL_FEEDBACK,
+			atBoundary,
+			rubberBandFactor: RUBBER_BAND_FACTOR,
+			viewportHeightPx: viewportHeight
+		});
 		
 		// Apply drag feedback to the hero particle layer (only when on hero section)
 		if (particleLayer && currentIdx === 0) {
@@ -703,25 +927,15 @@
 		isDragging = false;
 		const viewportHeight = window.innerHeight;
 		const currentIdx = get(currentSectionIndex);
-		const dragPercent = Math.abs(currentDragOffset) / viewportHeight;
-		
-		// Calculate momentum distance
-		const momentumDistance = Math.abs(finalVelocity) * MOMENTUM_MULTIPLIER;
-		
-		// Determine if should navigate to next/prev section
-		let shouldNavigate = false;
-		let direction = 0;
-		
-		// Check velocity-based momentum
-		if (momentumDistance > MIN_MOMENTUM_DISTANCE && Math.abs(finalVelocity) > VELOCITY_THRESHOLD) {
-			shouldNavigate = true;
-			direction = currentDragOffset < 0 ? 1 : -1; // Drag up = next, drag down = prev
-		}
-		// Check distance-based threshold
-		else if (dragPercent > SNAP_THRESHOLD) {
-			shouldNavigate = true;
-			direction = currentDragOffset < 0 ? 1 : -1;
-		}
+		const { shouldNavigate, direction } = decideSwipeNavigation({
+			dragOffsetPx: currentDragOffset,
+			viewportHeightPx: viewportHeight,
+			finalVelocityPxPerMs: finalVelocity,
+			momentumMultiplier: MOMENTUM_MULTIPLIER,
+			minMomentumDistancePx: MIN_MOMENTUM_DISTANCE,
+			velocityThresholdPxPerMs: VELOCITY_THRESHOLD,
+			snapThreshold: SNAP_THRESHOLD
+		});
 		
 		// Navigate or snap back
 		if (shouldNavigate) {
@@ -857,9 +1071,12 @@
 		const absDx = Math.abs(dx);
 
 		// Calculate instantaneous velocity for momentum
-		const timeDelta = Math.max(1, currentTime - lastTouchTime);
-		const moveDelta = currentY - lastTouchY;
-		dragVelocity = moveDelta / timeDelta; // px/ms
+		dragVelocity = computeInstantVelocityPxPerMs({
+			currentY,
+			lastY: lastTouchY,
+			currentTimeMs: currentTime,
+			lastTimeMs: lastTouchTime
+		});
 		lastTouchY = currentY;
 		lastTouchTime = currentTime;
 
@@ -870,17 +1087,22 @@
 
 		// Determine intent if not yet set
 		if (!touchIntent && (absDy > DRAG_THRESHOLD || absDx > DRAG_THRESHOLD)) {
-			// Check if horizontal gesture (carousel interaction)
-			if (absDx > absDy * 1.5 && absDx > HORIZ_TOLERANCE * 0.5) {
-				touchIntent = 'horizontal';
-				return;
-			}
+			const decision = decideGestureIntent({
+				absDx,
+				absDy,
+				dragThresholdPx: DRAG_THRESHOLD,
+				horizTolerancePx: HORIZ_TOLERANCE
+			});
 			// For effect areas: Always allow both particle interaction AND navigation
 			// Don't lock into 'interact' mode - let both happen together
 			// The visual nudge provides feedback that navigation is possible
-			else if (absDy > absDx * 0.7) {
+			if (decision.intent === 'horizontal') {
+				touchIntent = 'horizontal';
+				return;
+			}
+			if (decision.intent === 'vertical') {
 				touchIntent = 'vertical';
-				isDragging = true;
+				isDragging = decision.startDragging;
 			}
 		}
 
@@ -893,7 +1115,7 @@
 		// This works alongside particle interaction on hero/contact sections
 		if (touchIntent === 'vertical' && isDragging) {
 			// Cancel horizontal if too much horizontal movement
-			if (absDx > HORIZ_TOLERANCE) {
+			if (shouldCancelVerticalGesture({ absDx, horizTolerancePx: HORIZ_TOLERANCE })) {
 				touchIntent = 'horizontal';
 				isDragging = false;
 				snapBackToCurrentSection();
@@ -983,8 +1205,8 @@
 			on:touchend|passive={onTouchEnd}
 		>
 		<section id="hero" class="full-screen-section hero-section-container">
-			<!-- Focus sentinel: remove invalid aria-label on generic div; hide from AT but keep focusable -->
-			<div class="section-focus-sentinel sr-only" tabindex="-1" aria-hidden="true"></div>
+			<!-- Focus sentinel (programmatic target to avoid focusing visible controls) -->
+			<div class="section-focus-sentinel sr-only" tabindex="-1"></div>
 		</section>
 
 		{#each allSectionsData.slice(1) as section, i (section.id)}
@@ -992,8 +1214,8 @@
 				id={section.id} 
 				class="full-screen-section"
 			>
-				<!-- Invisible focus target (no aria-label on generic element) -->
-				<div class="section-focus-sentinel sr-only" tabindex="-1" aria-hidden="true"></div>
+				<!-- Invisible focus target (no aria-hidden; may be focused during transitions) -->
+				<div class="section-focus-sentinel sr-only" tabindex="-1"></div>
 				{#if section.id === 'about'}
 					<AboutSection
 						bind:this={sectionInstancesArray[i + 1]}

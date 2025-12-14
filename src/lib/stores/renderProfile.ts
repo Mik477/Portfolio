@@ -7,6 +7,7 @@ type RenderProfile = {
   isMobile: boolean;
   hasCoarsePointer: boolean;
   prefersReducedMotion: boolean;
+  layoutProfile: 'tall' | 'balanced' | 'wide';
   // Internal: debug/override flags
   forceMobile?: boolean | null;
 };
@@ -15,6 +16,7 @@ const initial: RenderProfile = {
   isMobile: false,
   hasCoarsePointer: false,
   prefersReducedMotion: false,
+  layoutProfile: 'balanced',
   forceMobile: null
 };
 
@@ -31,18 +33,24 @@ if (browser) {
   const mqMobile = mql('(max-width: 768px)');
   const mqCoarse = mql('(pointer: coarse)');
   const mqReduced = mql('(prefers-reduced-motion: reduce)');
+  const mqTall = mql('(max-aspect-ratio: 4/5)');
+  const mqWide = mql('(min-aspect-ratio: 5/4)');
 
   const compute = (override: boolean | null = (get(state).forceMobile ?? null)) => {
     const isMobileWidth = mqMobile ? mqMobile.matches : false;
     const coarse = mqCoarse ? mqCoarse.matches : false;
     const reduced = mqReduced ? mqReduced.matches : false;
+    const isTall = mqTall ? mqTall.matches : false;
+    const isWide = mqWide ? mqWide.matches : false;
+    const layoutProfile: RenderProfile['layoutProfile'] = isTall ? 'tall' : (isWide ? 'wide' : 'balanced');
     // Default detection: width or coarse pointer implies mobile
     const detectedMobile = isMobileWidth || coarse;
     state.update((s) => ({
       ...s,
       isMobile: override === null ? detectedMobile : !!override,
       hasCoarsePointer: coarse,
-      prefersReducedMotion: reduced
+      prefersReducedMotion: reduced,
+      layoutProfile
     }));
   };
 
@@ -54,6 +62,8 @@ if (browser) {
   mqMobile?.addEventListener('change', onChange);
   mqCoarse?.addEventListener('change', onChange);
   mqReduced?.addEventListener('change', onChange);
+  mqTall?.addEventListener('change', onChange);
+  mqWide?.addEventListener('change', onChange);
 
   // Resize fallback for UAs not updating MQLs reliably
   const onResize = () => compute();
@@ -66,6 +76,8 @@ if (browser) {
       mqMobile?.removeEventListener('change', onChange);
       mqCoarse?.removeEventListener('change', onChange);
       mqReduced?.removeEventListener('change', onChange);
+      mqTall?.removeEventListener('change', onChange);
+      mqWide?.removeEventListener('change', onChange);
       window.removeEventListener('orientationchange', onResize);
       window.removeEventListener('resize', onResize);
     });
@@ -88,14 +100,20 @@ export const renderProfile = derived([state, page], ([$state, $page]) => {
       const mqMobile = mql('(max-width: 768px)');
       const mqCoarse = mql('(pointer: coarse)');
       const mqReduced = mql('(prefers-reduced-motion: reduce)');
+      const mqTall = mql('(max-aspect-ratio: 4/5)');
+      const mqWide = mql('(min-aspect-ratio: 5/4)');
       const isMobileWidth = mqMobile ? mqMobile.matches : false;
       const coarse = mqCoarse ? mqCoarse.matches : false;
       const reduced = mqReduced ? mqReduced.matches : false;
+      const isTall = mqTall ? mqTall.matches : false;
+      const isWide = mqWide ? mqWide.matches : false;
+      const layoutProfile: RenderProfile['layoutProfile'] = isTall ? 'tall' : (isWide ? 'wide' : 'balanced');
       const detectedMobile = isMobileWidth || coarse;
       state.set({
         isMobile: forceMobile === null ? detectedMobile : !!forceMobile,
         hasCoarsePointer: coarse,
         prefersReducedMotion: reduced,
+        layoutProfile,
         forceMobile
       });
     }

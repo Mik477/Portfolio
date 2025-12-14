@@ -19,29 +19,7 @@
 
   export let imageUrl: string;
   export let fadeInDelay: number = 250;
-    // Mobile-optimized mode controls
-    export let mobileMode: boolean = false;
-    // Shift image slightly on mobile (percentage of image width; 50=center)
-    export let mobileImageOffsetX: number = 58;
-    export let mobileSymbolCount: number = 150; // reduced default number of active symbols
-    export let mobileSymbolLifetime: { min: number; max: number } = { min: 4, max: 30 };
-    export let mobileSymbolSize: { min: number; max: number } = { min: 12, max: 22 };
-    // Debug logging
-    export let debug: boolean = true;
-            // Grouped configuration for easy editing (overrides above if provided)
-            type MobileConfig = {
-                count: number;
-                lifetime: { min: number; max: number };
-                size: { min: number; max: number };
-                amplitude: { min: number; max: number };
-                speedFactor: number; // multiplier on derived speed
-                fadeStartScreenFraction: number; // when to start fading relative to screen width (e.g., 0.5)
-                fadeStartLifetimeFraction: number; // when to start fading relative to particle lifetime (e.g., 0.5)
-                fadeInDuration: number; // seconds
-                fadeOutDuration: number; // seconds
-                rampDuration: number; // seconds to reach full count
-            };
-            export let mobileConfig: Partial<MobileConfig> | undefined = undefined;
+  export let particleSize: number = 0.60; // Default slightly smaller based on feedback
 
   let mainContainer: HTMLDivElement;
   let imageElement: HTMLImageElement;
@@ -49,6 +27,10 @@
 
   let effectInstance: DigitalDecayEffect | null = null;
   let isInitialized = false;
+    let initPromise: Promise<void> | null = null;
+    let isDestroyed = false;
+    let kickoffRafId: number | null = null;
+    let kickoffToken = 0;
     let fadeInTimeoutId: number | undefined;
         let _boundVisibilityHandler: (() => void) | null = null;
         let _boundFocusHandler: (() => void) | null = null;
@@ -56,40 +38,51 @@
         let _boundPageShowHandler: ((e: Event) => void) | null = null;
         let _boundPageHideHandler: ((e: Event) => void) | null = null;
 
+    function cancelKickoff(): void {
+        if (kickoffRafId !== null) {
+            cancelAnimationFrame(kickoffRafId);
+            kickoffRafId = null;
+        }
+        kickoffToken++;
+    }
+
   // --- Component API ---
 
   export async function initializeEffect() {
-    if (isInitialized) return;
-    await tick();
-    if (!particleOverlayElement || !imageElement) return;
-                effectInstance = new DigitalDecayEffect(particleOverlayElement, imageElement, {
-            mobileMode,
-            mobileParams: {
-                            count: Math.max(50, Math.floor(mobileConfig?.count ?? mobileSymbolCount)),
-                            lifetime: mobileConfig?.lifetime ?? mobileSymbolLifetime,
-                            size: mobileConfig?.size ?? mobileSymbolSize,
-                            amplitude: mobileConfig?.amplitude ?? { min: 3, max: 10 },
-                            speedFactor: mobileConfig?.speedFactor ?? 0.8,
-                            fadeStartScreenFraction: mobileConfig?.fadeStartScreenFraction ?? 0.5,
-                            fadeStartLifetimeFraction: mobileConfig?.fadeStartLifetimeFraction ?? 0.5,
-                            fadeInDuration: mobileConfig?.fadeInDuration ?? 0.05,
-                            fadeOutDuration: mobileConfig?.fadeOutDuration ?? 0.8,
-                            rampDuration: mobileConfig?.rampDuration ?? 15.0
-                        },
-                        debug
-        });
-        if (debug) {
-            console.log('[AboutImageEffect] initializeEffect()', {
-                mobileMode,
-                mobileSymbolCount,
-                mobileSymbolLifetime,
-                mobileSymbolSize,
-                overlayEl: !!particleOverlayElement,
-                imageEl: !!imageElement
+        if (isInitialized) return;
+        if (initPromise) return initPromise;
+
+        initPromise = (async () => {
+            await tick();
+            if (isDestroyed) return;
+            if (!particleOverlayElement || !imageElement) {
+                // Elements not ready yet; abort initialization but allow retry
+                initPromise = null;
+                return;
+            }
+
+            const instance = new DigitalDecayEffect(particleOverlayElement, imageElement);
+            instance.init();
+            if (isDestroyed) {
+                instance.dispose();
+                return;
+            }
+            effectInstance = instance;
+            isInitialized = true;
+        })()
+            .catch((error) => {
+                try {
+                    effectInstance?.dispose();
+                } catch {}
+                effectInstance = null;
+                isInitialized = false;
+                throw error;
+            })
+            .finally(() => {
+                initPromise = null;
             });
-        }
-    effectInstance.init();
-    isInitialized = true;
+
+        return initPromise;
   }
 
   export async function onEnterSection() {
@@ -101,20 +94,21 @@
   }
   
     export function onTransitionComplete() {
-          if (debug) console.log('[AboutImageEffect] onTransitionComplete() called. isInitialized:', isInitialized, 'hasInstance:', !!effectInstance);
-          if ($prm) { if (debug) console.log('[AboutImageEffect] reduced-motion active, skipping start'); return; }
-        if (!effectInstance && !isInitialized) {
-            // Safety: ensure initialization happened even if preload didn't call it
-            // Non-blocking; we'll poll next frame to start
-            initializeEffect();
-        }
+          if ($prm) { return; }
+        cancelKickoff();
+        const token = kickoffToken;
+
+        // Safety: ensure initialization happened even if preload didn't call it (non-blocking)
+        void initializeEffect().catch(() => {});
+
         const kickoff = () => {
-            if (effectInstance) {
-            if (debug) console.log('[AboutImageEffect] kickoff start, calling onWindowResize() + start()');
-                effectInstance.onWindowResize();
-                effectInstance.start();
+            if (isDestroyed || token !== kickoffToken) return;
+            if (effectInstance && effectInstance.isReady()) {
+              effectInstance.onWindowResize();
+              effectInstance.start();
+              kickoffRafId = null;
             } else {
-                requestAnimationFrame(kickoff);
+              kickoffRafId = requestAnimationFrame(kickoff);
             }
         };
         kickoff();
@@ -122,23 +116,33 @@
 
   export function onLeaveSection() {
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
+        cancelKickoff();
     
     if (effectInstance) {
       effectInstance.beginLeaveAnimation();
-      gsap.killTweensOf(mainContainer);
-      gsap.set(mainContainer, { autoAlpha: 0 });
     }
+
+        gsap.killTweensOf(mainContainer);
+        gsap.set(mainContainer, { autoAlpha: 0 });
   }
 
   // --- NEW Component API Method ---
   export function onUnload() {
+        cancelKickoff();
+        if (fadeInTimeoutId) {
+            clearTimeout(fadeInTimeoutId);
+            fadeInTimeoutId = undefined;
+        }
+        gsap.killTweensOf(mainContainer);
+        gsap.set(mainContainer, { autoAlpha: 0 });
+
     if (effectInstance) {
-      console.log('AboutImageEffect: Unloading and disposing Three.js resources.');
       effectInstance.dispose();
       effectInstance = null;
     }
     // Reset the initialization flag so it can be re-initialized if needed.
     isInitialized = false;
+        initPromise = null;
   }
   
   // --- Lifecycle ---
@@ -147,7 +151,6 @@
         // Initialization is fully deferred to the Animation API.
         const handler = () => {
             if (document.visibilityState === 'visible') {
-                console.log('[AboutImageEffect][COMP] visibilitychange -> visible: init + enter + kickoff');
                 // Ensure the effect is initialized; prefer a hard restart to avoid stuck opacity/pipeline
                 initializeEffect();
                 onEnterSection();
@@ -156,17 +159,15 @@
                 } else {
                     onTransitionComplete();
                 }
-            } else {
-                console.log('[AboutImageEffect][COMP] visibilitychange -> hidden');
             }
         };
         document.addEventListener('visibilitychange', handler);
         _boundVisibilityHandler = handler;
 
-        const onFocus = () => console.log('[AboutImageEffect][COMP] window focus');
-        const onBlur = () => console.log('[AboutImageEffect][COMP] window blur');
-        const onPageShow = (e: Event) => console.log('[AboutImageEffect][COMP] pageshow (persisted=', (e as any).persisted, ')');
-        const onPageHide = (e: Event) => console.log('[AboutImageEffect][COMP] pagehide (persisted=', (e as any).persisted, ')');
+        const onFocus = () => {};
+        const onBlur = () => {};
+        const onPageShow = (e: Event) => {};
+        const onPageHide = (e: Event) => {};
         window.addEventListener('focus', onFocus);
         window.addEventListener('blur', onBlur);
         window.addEventListener('pageshow', onPageShow);
@@ -178,6 +179,7 @@
     });
 
   onDestroy(() => {
+        isDestroyed = true;
     // onDestroy should also ensure cleanup, acting as a final safeguard.
     onUnload();
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
@@ -194,28 +196,17 @@
   // --- DigitalDecayEffect Class ---
 
     interface GridCell { state: number; timer: number; opacity: number; }
-    interface Particle { index: number; active: boolean; originalPos: THREE.Vector2; amplitude: number; timeOffset: number; speed: number; lifetime: number; age: number; size: number; color: THREE.Color; symbolIndex: number; gridCellIndex: number; lastSymbolChange: number; symbolChangeInterval: number; }
-    // replaced with extended MobileParams below
-                type MobileParams = {
-                    count: number;
-                    lifetime: { min: number; max: number };
-                    size: { min: number; max: number };
-                    amplitude: { min: number; max: number };
-                    speedFactor: number;
-                    fadeStartScreenFraction: number;
-                    fadeStartLifetimeFraction: number;
-                    fadeInDuration: number;
-                    fadeOutDuration: number;
-                    rampDuration: number;
-                };
+    interface Particle { index: number; active: boolean; originalPos: THREE.Vector2; amplitude: number; timeOffset: number; speed: number; lifetime: number; age: number; size: number; color: THREE.Color; symbolIndex: number; symbolToIndex: number; symbolBlend: number; gridCellIndex: number; lastSymbolChange: number; symbolChangeInterval: number; }
 
     class DigitalDecayEffect {
     private overlayContainer: HTMLElement;
     private image: HTMLImageElement;
     private clock: THREE.Clock | null = null;
     private animationFrameId: number | null = null;
-    private debug = false;
     private frameCount = 0;
+    private didSetupScene = false;
+    private isDisposed = false;
+    private isEffectReady = false;
     
     private width = 0;   // CSS width of overlay container
     private height = 0;  // CSS height of overlay container
@@ -252,11 +243,13 @@
     private lastSpawnScale: number = 1;
     // Density & GPU handling additions
     private enableDensityCompensation: boolean = true;
-    private densityExponent: number = 0.45; // 0=no effect, 1=linear inverse DPR scaling
+    private densityExponent: number = 0.20; // Reduced based on feedback
     private densityBaseDPR: number = 1.0; // reference baseline DPR
     private cachedDPR: number = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
     private gpuPointSizeRange: [number, number] | null = null; // queried from GL
     private lastClampOccurred: boolean = false;
+    private dprQuery: MediaQueryList | null = null;
+    private boundOnDPRChange = this.onDPRChange.bind(this);
 
     // Internal resolution scaling (DRS)
     private internalScale: number = 1.0; // dynamic internal resolution scale
@@ -274,21 +267,7 @@
     private isPageVisible = true;
     private boundOnVisibilityChange = this.onVisibilityChange.bind(this);
 
-    // Mobile mode
-    private isMobileMode = false;
-    private mobileParams: MobileParams = {
-                count: 100,
-                lifetime: { min: 1, max: 4 },
-                size: { min: 12, max: 22 },
-                amplitude: { min: 8, max: 18 },
-                speedFactor: 0.8,
-                fadeStartScreenFraction: 0.5,
-                fadeStartLifetimeFraction: 0.5,
-                fadeInDuration: 0.01,
-                fadeOutDuration: 0.6,
-                rampDuration: 10.0
-            };
-            private rampTimer = 0;
+
 
     // =========================================================================
     // == EFFECT PARAMETERS ==
@@ -317,10 +296,17 @@
     private readonly PARTICLE_FADE_IN_DURATION = 0.4;       // Seconds for a particle to fade in.
     private readonly PARTICLE_FADEOUT_DURATION = 0.3;       // Seconds for a particle to fade out at the end of its life.
     private readonly PARTICLE_BASE_OPACITY = 0.9;           // The base opacity multiplied into the final particle color.
+    private readonly SYMBOL_CROSSFADE_DURATION = 0.14;      // Seconds to crossfade between glyphs on swap.
     private readonly BLACKOUT_FADE_DURATION = 0.35;         // Seconds for the black squares to fade in/out.
     
     // --- Visuals & Colors ---
     private readonly SYMBOLS = [ '日', '〇', 'ハ', 'ミ', 'ヒ', 'ウ', 'シ', 'ナ', 'モ', 'サ', 'ワ', 'ツ', 'オ', 'リ', 'ア', 'ホ', 'テ', 'マ', 'ケ', 'メ', 'エ', 'カ', 'キ', 'ム', 'ユ', 'ラ', 'セ', 'ネ', 'ヲ', 'イ', 'ク', 'コ', 'ソ', 'タ', 'チ', 'ト', 'ノ', 'フ', 'ヘ', 'ヤ', 'ヨ', 'ル', 'レ', 'ロ', '∆', 'δ', 'ε', 'ζ', 'η', 'θ', '∃', '∄', '∅', 'Д' ];
+    // Runtime-filtered symbol set (some glyphs may not render depending on font/platform)
+    private symbols: string[] = [...this.SYMBOLS];
+    private readonly SYMBOLS_PER_ROW = 8;
+    private readonly SYMBOL_TEX_SIZE = 64;
+    private readonly SYMBOL_TEX_PADDING_PX = 2; // padding inside each cell to avoid bleed with linear filtering
+    private symbolRows = Math.ceil(this.SYMBOLS.length / this.SYMBOLS_PER_ROW);
     private readonly SYMBOL_COLORS = [ new THREE.Color(0.0, 0.95, 0.05), new THREE.Color(0.0, 1.0, 0.0), new THREE.Color(0.3, 1.0, 0.3) ];
     private readonly BLACKOUT_COLOR = new THREE.Color('#09090b');
     
@@ -341,37 +327,46 @@
     private symbolsTexture!: THREE.CanvasTexture;
     private boundOnWindowResize = this.onWindowResize.bind(this);
 
-    constructor(overlayContainer: HTMLElement, image: HTMLImageElement, opts?: { mobileMode?: boolean; mobileParams?: MobileParams; debug?: boolean }) {
+    constructor(overlayContainer: HTMLElement, image: HTMLImageElement) {
         this.overlayContainer = overlayContainer;
         this.image = image;
-        if (opts?.mobileMode) this.isMobileMode = true;
-        if (opts?.mobileParams) this.mobileParams = { ...this.mobileParams, ...opts.mobileParams };
-        if (opts?.debug) this.debug = !!opts.debug;
     }
-
-    private dlog(...args: any[]) { if (this.debug) console.log('[DigitalDecayEffect]', ...args); }
 
     public init(): void {
       if (this.image.complete && this.image.naturalHeight !== 0) {
-          this.dlog('init(): image already loaded; setting up scene');
           this.setupSceneOnce();
       } else {
-          this.dlog('init(): waiting for image load...');
-          this.image.onload = () => { this.dlog('image onload fired'); this.setupSceneOnce(); };
+          this.image.onload = () => { this.setupSceneOnce(); };
       }
     }
 
     private setupSceneOnce(): void {
+        if (this.didSetupScene || this.isDisposed) return;
+        this.didSetupScene = true;
+
         this.setupScene();
-    this.dlog('setupSceneOnce(): dimensions', { width: this.width, height: this.height });
-    this.bloomEffect = new BloomEffect(this.renderer, this.scene, this.camera, this.width, this.height);
+    // Keep composer pixel ratio fixed so manual internal scaling stays consistent.
+    // (If composer renders at DPR>1 while renderer is manually scaled, points can drop below 1px and flicker on some GPUs.)
+    this.bloomEffect = new BloomEffect(this.renderer, this.scene, this.camera, this.width, this.height, { pixelRatio: 1 });
     this.createSymbolTexture();
-    if (!this.isMobileMode) this.createBlackoutMesh();
+    this.createBlackoutMesh();
     this.createParticleSystem();
+    
+    // Query GPU point-size limits (useful to diagnose disappearing points on some devices)
+    try {
+        const gl = this.renderer.getContext();
+        const range = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE) as unknown;
+        const min = Array.isArray(range) ? Number((range as any)[0]) : Number((range as any)[0]);
+        const max = Array.isArray(range) ? Number((range as any)[1]) : Number((range as any)[1]);
+        if (Number.isFinite(min) && Number.isFinite(max)) {
+            this.gpuPointSizeRange = [min, max];
+        }
+    } catch {
+        // ignore
+    }
 
     // Ensure point size is normalized to CSS pixels initially
     this.updatePointScale(this.width, this.height);
-    this.dlog('setupSceneOnce(): point scale set, renderer size', this.renderer.getSize(new THREE.Vector2()).toArray(), 'css', { w: (this.renderer.domElement.style.width), h: (this.renderer.domElement.style.height) });
 
         if (this.bloomEffect && this.bloomEffect.composer) {
             this.bloomEffect.composer.render(0.01);
@@ -379,13 +374,19 @@
 
     window.addEventListener('resize', this.boundOnWindowResize);
     document.addEventListener('visibilitychange', this.boundOnVisibilityChange);
-        this.dlog('setupSceneOnce(): listeners attached, mobileMode=', this.isMobileMode);
+    this.monitorDPR();
+
+        this.isEffectReady = true;
+    }
+
+    public isReady(): boolean {
+        return this.isEffectReady && !this.isDisposed;
     }
     
     private animate(): void {
     this.animationFrameId = requestAnimationFrame(() => this.animate());
         if (!this.clock) return;
-        if (!this.isMobileMode && !this.imageRect) return;
+        if (!this.imageRect) return;
     this.frameCount++;
 
                 const rawDt = this.clock.getDelta();
@@ -414,7 +415,7 @@
 
         if (this.isFadingOut) {
             this.fadeOutTimer += deltaTime;
-            if (this.isMobileMode) this.updateParticlesMobile(deltaTime); else this.updateParticles(deltaTime);
+            this.updateParticles(deltaTime);
             const fadeProgress = Math.max(0, 1.0 - (this.fadeOutTimer / this.PARTICLE_FADEOUT_DURATION));
             this.particleSystem.material.uniforms.globalOpacity.value = fadeProgress;
 
@@ -423,25 +424,34 @@
                 this.fullReset();
             }
                 } else {
-                        if (this.isMobileMode) {
-                            // Ramp up desired active count over configured duration
-                            this.rampTimer += deltaTime;
-                            const rampProgress = Math.min(1, this.mobileParams.rampDuration > 0 ? this.rampTimer / this.mobileParams.rampDuration : 1);
-                            const target = Math.floor(this.mobileParams.count * rampProgress);
-                            if (this.particles.active.size < target) this.initMobileParticles(target);
-                            // No emergency spawn; ramp controls initial population from zero
-                            this.updateParticlesMobile(deltaTime);
-                        } else {
                             this.updateGrid(deltaTime);
                             this.updateParticles(deltaTime);
                             this.updateBlackout();
-                        }
         }
 
     this.bloomEffect.render(deltaTime);
     }
 
+    private monitorDPR(): void {
+        if (typeof window === 'undefined') return;
+        const dpr = window.devicePixelRatio;
+        // Remove old listener if exists
+        if (this.dprQuery) {
+             try { this.dprQuery.removeEventListener('change', this.boundOnDPRChange); } catch (e) { this.dprQuery.removeListener(this.boundOnDPRChange); }
+        }
+        // Create new query for current DPR
+        this.dprQuery = window.matchMedia(`(resolution: ${dpr}dppx)`);
+        // When this query no longer matches, DPR has changed
+        try { this.dprQuery.addEventListener('change', this.boundOnDPRChange); } catch (e) { this.dprQuery.addListener(this.boundOnDPRChange); }
+    }
+
+    private onDPRChange(): void {
+        this.monitorDPR(); // Re-arm for next change
+        this.onWindowResize(); // Trigger full update
+    }
+
     public onWindowResize(): void {
+    if (!this.isReady()) return;
     // Use overlay container CSS size to keep world-space alignment stable
     this.width = this.overlayContainer.clientWidth;
     this.height = this.overlayContainer.clientHeight;
@@ -464,7 +474,7 @@
 
     // Update point-size scale so symbols remain visually consistent
         this.updatePointScale(this.width, this.height);
-    if (!this.isMobileMode) this.setupGrid();
+    this.setupGrid();
         // Update scaling anchors and recompute sizes
         this.lastMeasuredContainerHeight = this.height;
         if (this.referenceContainerHeight === null && this.height > 0) {
@@ -472,32 +482,51 @@
         }
         this.currentScreenSizeType = this.getScreenSizeType();
         this.updateSymbolSizesForScale();
-        this.dlog('onWindowResize(): css', { w: this.width, h: this.height }, 'internal', { targetW, targetH }, 'pointScale', (this.particleSystem.material as THREE.ShaderMaterial).uniforms.uPointScale.value);
     }
     
     public dispose(): void {
+            if (this.isDisposed) return;
+            this.isDisposed = true;
+
       this.stop();
-      window.removeEventListener('resize', this.boundOnWindowResize);
-    document.removeEventListener('visibilitychange', this.boundOnVisibilityChange);
-      if (this.bloomEffect) {
-        this.bloomEffect.dispose();
-      }
-      if (this.renderer) {
-        this.renderer.dispose();
-        if (this.renderer.domElement.parentNode) {
-            this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
-        }
-      }
-      if (this.scene) {
-        // Basic scene disposal
-      }
+            try { this.image.onload = null; } catch {}
+            window.removeEventListener('resize', this.boundOnWindowResize);
+            document.removeEventListener('visibilitychange', this.boundOnVisibilityChange);
+            if (this.dprQuery) {
+                try { this.dprQuery.removeEventListener('change', this.boundOnDPRChange); } catch (e) { this.dprQuery.removeListener(this.boundOnDPRChange); }
+                this.dprQuery = null;
+            }
+
+            const bloomEffect = (this as any).bloomEffect as BloomEffect | undefined;
+            try { bloomEffect?.dispose(); } catch {}
+
+            const particleSystem = (this as any).particleSystem as THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial> | undefined;
+            if (particleSystem) {
+                try { particleSystem.geometry.dispose(); } catch {}
+                try { (particleSystem.material as unknown as { dispose?: () => void }).dispose?.(); } catch {}
+            }
+
+            const blackoutMesh = (this as any).blackoutMesh as THREE.InstancedMesh | undefined;
+            if (blackoutMesh) {
+                try { blackoutMesh.geometry.dispose(); } catch {}
+                try { (blackoutMesh.material as unknown as { dispose?: () => void }).dispose?.(); } catch {}
+            }
+
+            const symbolsTexture = (this as any).symbolsTexture as THREE.Texture | undefined;
+            try { symbolsTexture?.dispose(); } catch {}
+
+            const renderer = (this as any).renderer as THREE.WebGLRenderer | undefined;
+            if (renderer) {
+                try { renderer.dispose(); } catch {}
+                const canvas = renderer.domElement;
+                try { canvas?.parentNode?.removeChild(canvas); } catch {}
+            }
     }
 
     private onVisibilityChange(): void {
         const visible = document.visibilityState === 'visible';
         this.isPageVisible = visible;
         if (visible) {
-            this.dlog('visibilitychange -> visible: resetting metrics, checking RAF/particles');
             // Reset performance metrics to avoid stale downscale decisions
             this.frameTimes = [];
             this.avgFrameMs = 0;
@@ -507,32 +536,15 @@
             try { this.onWindowResize(); } catch {}
             // If loop stopped for any reason, restart it
             if (this.animationFrameId === null) {
-                // Reinitialize particle state for a clean start
-                this.fullReset();
-                if (this.isMobileMode) {
-                    this.resetAllParticles();
-                    this.rampTimer = 0;
-                }
+                // Resume without full reset to prevent visual jump
                 this.clock = new THREE.Clock();
                 this.animate();
-                this.dlog('visibilitychange -> visible: RAF restarted');
             } else {
                 // If running but no particles are active, kick spawning
-                if (this.isMobileMode) {
-                    if (this.particles.active.size === 0) {
-                        this.rampTimer = 0;
-                        this.resetAllParticles();
-                        // spawn a small initial batch to make it visible immediately
-                        this.initMobileParticles(Math.min(20, this.mobileParams.count));
-                        this.dlog('visibilitychange -> visible: mobile particles kickstarted');
-                    }
-                } else {
-                    if (this.particles.active.size === 0) {
-                        this.onsetTimer = 0;
-                        this.resetBlackoutGrid();
-                        // grid-based spawning will resume automatically in updateGrid
-                        this.dlog('visibilitychange -> visible: grid reset; waiting for spawns');
-                    }
+                if (this.particles.active.size === 0) {
+                    this.onsetTimer = 0;
+                    this.resetBlackoutGrid();
+                    // grid-based spawning will resume automatically in updateGrid
                 }
             }
             // Defensive: ensure no residual fade and compositor is primed
@@ -543,18 +555,13 @@
             }
             try { this.bloomEffect?.composer?.render(0.01); } catch {}
         } else {
-            this.dlog('visibilitychange -> hidden: pausing perf sampling');
         }
     }
 
     public start(): void {
+        if (!this.isReady()) return;
         if (this.animationFrameId === null) {
             this.fullReset();
-            if (this.isMobileMode) {
-                // Start empty on mobile and let ramp gradually spawn
-                this.resetAllParticles();
-                this.rampTimer = 0;
-            }
             this.clock = new THREE.Clock();
             this.animate();
         }
@@ -578,14 +585,13 @@
             }
             this.clock = new THREE.Clock();
             this.animate();
-            this.dlog('restart(): forced reset + RAF restart');
         }
 
     public beginLeaveAnimation(): void {
       if (!this.isFadingOut) {
         this.isFadingOut = true;
         this.fadeOutTimer = 0;
-    if (!this.isMobileMode) this.resetBlackoutGrid();
+                this.resetBlackoutGrid();
       }
     }
 
@@ -616,20 +622,17 @@
     canvas.style.inset = '0';
     canvas.style.zIndex = '10';
     this.overlayContainer.appendChild(canvas);
-    this.dlog('setupScene(): renderer appended. DOM canvas size', { w: canvas.style.width, h: canvas.style.height });
     }
 
     private fullReset(): void {
         this.isFadingOut = false;
         this.fadeOutTimer = 0;
         this.onsetTimer = 0;
-        this.rampTimer = 0;
         if(this.particleSystem) {
             this.particleSystem.material.uniforms.globalOpacity.value = 1.0;
         }
-    if (!this.isMobileMode) this.resetBlackoutGrid();
-    // Always clear particles so mobile also deletes symbols on leave
-    this.resetAllParticles();
+        this.resetBlackoutGrid();
+        this.resetAllParticles();
     }
 
     // Compute internal render target dimensions with 1440p cap and internalScale
@@ -688,28 +691,226 @@
         (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
     }
 
+    private getRandomSymbolIndex(): number {
+        const count = this.symbols.length;
+        if (count <= 0) {
+            console.warn('[DigitalDecayEffect] getRandomSymbolIndex called with empty symbols array!');
+            return 0;
+        }
+        const idx = Math.floor(Math.random() * count);
+        // Safety clamp (should never trigger if logic is correct)
+        return Math.max(0, Math.min(idx, count - 1));
+    }
+    
+    // Safely clamp any symbol index to valid range
+    private clampSymbolIndex(idx: number): number {
+        const max = Math.max(0, this.symbols.length - 1);
+        if (!Number.isFinite(idx) || idx < 0 || idx > max) {
+            return Math.max(0, Math.min(Math.floor(idx) || 0, max));
+        }
+        return idx;
+    }
+
+    private mapAtlasAlphaLikeShader(alpha01: number): number {
+        // Mirrors fragment shader mapping:
+        // a = pow(smoothstep(0.02, 0.28, texA.a), 0.75)
+        const edge0 = 0.02;
+        const edge1 = 0.28;
+        const t = Math.max(0, Math.min(1, (alpha01 - edge0) / Math.max(1e-6, (edge1 - edge0))));
+        const smooth = t * t * (3 - 2 * t);
+        return Math.pow(smooth, 0.75);
+    }
+
+    private measureGlyphVisibilityFromImageData(img: Uint8ClampedArray): {
+        maxRaw: number;
+        rawCount: number;
+        meanRaw: number;
+        maxMapped: number;
+        mappedCount: number;
+        meanMapped: number;
+    } {
+        let maxRaw = 0;
+        let rawCount = 0;
+        let sumRaw = 0;
+        let maxMapped = 0;
+        let mappedCount = 0;
+        let sumMapped = 0;
+        const pixelCount = Math.max(1, Math.floor(img.length / 4));
+
+        for (let i = 3; i < img.length; i += 4) {
+            const a01 = img[i] / 255;
+            if (a01 > maxRaw) maxRaw = a01;
+            if (a01 > 0.01) rawCount++;
+            sumRaw += a01;
+            const mapped = this.mapAtlasAlphaLikeShader(a01);
+            if (mapped > maxMapped) maxMapped = mapped;
+            if (mapped > 0.02) mappedCount++;
+            sumMapped += mapped;
+        }
+        return {
+            maxRaw,
+            rawCount,
+            meanRaw: sumRaw / pixelCount,
+            maxMapped,
+            mappedCount,
+            meanMapped: sumMapped / pixelCount
+        };
+    }
+
+    private testGlyphVisibility(
+        symbol: string,
+        testCtx: CanvasRenderingContext2D,
+        symbolSize: number,
+        padPx: number,
+        smallTargets: Array<{ ctx: CanvasRenderingContext2D; size: number }>
+    ) {
+        // Draw with the exact style used for the atlas.
+        testCtx.clearRect(0, 0, symbolSize, symbolSize);
+        testCtx.fillStyle = '#FFFFFF';
+        testCtx.textAlign = 'center';
+        testCtx.textBaseline = 'middle';
+        testCtx.lineWidth = Math.max(1, Math.floor(symbolSize * 0.04));
+        testCtx.strokeStyle = 'rgba(255,255,255,0.35)';
+        testCtx.strokeText(symbol, symbolSize / 2, symbolSize / 2);
+        testCtx.fillText(symbol, symbolSize / 2, symbolSize / 2);
+
+        // IMPORTANT: The shader clamps gl_PointCoord to [pad..1-pad],
+        // so if a glyph only has ink near the cell edges, it may sample as empty.
+        const innerSize = Math.max(1, symbolSize - padPx * 2);
+        const fullImg = testCtx.getImageData(padPx, padPx, innerSize, innerSize).data;
+        const full = this.measureGlyphVisibilityFromImageData(fullImg);
+
+        // Downsample only the inner region to approximate small gl_PointSize cases.
+        const smallBySize = new Map<number, ReturnType<typeof this.measureGlyphVisibilityFromImageData>>();
+        for (const t of smallTargets) {
+            t.ctx.clearRect(0, 0, t.size, t.size);
+            t.ctx.imageSmoothingEnabled = true;
+            t.ctx.drawImage(testCtx.canvas, padPx, padPx, innerSize, innerSize, 0, 0, t.size, t.size);
+            const smallImg = t.ctx.getImageData(0, 0, t.size, t.size).data;
+            smallBySize.set(t.size, this.measureGlyphVisibilityFromImageData(smallImg));
+        }
+
+        return { full, smallBySize };
+    }
+
     private createSymbolTexture(): void {
-        const symbolsPerRow = 8;
-        const symbolSize = 64;
-        const rows = Math.ceil(this.SYMBOLS.length / symbolsPerRow);
-        
+        const symbolSize = this.SYMBOL_TEX_SIZE;
+        const fontSize = Math.floor(symbolSize * 0.82);
+        const fontStack = `900 ${fontSize}px ui-monospace, "Cascadia Mono", "Consolas", "Segoe UI Symbol", "Yu Gothic", "MS Gothic", monospace`;
+
+        const pad = Math.max(0, Math.min(this.SYMBOL_TEX_PADDING_PX, Math.floor(symbolSize / 6)));
+
+        // First pass: filter to symbols that would be *visible in the effect*.
+        // This explicitly mirrors the shader's alpha mapping and sampling constraints.
+        const testCanvas = document.createElement('canvas');
+        testCanvas.width = symbolSize;
+        testCanvas.height = symbolSize;
+        const testCtx = testCanvas.getContext('2d', { willReadFrequently: true })!;
+        testCtx.font = fontStack;
+
+        // Downsample tests: cover the range where the flicker tends to happen (very small sprites).
+        // Note: on some GPUs + internal scaling, effective on-screen point sprites can get tiny.
+        const smallTargets: Array<{ ctx: CanvasRenderingContext2D; size: number }> = [];
+        for (const sz of [14, 10, 8, 6, 4]) {
+            const c = document.createElement('canvas');
+            c.width = sz;
+            c.height = sz;
+            const ctx = c.getContext('2d', { willReadFrequently: true })!;
+            smallTargets.push({ ctx, size: sz });
+        }
+
+        const renderable: string[] = [];
+        const removed: Array<{
+            glyph: string;
+            reason: string;
+            full: { maxRaw: number; rawCount: number; meanRaw: number; maxMapped: number; mappedCount: number; meanMapped: number };
+            small: Array<{ size: number; maxRaw: number; rawCount: number; meanRaw: number; maxMapped: number; mappedCount: number; meanMapped: number }>;
+        }> = [];
+        for (const s of this.SYMBOLS) {
+            const { full, smallBySize } = this.testGlyphVisibility(s, testCtx, symbolSize, pad, smallTargets);
+
+            const fullCoverage = full.mappedCount / Math.max(1, (symbolSize - pad * 2) * (symbolSize - pad * 2));
+            const fullOk = full.maxMapped >= 0.18 && full.meanMapped >= 0.010 && fullCoverage >= 0.006;
+
+            const smallList: Array<{ size: number; maxRaw: number; rawCount: number; meanRaw: number; maxMapped: number; mappedCount: number; meanMapped: number }> = [];
+            let allSmallOk = true;
+            for (const [sz, m] of smallBySize.entries()) {
+                const cov = m.mappedCount / Math.max(1, sz * sz);
+                // Very strict at tiny sizes to eliminate “sometimes invisible” glyphs.
+                // Thresholds are size-dependent because coverage collapses quickly when minified.
+                let ok = true;
+                if (sz >= 10) {
+                    ok = m.maxMapped >= 0.10 && m.meanMapped >= 0.006 && cov >= 0.020;
+                } else if (sz === 8) {
+                    ok = m.maxMapped >= 0.12 && m.meanMapped >= 0.008 && cov >= 0.030;
+                } else if (sz === 6) {
+                    ok = m.maxMapped >= 0.15 && m.meanMapped >= 0.010 && cov >= 0.050;
+                } else {
+                    // 4x4 (or smaller): only keep glyphs that remain clearly visible.
+                    ok = m.maxMapped >= 0.20 && m.meanMapped >= 0.015 && cov >= 0.100;
+                }
+                if (!ok) allSmallOk = false;
+                smallList.push({ size: sz, ...m });
+            }
+
+            // Keep only if it passes full-res and *all* small-size checks.
+            if (fullOk && allSmallOk) {
+                renderable.push(s);
+            } else {
+                removed.push({
+                    glyph: s,
+                    reason: !fullOk ? 'too-weak-after-shader-map' : 'vanishes-at-small-size',
+                    full,
+                    small: smallList
+                });
+            }
+        }
+        // Defensive: never end up with an empty atlas.
+        // If the strict visibility test removes everything, fall back to a tiny known-good set.
+        this.symbols = renderable.length > 0 ? renderable : ['日', '〇', '∆'];
+        this.symbolRows = Math.ceil(this.symbols.length / this.SYMBOLS_PER_ROW);
+
         const canvas = document.createElement('canvas');
-        canvas.width = symbolsPerRow * symbolSize;
-        canvas.height = rows * symbolSize;
-        
+        canvas.width = this.SYMBOLS_PER_ROW * symbolSize;
+        canvas.height = this.symbolRows * symbolSize;
+
         const ctx = canvas.getContext('2d')!;
-        ctx.font = `bold ${symbolSize * 0.8}px monospace`;
+        ctx.font = fontStack;
         ctx.fillStyle = '#FFFFFF';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
-        for (let i = 0; i < this.SYMBOLS.length; i++) {
-            const x = (i % symbolsPerRow) * symbolSize + symbolSize / 2;
-            const y = Math.floor(i / symbolsPerRow) * symbolSize + symbolSize / 2;
-            ctx.fillText(this.SYMBOLS[i], x, y);
+
+        for (let i = 0; i < this.symbols.length; i++) {
+            const cellX = (i % this.SYMBOLS_PER_ROW) * symbolSize;
+            const cellY = Math.floor(i / this.SYMBOLS_PER_ROW) * symbolSize;
+            const x = cellX + symbolSize / 2;
+            const y = cellY + symbolSize / 2;
+
+            ctx.clearRect(cellX, cellY, symbolSize, symbolSize);
+            // Keep a clean border inside each cell to prevent sampling bleed across glyphs.
+            if (pad > 0) {
+                ctx.clearRect(cellX, cellY, symbolSize, pad);
+                ctx.clearRect(cellX, cellY + symbolSize - pad, symbolSize, pad);
+                ctx.clearRect(cellX, cellY, pad, symbolSize);
+                ctx.clearRect(cellX + symbolSize - pad, cellY, pad, symbolSize);
+            }
+            // Slight stroke keeps very thin glyphs from disappearing under alpha thresholding.
+            ctx.lineWidth = Math.max(1, Math.floor(symbolSize * 0.04));
+            ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+            ctx.strokeText(this.symbols[i], x, y);
+            ctx.fillText(this.symbols[i], x, y);
         }
-        
+
         this.symbolsTexture = new THREE.CanvasTexture(canvas);
+        // IMPORTANT: Disable mipmaps for glyph atlas.
+        // Mipmap alpha averaging can push thin glyphs below the discard threshold, causing
+        // apparent "disappear/reappear" when symbols change or when point sizes vary.
+        this.symbolsTexture.generateMipmaps = false;
+        this.symbolsTexture.minFilter = THREE.LinearFilter;
+        this.symbolsTexture.magFilter = THREE.LinearFilter;
+        this.symbolsTexture.wrapS = THREE.ClampToEdgeWrapping;
+        this.symbolsTexture.wrapT = THREE.ClampToEdgeWrapping;
+        this.symbolsTexture.needsUpdate = true;
     }
 
     private createBlackoutMesh(): void {
@@ -736,7 +937,13 @@
             transparent: true,
         });
 
+        // Prevent transparent depth artifacts and make compositing deterministic.
+        material.depthWrite = false;
+        material.depthTest = false;
+
         this.blackoutMesh = new THREE.InstancedMesh(quadGeom, material, 150 * 200);
+        // Always render blackout behind particles.
+        this.blackoutMesh.renderOrder = 0;
         this.scene.add(this.blackoutMesh);
     }
 
@@ -747,10 +954,15 @@
         geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(new Float32Array(cap * 3), 3));
         geometry.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
         geometry.setAttribute('symbolIndex', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
+        geometry.setAttribute('symbolIndex2', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
+        geometry.setAttribute('symbolMix', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
         geometry.setAttribute('particleOpacity', new THREE.Float32BufferAttribute(new Float32Array(cap), 1));
 
     // Allocate intrinsic size factors array for unified scaling recomputation
     this.baseSizeFactors = new Float32Array(cap);
+
+    // Track previous per-particle opacity to detect re-brightening/blink patterns
+    this.lastParticleOpacity = new Float32Array(cap);
 
         const material = new THREE.ShaderMaterial({
             uniforms: {
@@ -762,17 +974,24 @@
                 attribute float size;
                 attribute vec3 customColor;
                 attribute float symbolIndex;
+                attribute float symbolIndex2;
+                attribute float symbolMix;
                 attribute float particleOpacity;
                 uniform float uPointScale;
                 varying vec3 vColor;
                 varying float vSymbolIndex;
+                varying float vSymbolIndex2;
+                varying float vSymbolMix;
                 varying float vOpacity;
                 void main() {
                     vColor = customColor;
                     vSymbolIndex = symbolIndex;
+                    vSymbolIndex2 = symbolIndex2;
+                    vSymbolMix = symbolMix;
                     vOpacity = particleOpacity;
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = size * uPointScale;
+                    // Prevent driver-dependent disappearance when point sprites drop below ~1px.
+                    gl_PointSize = max(1.0, size * uPointScale);
                     gl_Position = projectionMatrix * mvPosition;
                 }
             `,
@@ -781,178 +1000,97 @@
                 uniform float globalOpacity;
                 varying vec3 vColor;
                 varying float vSymbolIndex;
+                varying float vSymbolIndex2;
+                varying float vSymbolMix;
                 varying float vOpacity;
                 void main() {
-                    float symbolsPerRow = 8.0;
-                    float totalRows = ${Math.ceil(this.SYMBOLS.length / 8)}.0;
-                    vec2 symbolCoord = gl_PointCoord;
-                    symbolCoord.x = (symbolCoord.x + mod(vSymbolIndex, symbolsPerRow)) / symbolsPerRow;
-                    symbolCoord.y = (symbolCoord.y + floor(vSymbolIndex / symbolsPerRow)) / totalRows;
+                    float symbolsPerRow = ${this.SYMBOLS_PER_ROW}.0;
+                    float totalRows = ${Math.max(1, this.symbolRows)}.0;
+                    float maxValidIndex = ${Math.max(0, this.symbols.length - 1)}.0;
                     
-                    vec4 tex = texture2D(symbolsTexture, symbolCoord);
-            if (tex.a < 0.2) discard;
+                    // Clamp indices to valid range to prevent sampling empty atlas cells
+                    float sIdxA = clamp(floor(vSymbolIndex + 0.5), 0.0, maxValidIndex);
+                    float sIdxB = clamp(floor(vSymbolIndex2 + 0.5), 0.0, maxValidIndex);
                     
-                    gl_FragColor = vec4(vColor, tex.a * vOpacity * ${this.PARTICLE_BASE_OPACITY} * globalOpacity);
+                    float pad = ${this.SYMBOL_TEX_PADDING_PX}.0 / ${this.SYMBOL_TEX_SIZE}.0;
+                    vec2 local = clamp(gl_PointCoord, vec2(pad), vec2(1.0 - pad));
+                    
+                    // Compute atlas UV for symbol A
+                    float colA = mod(sIdxA, symbolsPerRow);
+                    float rowA = floor(sIdxA / symbolsPerRow);
+                    
+                    // CRITICAL: Canvas draws row 0 at TOP (y=0), but WebGL texture has V=0 at BOTTOM.
+                    // We need to flip the row: row 0 should sample from TOP of texture (high V).
+                    // With totalRows rows, row 0 should map to V = (totalRows-1)/totalRows to 1.0
+                    float flippedRowA = (totalRows - 1.0) - rowA;
+                    vec2 coordA = vec2(
+                        (local.x + colA) / symbolsPerRow,
+                        (local.y + flippedRowA) / totalRows
+                    );
+                    
+                    // Compute atlas UV for symbol B
+                    float colB = mod(sIdxB, symbolsPerRow);
+                    float rowB = floor(sIdxB / symbolsPerRow);
+                    float flippedRowB = (totalRows - 1.0) - rowB;
+                    vec2 coordB = vec2(
+                        (local.x + colB) / symbolsPerRow,
+                        (local.y + flippedRowB) / totalRows
+                    );
+
+                    vec4 texA = texture2D(symbolsTexture, coordA);
+                    vec4 texB = texture2D(symbolsTexture, coordB);
+                    
+                    // Smooth alpha to prevent thin glyphs from vanishing
+                    float aA = smoothstep(0.02, 0.28, texA.a);
+                    float aB = smoothstep(0.02, 0.28, texB.a);
+                    aA = pow(aA, 0.75);
+                    aB = pow(aB, 0.75);
+                    
+                    float mixT = smoothstep(0.0, 1.0, clamp(vSymbolMix, 0.0, 1.0));
+                    float a = mix(aA, aB, mixT);
+                    
+                    // Final output
+                    vec3 finalColor = vColor;
+                    float finalAlpha = a * vOpacity * ${this.PARTICLE_BASE_OPACITY} * globalOpacity;
+                    
+                    // Discard fully transparent pixels
+                    if (finalAlpha < 0.01) discard;
+                    
+                    gl_FragColor = vec4(finalColor, finalAlpha);
                 }
             `,
             blending: THREE.AdditiveBlending,
             depthTest: false,
+            depthWrite: false,
             transparent: true
         });
 
         this.particleSystem = new THREE.Points(geometry, material);
+        // Always render particles on top of blackout.
+        this.particleSystem.renderOrder = 1;
         this.scene.add(this.particleSystem);
 
                 const symbolIndices = (geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+                const symbolIndices2 = (geometry.attributes.symbolIndex2 as THREE.BufferAttribute).array as Float32Array;
+                const symbolMix = (geometry.attributes.symbolMix as THREE.BufferAttribute).array as Float32Array;
                 for (let i = 0; i < cap; i++) {
-            symbolIndices[i] = Math.floor(Math.random() * this.SYMBOLS.length);
-        }
-    (geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+                    const s = this.getRandomSymbolIndex();
+                    symbolIndices[i] = s;
+                    symbolIndices2[i] = s;
+                    symbolMix[i] = 0;
+                }
+                (geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+                (geometry.attributes.symbolIndex2 as THREE.BufferAttribute).needsUpdate = true;
+                (geometry.attributes.symbolMix as THREE.BufferAttribute).needsUpdate = true;
                 for (let i = 0; i < cap; i++) {
                     this.particles.pool.push({
                         index: i, active: false, originalPos: new THREE.Vector2(),
                         amplitude: 0, timeOffset: 0, speed: 0, lifetime: 0, age: 0, size: 0,
-                        color: new THREE.Color(), symbolIndex: 0, gridCellIndex: -1,
+                        color: new THREE.Color(), symbolIndex: 0, symbolToIndex: 0, symbolBlend: 0, gridCellIndex: -1,
                         lastSymbolChange: 0, symbolChangeInterval: 0
                     });
                 }
-
-                        // Mobile: don't pre-spawn here; ramp will handle spawning after start()
-                        this.dlog('createParticleSystem(): created geometry + material. pool size:', this.particles.pool.length, 'active size:', this.particles.active.size, 'mobileMode:', this.isMobileMode);
     }
-
-        // --- Mobile simplified particle spawning: float in from left ---
-        private initMobileParticles(desiredCount?: number): void {
-            const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
-            const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array;
-            const colors = (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).array as Float32Array;
-            const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array;
-            const desired = Math.min((desiredCount ?? this.mobileParams.count), this.MAX_ACTIVE_PARTICLES);
-            const current = this.particles.active.size;
-            let toSpawn = Math.max(0, desired - current);
-            if (toSpawn <= 0) { this.dlog('initMobileParticles(): current meets or exceeds desired; skipping', { current, desired }); return; }
-            if (this.particles.pool.length <= 0) { this.dlog('initMobileParticles(): pool empty; cannot spawn'); return; }
-            toSpawn = Math.min(toSpawn, this.particles.pool.length);
-            const rightX = this.width / 2 - 2; // place just inside the screen for immediate visibility
-            const unifiedScale = this.getUnifiedSymbolScale(); // retained for debug instrumentation
-            for (let i = 0; i < toSpawn; i++) {
-                const p = this.particles.pool.pop();
-                if (!p) { this.dlog('initMobileParticles(): pool underflow at i=', i); break; }
-                p.active = true;
-                p.originalPos.set(rightX, (Math.random() - 0.5) * this.height);
-                // assign lifetime first, then compute speed; start new particles at age 0
-                p.lifetime = this.mobileParams.lifetime.min + Math.random() * (this.mobileParams.lifetime.max - this.mobileParams.lifetime.min);
-                p.age = 0;
-                // derive base speed so that by fadeStartLifetimeFraction of lifetime, particle reaches ~fadeStartScreenFraction of screen width
-                const baseSpeed = (this.width * this.mobileParams.fadeStartScreenFraction) / Math.max(0.001, (p.lifetime * this.mobileParams.fadeStartLifetimeFraction));
-                const jitter = 0.7 + Math.random() * 0.6; // ~±30%
-                p.speed = baseSpeed * this.mobileParams.speedFactor * jitter; // px/sec
-                p.amplitude = this.mobileParams.amplitude.min + Math.random() * (this.mobileParams.amplitude.max - this.mobileParams.amplitude.min); // vertical drift amplitude
-                p.timeOffset = Math.random() * Math.PI * 2;
-                const rawBase = this.mobileParams.size.min + Math.random() * (this.mobileParams.size.max - this.mobileParams.size.min);
-                const { size: finalSize } = this.computeFinalSize(rawBase);
-                p.size = finalSize;
-                if (this.baseSizeFactors) this.baseSizeFactors[p.index] = rawBase;
-                p.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
-                p.color.copy(this.getSymbolColor());
-                p.lastSymbolChange = 0;
-                p.symbolChangeInterval = 1.5 + Math.random() * 1.5;
-                this.particles.active.set(p.index, p);
-                positions[p.index * 3] = p.originalPos.x;
-                positions[p.index * 3 + 1] = p.originalPos.y;
-                positions[p.index * 3 + 2] = 1;
-                colors[p.index * 3] = p.color.r; colors[p.index * 3 + 1] = p.color.g; colors[p.index * 3 + 2] = p.color.b;
-                sizes[p.index] = p.size;
-                this.lastSpawnComputedSize = p.size;
-                this.lastSpawnRawBase = rawBase;
-                this.lastSpawnScreenRatio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType];
-                this.lastSpawnScale = unifiedScale;
-                opacities[p.index] = 0;
-            }
-            (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-            (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true;
-            (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
-            (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true;
-            // removed noisy sampling log
-        }
-
-        private updateParticlesMobile(deltaTime: number): void {
-            const positions = (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).array as Float32Array;
-            const opacities = (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).array as Float32Array;
-            const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array;
-            const symbolIndices = (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
-            let needsUpdate = false;
-
-                        this.particles.active.forEach(p => {
-                p.age += deltaTime;
-                                // movement from right to left with slight vertical drift
-                const x = p.originalPos.x - p.speed * p.age;
-                const y = p.originalPos.y + Math.sin(p.age * 2 + p.timeOffset) * p.amplitude;
-                positions[p.index * 3] = x;
-                positions[p.index * 3 + 1] = y;
-                positions[p.index * 3 + 2] = 1;
-
-                                // fade in/out: combine lifetime and screen fraction triggers
-                                const fadeIn = Math.min(1, p.age / Math.max(0.001, this.mobileParams.fadeInDuration));
-                                const fadeStartLifetime = p.lifetime * this.mobileParams.fadeStartLifetimeFraction;
-                                const distFromRight = (this.width / 2) - x;
-                                const screenThreshold = this.width * this.mobileParams.fadeStartScreenFraction;
-                                const fadeProgressScreen = this.mobileParams.fadeStartScreenFraction <= 0 ? 0 : Math.max(0, (distFromRight - screenThreshold) / Math.max(1, (this.width - screenThreshold)));
-                                const hasPassedLifetimeFade = p.age >= fadeStartLifetime;
-                                const shouldFade = hasPassedLifetimeFade || fadeProgressScreen > 0;
-                                let fadeOut = 1;
-                                if (shouldFade) {
-                                    const tLife = (p.age - fadeStartLifetime) / Math.max(0.001, this.mobileParams.fadeOutDuration);
-                                    const t = Math.max(0, Math.min(1, Math.max(tLife, fadeProgressScreen)));
-                                    fadeOut = 1 - t;
-                                }
-                                opacities[p.index] = Math.min(fadeIn, fadeOut);
-
-                // occasional symbol change
-                p.lastSymbolChange += deltaTime;
-                if (p.lastSymbolChange > p.symbolChangeInterval) {
-                    symbolIndices[p.index] = Math.floor(Math.random() * this.SYMBOLS.length);
-                    p.lastSymbolChange = 0;
-                }
-
-                // recycle when lifetime ends or out of bounds
-                if (p.age >= p.lifetime || x < -this.width / 2 - 30) {
-                    // reuse particle: respawn near left
-                    p.active = true;
-                    p.originalPos.set(this.width / 2 - 2, (Math.random() - 0.5) * this.height);
-                    // assign lifetime first, then compute speed; reset age
-                    p.lifetime = this.mobileParams.lifetime.min + Math.random() * (this.mobileParams.lifetime.max - this.mobileParams.lifetime.min);
-                    p.age = 0;
-                    const baseSpeed2 = (this.width * this.mobileParams.fadeStartScreenFraction) / Math.max(0.001, (p.lifetime * this.mobileParams.fadeStartLifetimeFraction));
-                    const jitter2 = 0.7 + Math.random() * 0.6;
-                    p.speed = baseSpeed2 * this.mobileParams.speedFactor * jitter2;
-                    p.amplitude = this.mobileParams.amplitude.min + Math.random() * (this.mobileParams.amplitude.max - this.mobileParams.amplitude.min);
-                    p.timeOffset = Math.random() * Math.PI * 2;
-                    const rawBase2 = this.mobileParams.size.min + Math.random() * (this.mobileParams.size.max - this.mobileParams.size.min);
-                    const unifiedScale2 = this.getUnifiedSymbolScale();
-                    const { size: finalSize2 } = this.computeFinalSize(rawBase2);
-                    p.size = finalSize2;
-                    if (this.baseSizeFactors) this.baseSizeFactors[p.index] = rawBase2;
-                    sizes[p.index] = p.size;
-                    this.lastSpawnComputedSize = p.size;
-                    this.lastSpawnRawBase = rawBase2;
-                    this.lastSpawnScreenRatio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType];
-                    this.lastSpawnScale = unifiedScale2;
-                    opacities[p.index] = 0;
-                    needsUpdate = true;
-                } else {
-                    needsUpdate = true;
-                }
-            });
-
-            if (needsUpdate) {
-                (this.particleSystem.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-                (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
-                (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
-                (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true;
-                // removed periodic mobile sampling log
-            }
-        }
 
     private getSymbolColor(): THREE.Color {
         return this.SYMBOL_COLORS[Math.floor(Math.random() * this.SYMBOL_COLORS.length)];
@@ -962,13 +1100,23 @@
         this.imageRect = this.image.getBoundingClientRect();
         if (!this.imageRect || !this.imageRect.width) return;
         
-        this.grid.cols = Math.floor(this.imageRect.width / this.CELL_SIZE);
-        this.grid.rows = Math.floor(this.imageRect.height / this.CELL_SIZE);
+        const newCols = Math.floor(this.imageRect.width / this.CELL_SIZE);
+        const newRows = Math.floor(this.imageRect.height / this.CELL_SIZE);
+
+        // If grid dimensions match, preserve state to avoid visual reset on minor layout shifts or DPR changes
+        if (newCols === this.grid.cols && newRows === this.grid.rows && this.grid.cells.length > 0) {
+            return;
+        }
+
+        this.grid.cols = newCols;
+        this.grid.rows = newRows;
         this.grid.cells = [];
         
         for (let i = 0; i < this.grid.cols * this.grid.rows; i++) {
             this.grid.cells.push({ state: this.STATE.IDLE, timer: 0, opacity: 0 });
         }
+        // Grid structure changed, so existing particle cell indices are invalid.
+        this.resetAllParticles();
     }
 
     private updateGrid(deltaTime: number): void {
@@ -982,12 +1130,6 @@
             const cell = this.grid.cells[i];
             const fadeSpeed = deltaTime / this.BLACKOUT_FADE_DURATION;
 
-            if (cell.state === this.STATE.ACTIVE) {
-                cell.opacity = Math.min(1.0, cell.opacity + fadeSpeed);
-            } else {
-                cell.opacity = Math.max(0.0, cell.opacity - fadeSpeed);
-            }
-
             if (cell.state === this.STATE.IDLE) {
                 const col = i % this.grid.cols;
                 if (col < spawnCols) {
@@ -995,6 +1137,7 @@
                     const probability = this.BASE_CHANCE * onsetMultiplier * Math.exp(-this.PROBABILITY_DECAY_FACTOR * normalizedX) * deltaTime * 60;
                     if (Math.random() < probability) {
                         cell.state = this.STATE.ACTIVE;
+                        cell.timer = 0;
                         this.spawnParticleForCell(i);
                     }
                 }
@@ -1004,6 +1147,14 @@
                     cell.state = this.STATE.IDLE;
                     cell.timer = 0;
                 }
+            }
+
+            // Apply opacity AFTER state changes so newly activated cells render a blackout square
+            // before/with the particle spawn (prevents "symbol without square" frames).
+            if (cell.state === this.STATE.ACTIVE) {
+                cell.opacity = Math.min(1.0, cell.opacity + fadeSpeed);
+            } else {
+                cell.opacity = Math.max(0.0, cell.opacity - fadeSpeed);
             }
         }
     }
@@ -1038,11 +1189,29 @@
     this.lastSpawnRawBase = rawBase;
     this.lastSpawnScreenRatio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType];
     this.lastSpawnScale = unifiedScale;
-        particle.symbolIndex = Math.floor(Math.random() * this.SYMBOLS.length);
+        particle.symbolIndex = this.getRandomSymbolIndex();
+        particle.symbolToIndex = particle.symbolIndex;
+        particle.symbolBlend = 0;
         particle.color.copy(this.getSymbolColor());
         particle.lastSymbolChange = 0;
         const variation = 1 + (Math.random() * 2 - 1) * this.SYMBOL_CHANGE_VARIATION;
         particle.symbolChangeInterval = this.SYMBOL_CHANGE_INTERVAL * variation;
+
+        // Apply glyph attributes immediately so the particle doesn't render with stale indices.
+        try {
+            const geom = this.particleSystem.geometry;
+            const a1 = (geom.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+            const a2 = (geom.attributes.symbolIndex2 as THREE.BufferAttribute).array as Float32Array;
+            const mix = (geom.attributes.symbolMix as THREE.BufferAttribute).array as Float32Array;
+            a1[particle.index] = particle.symbolIndex;
+            a2[particle.index] = particle.symbolIndex;
+            mix[particle.index] = 0;
+            (geom.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+            (geom.attributes.symbolIndex2 as THREE.BufferAttribute).needsUpdate = true;
+            (geom.attributes.symbolMix as THREE.BufferAttribute).needsUpdate = true;
+        } catch {
+            // ignore
+        }
 
         this.particles.active.set(particle.index, particle);
     }
@@ -1053,6 +1222,8 @@
         const colors = (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).array as Float32Array;
         const sizes = (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).array as Float32Array;
         const symbolIndices = (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).array as Float32Array;
+        const symbolIndices2 = (this.particleSystem.geometry.attributes.symbolIndex2 as THREE.BufferAttribute).array as Float32Array;
+        const symbolMix = (this.particleSystem.geometry.attributes.symbolMix as THREE.BufferAttribute).array as Float32Array;
         let needsUpdate = false;
 
         this.particles.active.forEach(p => {
@@ -1062,24 +1233,78 @@
                 p.active = false;
                 this.particles.active.delete(p.index);
                 this.particles.pool.push(p);
+                // Fully clear this particle's buffer state to prevent any stale rendering
                 positions[p.index * 3 + 1] = -99999;
                 opacities[p.index] = 0;
+                sizes[p.index] = 0;
+                symbolIndices[p.index] = 0;
+                symbolIndices2[p.index] = 0;
+                symbolMix[p.index] = 0;
                 needsUpdate = true;
                 return;
             }
 
-            if (p.age < this.PARTICLE_FADE_IN_DURATION) {
-                opacities[p.index] = p.age / this.PARTICLE_FADE_IN_DURATION;
-            } else if (p.age > p.lifetime - this.PARTICLE_FADEOUT_DURATION && !this.isFadingOut) {
-                opacities[p.index] = (p.lifetime - p.age) / this.PARTICLE_FADEOUT_DURATION;
+            const fadeInDur = Math.min(this.PARTICLE_FADE_IN_DURATION, this.BLACKOUT_FADE_DURATION);
+            const isFadingIn = p.age < fadeInDur;
+            const isFadingOut = !this.isFadingOut && (p.age > p.lifetime - this.PARTICLE_FADEOUT_DURATION);
+            let nextOpacity: number;
+            if (isFadingIn) {
+                nextOpacity = p.age / Math.max(0.0001, fadeInDur);
+            } else if (isFadingOut) {
+                nextOpacity = (p.lifetime - p.age) / this.PARTICLE_FADEOUT_DURATION;
             } else {
-                opacities[p.index] = 1.0;
+                nextOpacity = 1.0;
             }
 
+            opacities[p.index] = nextOpacity;
+
+            // Symbol swap logic
             p.lastSymbolChange += deltaTime;
-            if(p.lastSymbolChange > p.symbolChangeInterval) {
-                symbolIndices[p.index] = Math.floor(Math.random() * this.SYMBOLS.length);
-                p.lastSymbolChange = 0;
+            if (p.lastSymbolChange > p.symbolChangeInterval) {
+                // Avoid symbol swaps while fading in/out to prevent visible blinking.
+                const allowSwap = !isFadingIn && !isFadingOut && opacities[p.index] >= 0.999;
+                if (allowSwap) {
+                    // Start a short crossfade instead of an instantaneous swap.
+                    if (p.symbolBlend <= 0) {
+                        const s = this.getRandomSymbolIndex();
+                        if (s !== p.symbolIndex) {
+                            p.symbolToIndex = s;
+                            p.symbolBlend = 0.0001;
+                        }
+                        p.lastSymbolChange = 0;
+                    }
+                } else {
+                    // Keep at threshold so it swaps as soon as safe.
+                    p.lastSymbolChange = p.symbolChangeInterval;
+                }
+            }
+
+            // Advance crossfade if active.
+            if (p.symbolBlend > 0) {
+                p.symbolBlend = Math.min(1, p.symbolBlend + deltaTime / Math.max(0.0001, this.SYMBOL_CROSSFADE_DURATION));
+                if (p.symbolBlend >= 1) {
+                    // Crossfade complete: commit the new symbol
+                    p.symbolIndex = p.symbolToIndex;
+                    p.symbolBlend = 0;
+                }
+            }
+            
+            // CRITICAL: Always write symbol buffer state every frame to prevent stale/inconsistent values.
+            // When not crossfading (symbolBlend=0), both indices show the same symbol and mix=0.
+            // When crossfading, indices show old→new and mix interpolates.
+            // Always clamp indices to valid range to prevent sampling empty atlas cells.
+            const safeSymbolIndex = this.clampSymbolIndex(p.symbolIndex);
+            const safeSymbolToIndex = this.clampSymbolIndex(p.symbolToIndex);
+            
+            if (p.symbolBlend > 0) {
+                symbolIndices[p.index] = safeSymbolIndex;      // "from" symbol
+                symbolIndices2[p.index] = safeSymbolToIndex;   // "to" symbol
+                symbolMix[p.index] = p.symbolBlend;
+            } else {
+                // Not crossfading: ensure both slots show current symbol, mix=0
+                symbolIndices[p.index] = safeSymbolIndex;
+                symbolIndices2[p.index] = safeSymbolIndex;
+                symbolMix[p.index] = 0;
             }
 
             const offsetX = -p.age * p.speed * p.amplitude;
@@ -1098,6 +1323,8 @@
             (this.particleSystem.geometry.attributes.customColor as THREE.BufferAttribute).needsUpdate = true;
             (this.particleSystem.geometry.attributes.size as THREE.BufferAttribute).needsUpdate = true;
             (this.particleSystem.geometry.attributes.symbolIndex as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.symbolIndex2 as THREE.BufferAttribute).needsUpdate = true;
+            (this.particleSystem.geometry.attributes.symbolMix as THREE.BufferAttribute).needsUpdate = true;
             (this.particleSystem.geometry.attributes.particleOpacity as THREE.BufferAttribute).needsUpdate = true;
         }
     }
@@ -1150,16 +1377,31 @@
     }
     private getUnifiedSymbolScale(): number {
         const anchored = this.getAnchoredScale();
-        const ratio = this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType] ?? 1.0;
+        
+        // Dynamic scaling based on width (responsive binding)
+        // Replaces the previous discrete SCREEN_SYMBOL_RATIO buckets
+        const width = this.width || 1440;
+        const referenceWidth = 1440;
+        // Power curve 0.75 provides good scaling: 
+        // 1440px -> 1.0
+        // 1920px -> 1.24
+        // 1280px -> 0.91
+        // 390px  -> 0.37
+        const dynamicRatio = Math.pow(width / referenceWidth, 0.75);
+        
+        // Clamp to reasonable limits
+        const clampedRatio = Math.max(0.4, Math.min(1.6, dynamicRatio));
+
         this.cachedDPR = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
+        
         // We want higher devicePixelRatio screens (denser) to allow modest enlargement so perceived size matches large low-DPI displays.
         // densityExponent controls curve aggression. Clamp overall effect.
         let densityScale = 1.0;
         if (this.enableDensityCompensation) {
             densityScale = Math.pow(this.cachedDPR / this.densityBaseDPR, this.densityExponent);
-            densityScale = Math.min(1.8, Math.max(0.7, densityScale));
+            densityScale = Math.min(1.6, Math.max(0.8, densityScale));
         }
-        return anchored * ratio * this.globalSymbolSizeMul * densityScale;
+        return anchored * clampedRatio * this.globalSymbolSizeMul * densityScale;
     }
     private computeFinalSize(rawBase: number): { size: number; clamped: boolean } {
         const unifiedScale = this.getUnifiedSymbolScale();
@@ -1206,24 +1448,6 @@
         this.densityExponent = Math.max(0, Math.min(2, exp));
         this.updateSymbolSizesForScale();
     }
-    public getSymbolDebugInfo() {
-        return {
-            currentScreen: this.currentScreenSizeType,
-            ratio: this.SCREEN_SYMBOL_RATIO[this.currentScreenSizeType],
-            anchoredScale: this.getAnchoredScale(),
-            unifiedScale: this.getUnifiedSymbolScale(),
-            globalMul: this.globalSymbolSizeMul,
-            dpr: this.cachedDPR,
-            densityComp: this.enableDensityCompensation,
-            densityExponent: this.densityExponent,
-            gpuPointSizeRange: this.gpuPointSizeRange,
-            lastClampOccurred: this.lastClampOccurred,
-            lastSpawnComputedSize: this.lastSpawnComputedSize,
-            lastSpawnRawBase: this.lastSpawnRawBase,
-            lastSpawnScreenRatio: this.lastSpawnScreenRatio,
-            lastSpawnScale: this.lastSpawnScale
-        };
-    }
   }
 
     // React to reduced-motion changes at runtime
@@ -1235,11 +1459,16 @@
         gsap.killTweensOf(mainContainer);
         gsap.set(mainContainer, { autoAlpha: 0 });
     }
+
+    // React to particle size prop changes
+    $: if (effectInstance) {
+        effectInstance.setGlobalSymbolSizeMultiplier(particleSize);
+    }
 </script>
 
 <div class="main-container gpu-prewarm-target" bind:this={mainContainer}>
   <div class="image-pane">
-    <img src={imageUrl} alt="Profile" bind:this={imageElement} style={`object-position: ${mobileMode ? mobileImageOffsetX : 50}% center;`}/>
+        <img src={imageUrl} alt="Profile" bind:this={imageElement} />
   </div>
 </div>
 
@@ -1282,10 +1511,4 @@
     pointer-events: none;
   }
 
-    /* Mobile: ensure full-screen centered background image */
-    @media (max-width: 768px) {
-        .main-container { visibility: visible; opacity: 1; }
-        .image-pane { position: fixed; inset: 0; z-index: 0; display: flex; justify-content: center; align-items: center; }
-        .image-pane img { width: 100vw; height: 100dvh; object-fit: cover; object-position: center; }
-    }
 </style>

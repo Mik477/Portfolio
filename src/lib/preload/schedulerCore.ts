@@ -92,4 +92,7 @@ export class DirectionalPredictionStrategy implements PredictionStrategy {
 export interface SchedulerConfig {
 	prediction?: PredictionStrategy;
 	debug?: boolean;
+	// Phase 3+: when false, legacy scheduler will not auto-prepare neighbors.
+	// This allows staged scheduler to own warmup while legacy retains state/unload duties.
+	autoPrepareNeighbors?: boolean;
 }

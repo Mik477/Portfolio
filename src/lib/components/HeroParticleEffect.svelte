@@ -25,6 +25,9 @@
   let particleSystemInstance: ParticleEnvironment | null = null;
   let loadedFontAsset: Font | null = null;
   let loadedParticleTextureMap: THREE.Texture | null = null;
+  let preloadPromise: Promise<void> | null = null;
+  let instancePromise: Promise<void> | null = null;
+  let isDestroyed = false;
   // Lightweight gated logger. Logs only if debug overlay is active (three consecutive 'd' presses) or if FORCE_DEBUG env flag (could be added later).
   function dlog(level: 'log' | 'warn' | 'error', ...args: any[]) {
     if (particleSystemInstance?.isDebugOverlayActive()) {
@@ -50,40 +53,47 @@
   async function _preloadAssets() {
     const currentStatus = preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID);
     if (currentStatus === 'loaded' && loadedFontAsset && loadedParticleTextureMap) return;
-    if (currentStatus === 'loading') return;
+    if (currentStatus === 'loading') return preloadPromise ?? Promise.resolve();
+    if (preloadPromise) return preloadPromise;
 
-    startLoadingTask(HERO_ASSETS_TASK_ID);
+    preloadPromise = (async () => {
+      startLoadingTask(HERO_ASSETS_TASK_ID);
 
-    try {
-      await preloadAssets([FONT_ASSET_PATH, PARTICLE_TEXTURE_ASSET_PATH]);
-    } catch (error) {
-  dlog('error', 'Asset preloading with preloadAssets failed:', error);
-      preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', (error as Error).message);
-      return;
-    }
-
-    const manager = new THREE.LoadingManager();
-    manager.onLoad = () => preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
-    manager.onError = (url) => {
-  dlog('error', `Error loading asset for Three.js: ${url}`);
-      preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', `Failed to load ${url}`);
-    };
-    const fontLoader = new FontLoader(manager);
-    const textureLoader = new THREE.TextureLoader(manager);
-
-    try {
-      const [font, texture] = await Promise.all([
-        fontLoader.loadAsync(FONT_ASSET_PATH),
-        textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH)
-      ]);
-      loadedFontAsset = font;
-      loadedParticleTextureMap = texture;
-    } catch (error) {
-  dlog('error', 'Asset loading promise for Three.js failed:', error);
-      if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'error') {
-        preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading failed.');
+      try {
+        await preloadAssets([FONT_ASSET_PATH, PARTICLE_TEXTURE_ASSET_PATH]);
+      } catch (error) {
+        dlog('error', 'Asset preloading with preloadAssets failed:', error);
+        preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', (error as Error).message);
+        return;
       }
-    }
+
+      const manager = new THREE.LoadingManager();
+      manager.onError = (url) => {
+        dlog('error', `Error loading asset for Three.js: ${url}`);
+        preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', `Failed to load ${url}`);
+      };
+      const fontLoader = new FontLoader(manager);
+      const textureLoader = new THREE.TextureLoader(manager);
+
+      try {
+        const [font, texture] = await Promise.all([
+          fontLoader.loadAsync(FONT_ASSET_PATH),
+          textureLoader.loadAsync(PARTICLE_TEXTURE_ASSET_PATH)
+        ]);
+        loadedFontAsset = font;
+        loadedParticleTextureMap = texture;
+        preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'loaded');
+      } catch (error) {
+        dlog('error', 'Asset loading promise for Three.js failed:', error);
+        if (preloadingStore.getTaskStatus(HERO_ASSETS_TASK_ID) !== 'error') {
+          preloadingStore.updateTaskStatus(HERO_ASSETS_TASK_ID, 'error', 'Asset loading failed.');
+        }
+      }
+    })().finally(() => {
+      preloadPromise = null;
+    });
+
+    return preloadPromise;
   }
 
   async function _ensureInstanceAndStartLoop() {
@@ -97,22 +107,39 @@
       return;
     }
 
+    if (instancePromise) {
+      await instancePromise;
+    }
+
     if (!particleSystemInstance) {
-      preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loading');
-      try {
-  const mobile = get(renderProfile).isMobile;
-        const options = mobile
-          ? { initialInternalScale: 0.7, maxInternalDim: 960, amountScale: 1.0, antialias: true }
-          : { initialInternalScale: 1.0, maxInternalDim: 1440, amountScale: 1.0, antialias: true };
-        particleSystemInstance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement, options);
-        preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
-  dlog('log', 'Created new Three.js instance.');
-      } catch (error) {
-  dlog('error', 'Error during ParticleEnvironment instantiation:', error);
-        preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'Instantiation failed.');
-        particleSystemInstance = null;
-        return;
-      }
+      instancePromise = (async () => {
+        preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loading');
+        try {
+          const mobile = get(renderProfile).isMobile;
+          const options = mobile
+            ? { initialInternalScale: 0.7, maxInternalDim: 960, amountScale: 1.0, antialias: true }
+            : { initialInternalScale: 1.0, maxInternalDim: 1440, amountScale: 1.0, antialias: true };
+
+          const instance = new ParticleEnvironment(loadedFontAsset!, loadedParticleTextureMap!, threeContainerElement, options);
+          if (isDestroyed) {
+            instance.dispose();
+            return;
+          }
+          particleSystemInstance = instance;
+          preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'loaded');
+          dlog('log', 'Created new Three.js instance.');
+        } catch (error) {
+          dlog('error', 'Error during ParticleEnvironment instantiation:', error);
+          preloadingStore.updateTaskStatus(HERO_INIT_TASK_ID, 'error', 'Instantiation failed.');
+          try { particleSystemInstance?.dispose(); } catch {}
+          particleSystemInstance = null;
+        }
+      })().finally(() => {
+        instancePromise = null;
+      });
+
+      await instancePromise;
+      if (!particleSystemInstance) return;
     }
 
     if (particleSystemInstance && !particleSystemInstance.isLooping()) {
@@ -265,6 +292,7 @@
   });
 
   onDestroy(() => {
+    isDestroyed = true;
     clearTimeout(animationLoopPauseTimeoutId);
     _unbindInteractionEvents();
     if (particleSystemInstance?.createParticles) {
@@ -276,6 +304,8 @@
       particleSystemInstance = null;
   dlog('log', 'Three.js instance disposed.');
     }
+    preloadPromise = null;
+    instancePromise = null;
   });
 
   // This reactive block handles all subsequent navigation after the initial load.

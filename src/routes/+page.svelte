@@ -19,16 +19,16 @@
   type Locale = 'en' | 'de';
 
   async function detectLocaleFromIP(): Promise<Locale> {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       // Using ipapi.co free tier (1000 requests/day, no auth needed)
       // Alternative free APIs: ip-api.com, geojs.io/v1/ip/country
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
+      timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
 
       const response = await fetch('https://ipapi.co/json/', {
         signal: controller.signal
       });
-      clearTimeout(timeoutId);
 
       if (!response.ok) throw new Error('Geolocation API error');
 
@@ -48,6 +48,10 @@
       console.warn('IP geolocation failed, using browser language:', error);
       const nav = (navigator.language || '').toLowerCase();
       return nav.startsWith('de') ? 'de' : 'en';
+    } finally {
+      if (timeoutId !== null) {
+        clearTimeout(timeoutId);
+      }
     }
   }
 

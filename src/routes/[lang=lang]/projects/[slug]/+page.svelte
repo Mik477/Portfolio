@@ -7,6 +7,14 @@
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
   import { renderProfile } from '$lib/stores/renderProfile';
   import MobileNavDots from '$lib/components/MobileNavDots.svelte';
+  import {
+    applyRubberBand as applyRubberBandUtil,
+    computeDragProgress,
+    computeInstantVelocityPxPerMs,
+    decideGestureIntent,
+    decideSwipeNavigation,
+    shouldCancelVerticalGesture
+  } from '$lib/utils/gestureNavigation';
 
   export let data;
   // Make project reactive so when locale switches and data changes, text updates without reload
@@ -50,6 +58,10 @@
   const scrollDebounce = 200;
   const transitionDuration = 1.1;
   let suppressHashUpdate = false; // prevent feedback loop when programmatically updating hash
+  let suppressHashResetTimer: number | null = null;
+  let isDestroyed = false;
+  let activeTransitionTimeline: gsap.core.Timeline | null = null;
+  let resizeTimer: number | null = null;
 
   // --- Natural Mobile Scroll Navigation with Progressive Drag ---
   let touchStartY = 0;
@@ -107,9 +119,17 @@
     runPreloadAndSetup();
 
     return () => {
+      isDestroyed = true;
+      if (suppressHashResetTimer !== null) {
+        window.clearTimeout(suppressHashResetTimer);
+        suppressHashResetTimer = null;
+      }
+      activeTransitionTimeline?.kill();
+      activeTransitionTimeline = null;
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('hashchange', handleHashChange);
+      window.removeEventListener('resize', handleResize);
       sectionContentTimelines.forEach(t => t?.kill());
       sectionBackgroundZooms.forEach(t => t?.kill());
     };
@@ -118,7 +138,9 @@
   $: if ($isContentLoaded) setupAnimations();
 
   async function setupAnimations() {
+    if (isDestroyed) return;
     await tick();
+    if (isDestroyed) return;
     sectionElements = allSubSections.map(section => document.getElementById(section.id) as HTMLElement);
     const urlHash = get(page).url.hash;
     const cleanHash = urlHash.startsWith('#') ? urlHash.substring(1) : null;
@@ -155,17 +177,24 @@
       }
     });
 
-    window.addEventListener('wheel', handleWheel, { passive: false });
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('hashchange', handleHashChange);
+    if (!isDestroyed) {
+      window.addEventListener('wheel', handleWheel, { passive: false });
+      window.addEventListener('keydown', handleKeyDown);
+      window.addEventListener('hashchange', handleHashChange);
+      window.addEventListener('resize', handleResize);
+    }
   }
 
   /**
    * Apply rubber-band effect at boundaries
    */
   function applyRubberBand(offset: number, atBoundary: boolean): number {
-    if (!atBoundary) return offset;
-    return offset * RUBBER_BAND_FACTOR * (1 - Math.abs(offset) / (window.innerHeight * 2));
+    return applyRubberBandUtil({
+      offsetPx: offset,
+      atBoundary,
+      rubberBandFactor: RUBBER_BAND_FACTOR,
+      viewportHeightPx: window.innerHeight
+    });
   }
 
   /**
@@ -183,14 +212,13 @@
     const atBottomBoundary = currentIdx === sectionElements.length - 1 && offset < 0;
     const atBoundary = atTopBoundary || atBottomBoundary;
     
-    // Scale the visual feedback:
-    // Dragging 100vh (full screen) should only show MAX_VISUAL_FEEDBACK (20%)
-    // This means the feedback is dampened/scaled down
-    const scaledOffset = offset * MAX_VISUAL_FEEDBACK;
-    
-    // Apply rubber-band at boundaries
-    const effectiveOffset = applyRubberBand(scaledOffset, atBoundary);
-    const progress = effectiveOffset / viewportHeight;
+    const { progress } = computeDragProgress({
+      dragOffsetPx: offset,
+      maxVisualFeedback: MAX_VISUAL_FEEDBACK,
+      atBoundary,
+      rubberBandFactor: RUBBER_BAND_FACTOR,
+      viewportHeightPx: viewportHeight
+    });
     
     if (currentSection) {
       gsap.set(currentSection, { 
@@ -223,25 +251,15 @@
     isDragging = false;
     const viewportHeight = window.innerHeight;
     const currentIdx = currentSectionIndex;
-    const dragPercent = Math.abs(currentDragOffset) / viewportHeight;
-    
-    // Calculate momentum distance
-    const momentumDistance = Math.abs(finalVelocity) * MOMENTUM_MULTIPLIER;
-    
-    // Determine if should navigate
-    let shouldNavigate = false;
-    let direction = 0;
-    
-    // Check velocity-based momentum
-    if (momentumDistance > MIN_MOMENTUM_DISTANCE && Math.abs(finalVelocity) > VELOCITY_THRESHOLD) {
-      shouldNavigate = true;
-      direction = currentDragOffset < 0 ? 1 : -1;
-    }
-    // Check distance-based threshold
-    else if (dragPercent > SNAP_THRESHOLD) {
-      shouldNavigate = true;
-      direction = currentDragOffset < 0 ? 1 : -1;
-    }
+    const { shouldNavigate, direction } = decideSwipeNavigation({
+      dragOffsetPx: currentDragOffset,
+      viewportHeightPx: viewportHeight,
+      finalVelocityPxPerMs: finalVelocity,
+      momentumMultiplier: MOMENTUM_MULTIPLIER,
+      minMomentumDistancePx: MIN_MOMENTUM_DISTANCE,
+      velocityThresholdPxPerMs: VELOCITY_THRESHOLD,
+      snapThreshold: SNAP_THRESHOLD
+    });
     
     // Navigate or snap back
     if (shouldNavigate) {
@@ -331,23 +349,30 @@
     const absDx = Math.abs(dx);
 
     // Calculate instantaneous velocity
-    const timeDelta = Math.max(1, currentTime - lastTouchTime);
-    const moveDelta = currentY - lastTouchY;
-    dragVelocity = moveDelta / timeDelta;
+    dragVelocity = computeInstantVelocityPxPerMs({
+      currentY,
+      lastY: lastTouchY,
+      currentTimeMs: currentTime,
+      lastTimeMs: lastTouchTime
+    });
     lastTouchY = currentY;
     lastTouchTime = currentTime;
 
     // Determine intent if not yet set
     if (!touchIntent && (absDy > DRAG_THRESHOLD || absDx > DRAG_THRESHOLD)) {
-      // Check if horizontal gesture
-      if (absDx > absDy * 1.5 && absDx > HORIZ_TOLERANCE * 0.5) {
+      const decision = decideGestureIntent({
+        absDx,
+        absDy,
+        dragThresholdPx: DRAG_THRESHOLD,
+        horizTolerancePx: HORIZ_TOLERANCE
+      });
+      if (decision.intent === 'horizontal') {
         touchIntent = 'horizontal';
         return;
       }
-      // Otherwise, vertical navigation
-      else if (absDy > absDx * 0.7) {
+      if (decision.intent === 'vertical') {
         touchIntent = 'vertical';
-        isDragging = true;
+        isDragging = decision.startDragging;
       }
     }
 
@@ -359,7 +384,7 @@
     // Handle vertical dragging with progressive feedback
     if (touchIntent === 'vertical' && isDragging) {
       // Cancel if too much horizontal movement
-      if (absDx > HORIZ_TOLERANCE) {
+      if (shouldCancelVerticalGesture({ absDx, horizTolerancePx: HORIZ_TOLERANCE })) {
         touchIntent = 'horizontal';
         isDragging = false;
         snapBackToCurrentSection();
@@ -395,6 +420,7 @@
   }
 
   function navigateToSection(newIndex: number) {
+    if (isDestroyed) return;
     const oldIndex = currentSectionIndex;
     if (isAnimating || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return;
     isAnimating = true;
@@ -408,15 +434,20 @@
     sectionBackgroundZooms[oldIndex]?.progress(0).pause();
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
 
-    const masterTl = gsap.timeline({ onComplete: () => { 
-      isAnimating = false; 
-      currentSectionIndex = newIndex; 
-      updateHashForSection(newIndex);
-    } });
-    masterTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
-    masterTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
-    masterTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
-    masterTl.call(() => { sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
+    activeTransitionTimeline?.kill();
+    activeTransitionTimeline = gsap.timeline({
+      onComplete: () => {
+        if (isDestroyed) return;
+        isAnimating = false;
+        currentSectionIndex = newIndex;
+        updateHashForSection(newIndex);
+        activeTransitionTimeline = null;
+      }
+    });
+    activeTransitionTimeline.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
+    activeTransitionTimeline.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
+    activeTransitionTimeline.call(() => { if (!isDestroyed) sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
+    activeTransitionTimeline.call(() => { if (!isDestroyed) sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
   }
 
   function updateHashForSection(index: number) {
@@ -426,7 +457,15 @@
     if (currentHash === `#${targetId}`) return;
     suppressHashUpdate = true;
     history.replaceState(null, '', `#${targetId}`);
-    setTimeout(() => (suppressHashUpdate = false), 60);
+    if (suppressHashResetTimer !== null) {
+      window.clearTimeout(suppressHashResetTimer);
+      suppressHashResetTimer = null;
+    }
+    suppressHashResetTimer = window.setTimeout(() => {
+      suppressHashResetTimer = null;
+      if (isDestroyed) return;
+      suppressHashUpdate = false;
+    }, 60);
   }
 
   function handleHashChange() {
@@ -460,6 +499,16 @@
       case 'End': newIndex = allSubSections.length - 1; shouldScroll = true; break;
     }
     if (shouldScroll && newIndex !== currentSectionIndex) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); }
+  }
+
+  function handleResize() {
+    if (resizeTimer !== null) clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(() => {
+      if (isDestroyed) return;
+      // Restart animations for the current section to ensure correct layout/sizing
+      sectionContentTimelines[currentSectionIndex]?.restart();
+      sectionBackgroundZooms[currentSectionIndex]?.restart();
+    }, 250);
   }
 </script>
 
@@ -502,7 +551,7 @@
   .subpage-container.loaded { opacity: 1; }
   .subpage-fullscreen-section { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; color: white; padding: 2rem; box-sizing: border-box; }
   .subpage-background-image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-position: center; z-index: 0; transform: scale(1); }
-  .subpage-content-overlay { position: relative; z-index: 1; max-width: 800px; text-align: center; padding: 2rem 3rem; background-color: rgba(9,9,11,0.75); backdrop-filter: blur(10px); border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); opacity: 0; visibility: hidden; }
-  .subpage-content-overlay h2 { font-size: clamp(2.2rem, 5vw, 3.5rem); font-weight: 700; font-family: 'Playfair Display', serif; margin-bottom: 1.5rem; text-shadow: 0 2px 20px rgba(0,0,0,0.5); opacity: 0; visibility: hidden; }
-  .subpage-content-overlay p { font-size: clamp(1rem, 2.5vw, 1.15rem); line-height: 1.8; max-width: 700px; margin: 0 auto; color: #e2e8f0; opacity: 0; visibility: hidden; }
+  .subpage-content-overlay { position: relative; z-index: 1; max-width: 50rem; text-align: center; padding: clamp(1.25rem, 2.5vmin, 2rem) clamp(1.25rem, 4vmin, 3rem); background-color: rgba(9,9,11,0.75); backdrop-filter: blur(0.625rem); border-radius: 0.75rem; border: 1px solid rgba(255,255,255,0.1); opacity: 0; visibility: hidden; }
+  .subpage-content-overlay h2 { font-size: clamp(2.2rem, 5vw, 3.5rem); font-weight: 700; font-family: 'Playfair Display', serif; margin-bottom: 1.5rem; text-shadow: 0 0.125rem 1.25rem rgba(0,0,0,0.5); opacity: 0; visibility: hidden; }
+  .subpage-content-overlay p { font-size: clamp(1rem, 2.5vw, 1.15rem); line-height: 1.8; max-width: 43.75rem; margin: 0 auto; color: #e2e8f0; opacity: 0; visibility: hidden; }
 </style>

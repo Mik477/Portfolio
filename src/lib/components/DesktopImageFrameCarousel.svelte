@@ -33,6 +33,7 @@
   let baseCardWidth: number = CARD_WIDTH_FALLBACK;
   let resizeObserver: ResizeObserver | null = null;
   let lastMeasuredWidth = 0;
+  let isDestroyed = false;
 
   $: total = cards.length;
   $: cardLayout = cards.map((_, idx) => {
@@ -48,6 +49,7 @@
   });
 
     function measureActiveCardWidth() {
+        if (isDestroyed) return;
       let measured = 0;
       if (carouselElement) {
         const frameWrap = carouselElement.querySelector('.carousel-card.active .frame-wrap') as HTMLElement | null;
@@ -77,6 +79,7 @@
     measureActiveCardWidth();
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver(() => {
+        if (isDestroyed) return;
         measureActiveCardWidth();
       });
       if (carouselElement) resizeObserver.observe(carouselElement);
@@ -85,7 +88,7 @@
 
   afterUpdate(() => {
     // Re-measure when active changes or size props update
-    measureActiveCardWidth();
+    if (!isDestroyed) measureActiveCardWidth();
   });
 
   $: if (total > 0 && (!hasInitialised || initialIndex !== lastInitialIndex)) {
@@ -153,13 +156,12 @@
   }
 
   onDestroy(() => {
+    isDestroyed = true;
     if (wheelCooldownTimer) {
       clearTimeout(wheelCooldownTimer);
       wheelCooldownTimer = null;
     }
-    if (resizeObserver && carouselElement) {
-      resizeObserver.unobserve(carouselElement);
-    }
+    resizeObserver?.disconnect();
     resizeObserver = null;
   });
 

@@ -113,6 +113,8 @@ export class Environment {
   private boundKeyHandler = this.onKeyDown.bind(this);
   private isPageVisible = true;
   private boundOnVisibilityChange = this.onVisibilityChange.bind(this);
+  private boundOnResize = this.onWindowResize.bind(this);
+  private isDisposed = false;
 
   private baseAmountScale = 1.0;
   private readonly AMOUNT_TIERS = [1.0, 0.85, 0.7, 0.55];
@@ -199,11 +201,11 @@ export class Environment {
   }
 
   private bindWindowResize() {
-    window.addEventListener('resize', this.onWindowResize.bind(this));
+    window.addEventListener('resize', this.boundOnResize);
   }
 
   private unbindWindowResize() {
-    window.removeEventListener('resize', this.onWindowResize.bind(this));
+    window.removeEventListener('resize', this.boundOnResize);
   }
 
   private setup() {
@@ -365,6 +367,8 @@ export class Environment {
   }
 
   public dispose() {
+    if (this.isDisposed) return;
+    this.isDisposed = true;
     this.stopAnimationLoop();
     this.unbindWindowResize();
   document.removeEventListener('visibilitychange', this.boundOnVisibilityChange);

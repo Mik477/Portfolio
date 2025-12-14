@@ -33,7 +33,7 @@
         content: project.summary,
         background: overviewBackground
       },
-      ...project.subPageSections.map((section) => ({
+      ...(project.subPageSections ?? []).map((section) => ({
         ...section,
         background: ($renderProfile.isMobile && section.backgroundMobile) ? section.backgroundMobile : section.background
       }))
@@ -53,6 +53,8 @@
   let lastScrollTime = 0;
   const scrollDebounce = 200;
   const transitionDuration = 1.1;
+  let isDestroyed = false;
+  let activeTransitionTimeline: gsap.core.Timeline | null = null;
 
   // --- Mobile swipe detection state ---
   let touchStartY = 0;
@@ -82,7 +84,7 @@
 
       project.backgrounds.forEach(enqueueAsset);
       project.backgroundsMobile?.forEach(enqueueAsset);
-      project.subPageSections.forEach((section) => {
+      project.subPageSections?.forEach((section) => {
         enqueueAsset(section.background);
         enqueueAsset(section.backgroundMobile);
       });
@@ -109,6 +111,9 @@
     runPreloadAndSetup();
 
     return () => {
+      isDestroyed = true;
+      activeTransitionTimeline?.kill();
+      activeTransitionTimeline = null;
       window.removeEventListener('wheel', handleWheel);
       window.removeEventListener('keydown', handleKeyDown);
       sectionContentTimelines.forEach(timeline => { timeline?.kill(); });
@@ -122,7 +127,10 @@
   }
 
   async function setupAnimations() {
+      if (isDestroyed) return;
       await tick();
+
+      if (isDestroyed) return;
 
       sectionElements = allSubSections.map(section => document.getElementById(section.id) as HTMLElement);
       
@@ -176,8 +184,10 @@
       });
 
       // Add event listeners for navigation.
-      window.addEventListener('wheel', handleWheel, { passive: false });
-      window.addEventListener('keydown', handleKeyDown);
+      if (!isDestroyed) {
+        window.addEventListener('wheel', handleWheel, { passive: false });
+        window.addEventListener('keydown', handleKeyDown);
+      }
   }
 
   function onTouchStart(e: TouchEvent) {
@@ -245,6 +255,7 @@
   }
 
   function navigateToSection(newIndex: number) {
+    if (isDestroyed) return;
     const oldIndex = currentSectionIndex;
     if (isAnimating || newIndex === oldIndex || newIndex < 0 || newIndex >= sectionElements.length) return;
     
@@ -261,19 +272,22 @@
 
     gsap.set(targetSectionEl, { yPercent: direction * 100, autoAlpha: 1 });
 
-    const masterTl = gsap.timeline({
+    activeTransitionTimeline?.kill();
+    activeTransitionTimeline = gsap.timeline({
       onComplete: () => {
+        if (isDestroyed) return;
         isAnimating = false;
         currentSectionIndex = newIndex;
+        activeTransitionTimeline = null;
       }
     });
 
-    masterTl.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
-    masterTl.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
+    activeTransitionTimeline.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
+    activeTransitionTimeline.to(targetSectionEl, { yPercent: 0, duration: transitionDuration, ease: 'expo.out' }, "slide");
     
     // Play animations for the incoming section partway through the transition.
-    masterTl.call(() => { sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
-    masterTl.call(() => { sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
+    activeTransitionTimeline.call(() => { if (!isDestroyed) sectionContentTimelines[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.3}`);
+    activeTransitionTimeline.call(() => { if (!isDestroyed) sectionBackgroundZooms[newIndex]?.restart(); }, [], `slide+=${transitionDuration * 0.1}`);
   }
 
   function handleWheel(event: WheelEvent) {
