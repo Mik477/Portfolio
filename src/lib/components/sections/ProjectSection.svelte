@@ -52,11 +52,21 @@
     if (signal?.aborted) throw createAbortError('Warmup cancelled');
   }
 
+  function areBackgroundsEqual(a: Project['backgrounds'], b: Project['backgrounds']) {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (a[i].value !== b[i].value || a[i].type !== b[i].type) return false;
+    }
+    return true;
+  }
+
   $: {
     const fallback = project.backgrounds;
     const useMobile = $renderProfile?.isMobile && Array.isArray(project.backgroundsMobile) && project.backgroundsMobile.length > 0;
     const selected = (useMobile ? project.backgroundsMobile : fallback) as Project['backgrounds'];
-    if (selected && selected !== activeBackgrounds) {
+    if (selected && !areBackgroundsEqual(selected, activeBackgrounds)) {
       activeBackgrounds = selected;
       backgroundListVersion += 1;
     }
@@ -68,7 +78,7 @@
   }
 
   function resetBackgroundCycle() {
-    stopCycleAndAnimations();
+    stopCycleAndAnimations(false);
     currentImageIndex = 0;
     activeLayer = 'A';
     isInitialized = false;
@@ -84,7 +94,7 @@
     }
   }
 
-  function stopCycleAndAnimations(): void {
+  function stopCycleAndAnimations(hideContent = true): void {
     isCycling = false;
     if (cycleTimer !== undefined) {
       clearTimeout(cycleTimer);
@@ -102,7 +112,9 @@
       );
       if (animatableElements.length > 0) {
         gsap.killTweensOf(animatableElements);
-        gsap.set(animatableElements, { autoAlpha: 0 });
+        if (hideContent) {
+          gsap.set(animatableElements, { autoAlpha: 0 });
+        }
       }
     }
   }
@@ -348,7 +360,7 @@
   }
 
   export function onLeaveSection() {
-    stopCycleAndAnimations();
+    stopCycleAndAnimations(false);
   }
 
   export function onUnload(): void {
@@ -359,6 +371,7 @@
     isUnmounted = true;
     stopCycleAndAnimations();
   });
+
 </script>
 
 <div class="project-section-wrapper" bind:this={sectionWrapperEl}>
