@@ -137,7 +137,7 @@
 
 </script>
 
-<div class="layout-container">
+<div class="layout-container" class:mobile-layout={$renderProfile.isMobile}>
   <div class="text-block">
     <h2 class="anim-headline">
       {#if headlineSegments && headlineSegments.length > 0}
@@ -434,5 +434,39 @@
       padding-top: 1rem;
       padding-bottom: 2.5rem;
     }
+  }
+
+  /* Force mobile layout when isMobile is true */
+  .layout-container.mobile-layout {
+    height: auto;
+    min-height: 100vh;
+  }
+  .layout-container.mobile-layout .text-block {
+    position: static;
+    left: auto;
+    bottom: auto;
+    width: auto;
+    max-width: none;
+    padding: 2rem 4vw 1rem;
+  }
+  .layout-container.mobile-layout .text-block h2 {
+    margin-bottom: 1rem;
+  }
+  .layout-container.mobile-layout .text-block p {
+    margin-bottom: 1.5rem;
+  }
+  .layout-container.mobile-layout .cards-block {
+    position: static;
+    top: auto;
+    right: auto;
+    transform: none;
+    width: 100%;
+    padding: 0;
+    display: block;
+    overflow: visible;
+  }
+  .layout-container.mobile-layout .cards-block :global(.carousel-viewport) {
+    padding-top: 1rem;
+    padding-bottom: 2.5rem;
   }
 </style>

@@ -1509,6 +1509,13 @@ export class CreateParticles {
   // Responsive design methods
   private getScreenSizeType(): ScreenSizeType {
     const width = this.hostContainer.clientWidth;
+    const height = this.hostContainer.clientHeight;
+    const aspect = width / height;
+
+    // Force mobile layout for tall screens (vertical monitors)
+    if (aspect <= 0.8) {
+      return 'mobile';
+    }
     
     if (width <= this.SCREEN_SIZES.mobile.maxWidth) {
       return 'mobile';

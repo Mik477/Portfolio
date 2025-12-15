@@ -99,19 +99,23 @@
         const token = kickoffToken;
 
         // Safety: ensure initialization happened even if preload didn't call it (non-blocking)
-        void initializeEffect().catch(() => {});
+        // If initialization is pending, wait for it.
+        const init = initializeEffect();
+        const promise = init instanceof Promise ? init : Promise.resolve();
 
-        const kickoff = () => {
-            if (isDestroyed || token !== kickoffToken) return;
-            if (effectInstance && effectInstance.isReady()) {
-              effectInstance.onWindowResize();
-              effectInstance.start();
-              kickoffRafId = null;
-            } else {
-              kickoffRafId = requestAnimationFrame(kickoff);
-            }
-        };
-        kickoff();
+        promise.catch(() => {}).finally(() => {
+            const kickoff = () => {
+                if (isDestroyed || token !== kickoffToken) return;
+                if (effectInstance && effectInstance.isReady()) {
+                  effectInstance.onWindowResize();
+                  effectInstance.start();
+                  kickoffRafId = null;
+                } else {
+                  kickoffRafId = requestAnimationFrame(kickoff);
+                }
+            };
+            kickoff();
+        });
     }
 
   export function onLeaveSection() {
@@ -120,6 +124,8 @@
     
     if (effectInstance) {
       effectInstance.beginLeaveAnimation();
+      // If we are leaving, we should consider the effect "stopped" for the purpose of a future restart.
+      // However, we don't dispose it yet.
     }
 
         gsap.killTweensOf(mainContainer);
@@ -1377,20 +1383,44 @@
     }
     private getUnifiedSymbolScale(): number {
         const anchored = this.getAnchoredScale();
-        
-        // Dynamic scaling based on width (responsive binding)
-        // Replaces the previous discrete SCREEN_SYMBOL_RATIO buckets
-        const width = this.width || 1440;
-        const referenceWidth = 1440;
-        // Power curve 0.75 provides good scaling: 
-        // 1440px -> 1.0
-        // 1920px -> 1.24
-        // 1280px -> 0.91
-        // 390px  -> 0.37
-        const dynamicRatio = Math.pow(width / referenceWidth, 0.75);
-        
-        // Clamp to reasonable limits
-        const clampedRatio = Math.max(0.4, Math.min(1.6, dynamicRatio));
+
+        // Dynamic scaling tuned to grow slower on wide screens.
+        // Key goals:
+        // - Avoid over-scaling on wide/ultrawide viewports (growth based on vmin, not width)
+        // - Keep 1080p 16:9 close to baseline
+        // - Keep 4:3 displays largely unaffected by the "wide" damping
+        const cssW = this.width || 1440;
+        const cssH = this.height || 900;
+        const vmin = Math.max(1, Math.min(cssW, cssH));
+        const aspect = cssW / Math.max(1, cssH);
+
+        // --- Explicit tuning knobs (safe, local, no breakpoints) ---
+        const REFERENCE_VMIN = 1080; // baseline ~1080p height
+        const GROW_EXPONENT = 0.001;  // lower => grows slower on large screens
+        const SHRINK_EXPONENT = 0.75; // keep mobile/compact shrink behavior closer to previous
+        const MIN_RATIO = 0.4;
+        const MAX_RATIO = 1.25; // hard cap for very large viewports
+
+        // Wide-aspect damping (only affects wider-than-16:9 compositions)
+        const WIDE_START_AR = 16 / 9;
+        const WIDE_END_AR = 21 / 9;
+        const WIDE_MAX_REDUCTION = 0.18; // 18% reduction at or beyond 21:9
+
+        // Smoothstep helper
+        const smoothstep = (edge0: number, edge1: number, x: number) => {
+            const t = Math.min(1, Math.max(0, (x - edge0) / Math.max(1e-6, edge1 - edge0)));
+            return t * t * (3 - 2 * t);
+        };
+
+        const ratioToRef = vmin / REFERENCE_VMIN;
+        const exponent = ratioToRef >= 1 ? GROW_EXPONENT : SHRINK_EXPONENT;
+        const baseRatio = Math.pow(ratioToRef, exponent);
+
+        const wideT = smoothstep(WIDE_START_AR, WIDE_END_AR, aspect);
+        const wideDamping = 1 - WIDE_MAX_REDUCTION * wideT;
+
+        const dynamicRatio = baseRatio * wideDamping;
+        const clampedRatio = Math.max(MIN_RATIO, Math.min(MAX_RATIO, dynamicRatio));
 
         this.cachedDPR = (typeof window !== 'undefined' ? window.devicePixelRatio : 1) || 1;
         

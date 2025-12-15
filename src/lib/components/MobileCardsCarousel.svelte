@@ -229,6 +229,46 @@
   function handleTouchEnd() {
     horizontalLocked = false;
   }
+
+  let wheelLocked = false;
+  let wheelTimeout: number | null = null;
+
+  function handleWheel(event: WheelEvent) {
+    if (!viewport) return;
+    
+    // Prevent default scrolling behavior
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (wheelLocked) return;
+
+    // Translate vertical scroll to horizontal scroll for standard mice
+    // Use deltaX if available (trackpads), otherwise deltaY
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    
+    // Threshold to ignore tiny movements
+    if (Math.abs(delta) < 10) return;
+
+    const direction = delta > 0 ? 1 : -1;
+    const nextIndex = currentDisplayIndex + direction;
+
+    // Boundary checks if not looping
+    if (!hasLoop) {
+      if (nextIndex < 0 || nextIndex >= displayCount) return;
+    }
+
+    // Lock wheel temporarily
+    wheelLocked = true;
+    
+    // Navigate to next card
+    handleCardTap(nextIndex);
+
+    // Unlock after animation duration (approximate)
+    if (wheelTimeout) clearTimeout(wheelTimeout);
+    wheelTimeout = window.setTimeout(() => {
+      wheelLocked = false;
+    }, 500);
+  }
 </script>
 
 {#if total === 0}
@@ -244,6 +284,7 @@
     on:touchstart={handleTouchStart}
     on:touchmove={handleTouchMove}
     on:touchend={handleTouchEnd}
+    on:wheel|nonpassive={handleWheel}
   >
     {#each displayCards as card, idx}
       {@const realIndex = hasLoop ? normalizeIndex(idx - sequenceOffset) : idx}

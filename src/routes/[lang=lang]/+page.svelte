@@ -501,10 +501,11 @@
 			};
 			window.addEventListener('hashchange', onHashChange);
 
-			if (!get(renderProfile).isMobile) {
-				window.addEventListener('wheel', handleWheel, { passive: false });
-				window.addEventListener('keydown', handleKeyDown);
-			}
+			// Always enable desktop-style navigation (wheel/keyboard) to support
+			// vertical monitors (which use mobile layout) and hybrid devices.
+			window.addEventListener('wheel', handleWheel, { passive: false });
+			window.addEventListener('keydown', handleKeyDown);
+
 			perfMetricsEnabled = new URLSearchParams(window.location.search).has('perf');
 			document.addEventListener('visibilitychange', handleVisibilityChange);
 			window.addEventListener('resize', handleResize);
@@ -538,10 +539,9 @@
 			if (initialRevealTimeoutId !== null) { clearTimeout(initialRevealTimeoutId); initialRevealTimeoutId = null; }
 			if (initialRevealEndTimeoutId !== null) { clearTimeout(initialRevealEndTimeoutId); initialRevealEndTimeoutId = null; }
 
-			if (!get(renderProfile).isMobile) {
-				window.removeEventListener('wheel', handleWheel);
-				window.removeEventListener('keydown', handleKeyDown);
-			}
+			window.removeEventListener('wheel', handleWheel);
+			window.removeEventListener('keydown', handleKeyDown);
+
 			document.removeEventListener('visibilitychange', handleVisibilityChange);
 			window.removeEventListener('resize', handleResize);
 			if (onHashChange) window.removeEventListener('hashchange', onHashChange);

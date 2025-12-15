@@ -116,7 +116,7 @@
   }
 </script>
 
-<div class="about-section-wrapper">
+<div class="about-section-wrapper" class:mobile-layout={currentRenderProfile.isMobile}>
   <div class="about-content-wrapper">
     <KeyboardButtons 
       bind:this={keyboardButtonsInstance}
@@ -168,13 +168,13 @@
     .about-section-wrapper { 
       flex-direction: column;
       justify-content: center;
-  padding: 2rem; 
-  align-items: stretch;
+      padding: 2rem; 
+      align-items: stretch;
     }
 
     .about-content-wrapper { 
-  justify-content: flex-start; 
-  text-align: left; 
+      justify-content: flex-start; 
+      text-align: left; 
       padding: 1rem 1rem 2rem;
       /* Reserve a small gutter on the right so text doesn't conflict with MobileNavDots */
       padding-right: calc(1rem + clamp(32px, 8vw, 56px));
@@ -192,5 +192,33 @@
       height: 100vh;
       object-fit: cover;
     }
+  }
+
+  /* Force mobile layout when isMobile is true (e.g. vertical monitor) */
+  .about-section-wrapper.mobile-layout { 
+    flex-direction: column;
+    justify-content: center;
+    padding: 2rem; 
+    align-items: stretch;
+  }
+
+  .about-section-wrapper.mobile-layout .about-content-wrapper { 
+    justify-content: flex-start; 
+    text-align: left; 
+    padding: 1rem 1rem 2rem;
+    padding-right: calc(1rem + clamp(32px, 8vw, 56px));
+    width: 100%;
+    flex-grow: 0;
+    z-index: 2;
+  }
+
+  .about-section-wrapper.mobile-layout :global(.image-pane) {
+    justify-content: center;
+  }
+
+  .about-section-wrapper.mobile-layout :global(.image-pane img) {
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
   }
 </style>

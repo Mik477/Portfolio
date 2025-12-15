@@ -43,8 +43,8 @@ if (browser) {
     const isTall = mqTall ? mqTall.matches : false;
     const isWide = mqWide ? mqWide.matches : false;
     const layoutProfile: RenderProfile['layoutProfile'] = isTall ? 'tall' : (isWide ? 'wide' : 'balanced');
-    // Default detection: width or coarse pointer implies mobile
-    const detectedMobile = isMobileWidth || coarse;
+    // Default detection: width, coarse pointer, or tall aspect ratio implies mobile
+    const detectedMobile = isMobileWidth || coarse || isTall;
     state.update((s) => ({
       ...s,
       isMobile: override === null ? detectedMobile : !!override,
@@ -108,7 +108,7 @@ export const renderProfile = derived([state, page], ([$state, $page]) => {
       const isTall = mqTall ? mqTall.matches : false;
       const isWide = mqWide ? mqWide.matches : false;
       const layoutProfile: RenderProfile['layoutProfile'] = isTall ? 'tall' : (isWide ? 'wide' : 'balanced');
-      const detectedMobile = isMobileWidth || coarse;
+      const detectedMobile = isMobileWidth || coarse || isTall;
       state.set({
         isMobile: forceMobile === null ? detectedMobile : !!forceMobile,
         hasCoarsePointer: coarse,

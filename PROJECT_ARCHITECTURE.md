@@ -420,7 +420,8 @@ Project data, About/Contact content are defined in `projectsData.ts` with both `
 `renderProfile.ts` determines mobile via:
 1. Media query: `max-width: 768px`
 2. Pointer type: `pointer: coarse`
-3. Either condition → `isMobile = true`
+3. Aspect ratio: `max-aspect-ratio: 4/5` (Tall/Vertical screens)
+4. Any condition → `isMobile = true`
 
 ### Mobile-Specific Behaviors
 - `MobileNavDots` visible instead of scroll hints
@@ -428,9 +429,11 @@ Project data, About/Contact content are defined in `projectsData.ts` with both `
 - `MobileCardsCarousel` for project cards
 - Some effects disabled (e.g., `disableImageOnMobile` flag)
 
-### Desktop-Specific Behaviors
-- Wheel navigation with gesture lock
+### Universal Behaviors (Desktop & Mobile)
+- Wheel navigation with gesture lock (enabled on mobile for vertical monitors/mice)
 - Keyboard navigation (arrow keys, Home/End)
+
+### Desktop-Specific Behaviors
 - `DesktopImageFrameCarousel` or parallax card grid
 - Full WebGL effects
 

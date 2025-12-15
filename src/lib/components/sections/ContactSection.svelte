@@ -13,6 +13,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { gsap } from 'gsap';
+  import { renderProfile } from '$lib/stores/renderProfile';
   import type { ContactContent } from '$lib/data/projectsData';
   import type { SocialLink } from '$lib/data/siteConfig';
   import ContactEffect from './ContactEffect.svelte';
@@ -127,7 +128,7 @@
 
 <div class="contact-section-wrapper" bind:this={wrapperEl}>
   <ContactEffect bind:this={contactEffectInstance} />
-  <div class="contact-content">
+  <div class="contact-content" class:mobile-layout={$renderProfile.isMobile}>
     <div class="contact-text-block">
       <h2 bind:this={h2El}>{data.title}</h2>
       <p bind:this={pEl}>
@@ -226,5 +227,39 @@
       justify-content: flex-start;
       margin-top: 0;
     }
+  }
+
+  /* Force mobile layout when isMobile is true */
+  .contact-content.mobile-layout {
+    padding: 2.25rem 1.25rem calc(2.5rem + env(safe-area-inset-bottom, 0px) + 1.25rem);
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    min-height: 100%;
+  }
+
+  .contact-content.mobile-layout .contact-text-block {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    width: 100%;
+  }
+
+  .contact-content.mobile-layout .keyboard-buttons-wrapper {
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    row-gap: 0.75rem;
+    align-items: flex-start;
+    justify-content: flex-start;
+    width: 100%;
+    margin-top: auto;
+    margin-bottom: 4rem;
+  }
+
+  .contact-content.mobile-layout .key-position-cta {
+    flex-basis: 100%;
+    display: flex;
+    justify-content: flex-start;
+    margin-top: 0;
   }
 </style>
