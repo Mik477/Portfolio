@@ -4,11 +4,16 @@
 	import { ArrowLeft } from 'lucide-svelte';
 	import { transitionStore } from '$lib/stores/transitionStore';
 	import { renderProfile } from '$lib/stores/renderProfile';
+	import { navigationHistoryStore } from '$lib/stores/navigationHistoryStore';
+	
 	export let to: string | undefined = undefined; // optional override
 	export let label: string | undefined = undefined; // optional override label
+	
 	let showButton = false;
-	$: locale = ($page.params?.lang === 'en' ? 'en' : ($page.params?.lang === 'de' ? 'de' : 'de'));
-	$: targetHref = to ?? (locale ? `/${locale}` : '/');
+	$: locale = ($page.params?.lang === 'en' ? 'en' : ($page.params?.lang === 'de' ? 'de' : 'de')) as 'en' | 'de';
+	
+	// Get target from navigation history store, with fallbacks
+	$: targetHref = to ?? navigationHistoryStore.getBackUrl(locale);
 	$: ariaLabel = label ?? (locale === 'en' ? 'Back to home' : 'Zurück zur Startseite');
 	$: isTallLayout = $renderProfile.layoutProfile === 'tall';
 

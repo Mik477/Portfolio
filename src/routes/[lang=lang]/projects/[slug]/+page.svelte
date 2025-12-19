@@ -16,6 +16,18 @@
     shouldCancelVerticalGesture
   } from '$lib/utils/gestureNavigation';
 
+  // Import new subpage section components
+  import OverviewSection from '$lib/components/subpage/sections/OverviewSection.svelte';
+  import ManufacturingSection from '$lib/components/subpage/sections/ManufacturingSection.svelte';
+  import CapabilitiesSection from '$lib/components/subpage/sections/CapabilitiesSection.svelte';
+  import TestingSection from '$lib/components/subpage/sections/TestingSection.svelte';
+  import type { 
+    OverviewLayoutData, 
+    ManufacturingLayoutData, 
+    CapabilitiesLayoutData, 
+    TestingLayoutData 
+  } from '$lib/data/projectsData';
+
   export let data;
   // Make project reactive so when locale switches and data changes, text updates without reload
   let project = data.project;
@@ -24,20 +36,51 @@
   const PROJECT_ASSETS_TASK_ID = `project-assets-${project.slug}`;
   const isContentLoaded = writable(false);
 
+  // Check if this is the BURA project (uses new layouts)
+  $: isBuraProject = project.slug === 'BURA';
+  $: isMobile = $renderProfile.isMobile;
+
   // Reactive recomputation of subsections when project changes
   let allSubSections: any[] = [];
   let navSections: { id: string; label?: string }[] = [];
   $: {
     if (project) {
-      const useMobileBackgrounds = $renderProfile.isMobile && Array.isArray(project.backgroundsMobile) && project.backgroundsMobile.length > 0;
-      const overviewSource = useMobileBackgrounds ? project.backgroundsMobile! : project.backgrounds;
-      const overviewBackground = overviewSource?.[0] ?? project.backgrounds[0];
+      // 1. Try explicit overview background
+      let overviewBackground = ($renderProfile.isMobile && project.overviewBackgroundMobile)
+        ? project.overviewBackgroundMobile
+        : project.overviewBackground;
+
+      // 2. Fallback to first image in background arrays
+      if (!overviewBackground) {
+        const useMobileBackgrounds = $renderProfile.isMobile && Array.isArray(project.backgroundsMobile) && project.backgroundsMobile.length > 0;
+        const overviewSource = useMobileBackgrounds ? project.backgroundsMobile! : project.backgrounds;
+        overviewBackground = overviewSource?.[0] ?? project.backgrounds[0];
+      }
+
       const mappedSubSections = project.subPageSections?.map((section) => ({
         ...section,
         background: ($renderProfile.isMobile && section.backgroundMobile) ? section.backgroundMobile : section.background
       })) ?? [];
       allSubSections = [
-        { id: 'overview', title: project.headline, content: project.summary, background: overviewBackground },
+        { 
+          id: 'overview', 
+          title: project.headline, 
+          content: project.summary, 
+          background: overviewBackground,
+          layoutType: 'overview',
+          layoutData: {
+            subtitle: isBuraProject 
+              ? (($page.params.lang === 'de') ? 'Langstrecken-Aufklärungs-Drohne' : 'Long Range Reconnaissance UAV')
+              : '',
+            stats: isBuraProject 
+              ? [
+                  { value: '>2h', label: ($page.params.lang === 'de') ? 'Flugzeit' : 'Endurance' },
+                  { value: '100%', label: '3D Print' },
+                  { value: '<2kg', label: 'AUW' }
+                ]
+              : []
+          }
+        },
         ...mappedSubSections
       ];
       navSections = allSubSections.map((section) => ({ id: section.id, label: section.title }));
@@ -529,10 +572,73 @@
       {#if section.background}
         <div class="subpage-background-image" style="background-image: url({section.background.value});"></div>
       {/if}
-      <div class="subpage-content-overlay">
-        <h2>{section.title}</h2>
-        <p>{section.content}</p>
-      </div>
+      
+      <!-- Desktop: Use new layout components for BURA project -->
+      {#if isBuraProject}
+        <div class="section-layout-wrapper">
+          {#if section.layoutType === 'overview'}
+            {@const layoutData = section.layoutData as OverviewLayoutData}
+            <OverviewSection 
+              title="BURA"
+              subtitle={layoutData.subtitle}
+              description={section.content}
+              stats={layoutData.stats}
+              isActive={i === navActiveIndex}
+            />
+          {:else if section.layoutType === 'manufacturing'}
+            {@const layoutData = section.layoutData as ManufacturingLayoutData}
+            <ManufacturingSection 
+              title={section.title}
+              printingTitle={layoutData.printingTitle}
+              printingPoints={layoutData.printingPoints}
+              printingImage={layoutData.printingImage}
+              batteryTitle={layoutData.batteryTitle}
+              batteryDescription={layoutData.batteryDescription}
+              batteryImage={layoutData.batteryImage}
+              materials={layoutData.materials}
+              isActive={i === navActiveIndex}
+            />
+          {:else if section.layoutType === 'capabilities'}
+            {@const layoutData = section.layoutData as CapabilitiesLayoutData}
+            <CapabilitiesSection 
+              title={section.title}
+              sensorTitle={layoutData.sensorTitle}
+              sensorDescription={layoutData.sensorDescription}
+              sensorImage={layoutData.sensorImage}
+              antennaTitle={layoutData.antennaTitle}
+              antennaDescription={layoutData.antennaDescription}
+              antennaImage={layoutData.antennaImage}
+              gpsTitle={layoutData.gpsTitle}
+              gpsFeatures={layoutData.gpsFeatures}
+              isActive={i === navActiveIndex}
+            />
+          {:else if section.layoutType === 'testing'}
+            {@const layoutData = section.layoutData as TestingLayoutData}
+            <TestingSection 
+              title={section.title}
+              introText={layoutData.introText}
+              materialImage={layoutData.materialImage}
+              materialCaption={layoutData.materialCaption}
+              versionImage={layoutData.versionImage}
+              versionCaption={layoutData.versionCaption}
+              stats={layoutData.stats}
+              isActive={i === navActiveIndex}
+            />
+          {:else}
+            <!-- Fallback: simple layout -->
+            <div class="subpage-content-overlay">
+              <h2>{section.title}</h2>
+              <p>{section.content}</p>
+            </div>
+          {/if}
+        </div>
+      {:else}
+        <!-- Mobile or other projects: simple centered layout -->
+        <div class="subpage-content-overlay">
+          <h2>{section.title}</h2>
+          <p>{section.content}</p>
+        </div>
+      {/if}
     </section>
   {/each}
   
@@ -547,10 +653,26 @@
 {/if}
 
 <style>
-  .subpage-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #000; overflow: hidden; opacity: 0; transition: opacity 0.6s ease-in-out; }
+  .subpage-container { 
+    position: fixed; 
+    top: 0; 
+    left: 0; 
+    width: 100vw; 
+    height: 100vh; /* Fallback for browsers not supporting dvh */
+    height: 100dvh; /* Dynamic viewport height to account for mobile browser UI */
+    background-color: #000; 
+    overflow: hidden; 
+    opacity: 0; 
+    transition: opacity 0.6s ease-in-out; 
+  }
   .subpage-container.loaded { opacity: 1; }
-  .subpage-fullscreen-section { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; color: white; padding: 2rem; box-sizing: border-box; }
+  .subpage-fullscreen-section { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; color: white; padding: 0; box-sizing: border-box; }
   .subpage-background-image { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background-size: cover; background-position: center; z-index: 0; transform: scale(1); }
+  
+  /* New layout wrapper for desktop section components */
+  .section-layout-wrapper { position: relative; z-index: 1; width: 100%; height: 100%; }
+  
+  /* Legacy simple overlay (mobile + fallback) */
   .subpage-content-overlay { position: relative; z-index: 1; max-width: 50rem; text-align: center; padding: clamp(1.25rem, 2.5vmin, 2rem) clamp(1.25rem, 4vmin, 3rem); background-color: rgba(9,9,11,0.75); backdrop-filter: blur(0.625rem); border-radius: 0.75rem; border: 1px solid rgba(255,255,255,0.1); opacity: 0; visibility: hidden; }
   .subpage-content-overlay h2 { font-size: clamp(2.2rem, 5vw, 3.5rem); font-weight: 700; font-family: 'Playfair Display', serif; margin-bottom: 1.5rem; text-shadow: 0 0.125rem 1.25rem rgba(0,0,0,0.5); opacity: 0; visibility: hidden; }
   .subpage-content-overlay p { font-size: clamp(1rem, 2.5vw, 1.15rem); line-height: 1.8; max-width: 43.75rem; margin: 0 auto; color: #e2e8f0; opacity: 0; visibility: hidden; }

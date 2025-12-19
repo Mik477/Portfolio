@@ -138,7 +138,7 @@
 </script>
 
 <div class="layout-container" class:mobile-layout={$renderProfile.isMobile}>
-  <div class="text-block">
+  <div class="text-block" class:project-two={isSecondProjectSection}>
     <h2 class="anim-headline">
       {#if headlineSegments && headlineSegments.length > 0}
         {#each headlineSegments as segment, idx (idx)}
@@ -419,6 +419,9 @@
     }
     .text-block p {
       margin-bottom: 1.5rem;
+    }
+    .text-block.project-two p {
+      font-size: 0.8rem;
     }
     .cards-block {
       position: static;

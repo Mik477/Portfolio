@@ -7,6 +7,7 @@
   import LanguageSwitcher from '$lib/components/LanguageSwitcher.svelte';
   import { siteConfig } from '$lib/data/siteConfig';
   import { initialSiteLoadComplete } from '$lib/stores/preloadingStore';
+  import { navigationHistoryStore, isLegalPage } from '$lib/stores/navigationHistoryStore';
   import { page } from '$app/stores';
   import { fade } from 'svelte/transition';
   import { browser } from '$app/environment';
@@ -26,6 +27,17 @@
   // Keep document language in sync with the active locale
   $: if (browser && data?.locale) {
     document.documentElement.lang = data.locale;
+  }
+
+  // Track navigation history for BackButton on legal pages
+  // Record non-legal page visits whenever the route changes
+  $: if (browser && $page) {
+    const pathname = $page.url.pathname;
+    const hash = $page.url.hash;
+    // Only record non-legal pages (main page, project pages, etc.)
+    if (!isLegalPage(pathname)) {
+      navigationHistoryStore.recordPageVisit(pathname, hash);
+    }
   }
 
   onMount(() => {

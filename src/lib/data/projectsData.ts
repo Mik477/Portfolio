@@ -25,11 +25,61 @@ export interface ProjectHeadlineSegment {
   fontScale?: number;
 }
 
+// Stat item for StatsBar component
+export interface SubPageStatItem {
+  value: string;
+  label: string;
+}
+
+// Extended section layout types for the new subpage designs
+export type SubPageLayoutType = 
+  | 'overview'      // Hero with stats bar
+  | 'manufacturing' // Two-column with materials strip
+  | 'capabilities'  // Feature grid with center space
+  | 'testing'       // Vertical gallery with stats
+  | 'simple';       // Fallback: simple centered content
+
+// Extended data for each layout type
+export interface OverviewLayoutData {
+  subtitle: string;
+  stats: SubPageStatItem[];
+}
+
+export interface ManufacturingLayoutData {
+  printingTitle: string;
+  printingPoints: string[];
+  printingImage?: string;
+  batteryTitle: string;
+  batteryDescription: string;
+  batteryImage?: string;
+  materials: string[];
+}
+
+export interface CapabilitiesLayoutData {
+  sensorTitle: string;
+  sensorDescription: string;
+  sensorImage?: string;
+  antennaTitle: string;
+  antennaDescription: string;
+  antennaImage?: string;
+  gpsTitle: string;
+  gpsFeatures: string[];
+}
+
+export interface TestingLayoutData {
+  introText: string;
+  materialImage?: string;
+  materialCaption: string;
+  versionImage?: string;
+  versionCaption: string;
+  stats: SubPageStatItem[];
+}
+
 // This interface is the definitive source for a sub-section's content and background.
 export interface ProjectSubPageSection {
     id: string; // Corresponds to aspectLink from a card, used for scrolling
     title: string;
-    content: string;
+    content: string; // Legacy simple content (used for mobile)
     background: {
       type: 'image' | 'video' | 'color';
       value: string; // The URL for this specific section's background
@@ -38,6 +88,9 @@ export interface ProjectSubPageSection {
       type: 'image' | 'video' | 'color';
       value: string;
     };
+    // Extended layout support (desktop)
+    layoutType?: SubPageLayoutType;
+    layoutData?: OverviewLayoutData | ManufacturingLayoutData | CapabilitiesLayoutData | TestingLayoutData;
 }
 
 // This is the main project interface, which holds all data for a project.
@@ -62,6 +115,14 @@ export interface Project {
     type: 'image';
     value: string;
   }[];
+  overviewBackground?: {
+    type: 'image';
+    value: string;
+  };
+  overviewBackgroundMobile?: {
+    type: 'image';
+    value: string;
+  };
   tags?: string[];
   cards: ProjectCard[];
   subPageSections?: ProjectSubPageSection[];
@@ -105,7 +166,7 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
     disableImageOnMobile: featureFlags.disableAboutImageOnMobile,
     socialLinks: (() => {
       const links = [
-        { name: 'GitHub', url: 'https://github.com/coming_soon' },
+        { name: 'GitHub', url: 'https://github.com/Mik477' },
         { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
         { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
       ];
@@ -176,7 +237,7 @@ export function getProjects(locale: Locale): Project[] {
           { text: 'Long Range Recon', breakBefore: true, fontScale: 0.92 }
         ],
     summary: isDE
-      ? 'Ein vollständig 3D-gedruckte Drohne für Langstrecken- und mehrstündige Aufklärungsmissionen.'
+      ? 'Eine vollständig 3D-gedruckte Drohne für Langstrecken- und mehrstündige Aufklärungsmissionen.'
       : 'A fully 3D-Printed UAV designed for long-range, multi-hour reconnaissance missions.',
     backgrounds: [
       { type: 'image', value: '/images/projects/project-one/Drone_Sunset.webp' },
@@ -195,18 +256,20 @@ export function getProjects(locale: Locale): Project[] {
       { type: 'image', value: '/images/projects/project-one/Drone_Sunflowers_Wide.webp' },      
       { type: 'image', value: '/images/projects/project-one/mobile_Drone_close_clouds.jpg' }     
     ],
+    overviewBackground: { type: 'image', value: '/images/projects/project-one/profile_drone.webp' },
+    overviewBackgroundMobile: { type: 'image', value: '/images/projects/project-one/profile_drone_shorter1.JPG' },
     tags: isDE
       ? ['3D‑Druck', 'UAV‑Design', 'Luft- und Raumfahrttechnik', 'Elektronik']
       : ['3D Printing', 'UAV Design', 'Aerospace Engineering', 'Electronics'],
     cards: [
       {
-        id: 'p1_3d_printing',
-        title: isDE ? '3D‑Druck' : '3D-Printing',
+        id: 'p1_manufacturing',
+        title: isDE ? '3D-Druck' : '3D-Printing',
         cardImage: '/images/projects/project-one/card2_cropped.webp',
         description: isDE
           ? 'Vollständig 3D‑gedruckt mit LW‑PLA und ASA'
           : 'Fully 3D-printed Airframe using LW-PLA and ASA',
-        aspectLink: '#3d-printing'
+        aspectLink: '#manufacturing'
       },
       {
         id: 'p1_capability',
@@ -228,32 +291,89 @@ export function getProjects(locale: Locale): Project[] {
       }
     ],
     subPageSections: [
+      // Section 2: Manufacturing (3D printing + batteries)
       {
-        id: 'capability',
-        title: isDE ? 'Autonome Fähigkeiten' : 'Advanced Autonomous Capabilities',
-        content: isDE
-          ? 'Detaillierte Vorstellung der Sensorsuite mit hochauflösender Kamera, GPS und Echtzeit-Datenlinks – Grundlage für anspruchsvolle autonome Flüge und Datenerfassung. (Coming soon)'
-          : 'Detailed walkthrough of the sensor suite, including a high-resolution camera, GPS and real-time data links, enabling sophisticated autonomous flight and data collection. (Coming soon)',
-        background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' },
-        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' }
-      },
-      {
-        id: '3d-printing',
+        id: 'manufacturing',
         title: isDE ? 'Fertigung' : 'Manufacturing',
         content: isDE
-          ? 'Erläuterung des Designs mit Lightweight PLA (LW‑PLA) für Strukturbauteile und ASA für robuste, strukturelle Teile optimiert für Langlebigkeit und optimale Flugzeit. (Coming soon)'
-          : 'Explanation of the design process using lightweight PLA (LW-PLA) for structural components and ASA for durable structural surfaces, optimizing for both strength and flight time. (Coming soon)',
+          ? 'Vollständig 3D-gedruckter Rahmen mit LW-PLA und ASA. Maßgeschneiderte LiIon-Akkupacks für optimale Leistung.'
+          : 'Fully 3D-printed airframe using LW-PLA and ASA. Custom LiIon battery packs for optimal performance.',
         background: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' },
-        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' }
+        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_2.webp' },
+        layoutType: 'manufacturing',
+        layoutData: {
+          printingTitle: isDE ? '3D-Druck' : '3D Printing',
+          printingPoints: isDE
+            ? [
+                'LW-PLA für minimales Gewicht',
+                'ASA für strukturelle Festigkeit',
+                'Kohlefaserverstärkungen',
+                'Optimierte Schichtorientierung'
+              ]
+            : [
+                'LW-PLA for minimal weight',
+                'ASA for structural durability',
+                'Carbon fiber reinforcements',
+                'Optimized layer orientation'
+              ],
+          printingImage: '/images/projects/project-one/printer2.webp',
+          batteryTitle: isDE ? 'Akkusystem' : 'Battery System',
+          batteryDescription: isDE
+            ? 'Maßgeschneiderte 18650 4S2P und 4S4P LiIon-Akkupacks, optimiert für das beste Verhältnis von Energie zu Gewicht für verlängerte Flugzeiten.'
+            : 'Custom 18650 4S2P and 4S4P LiIon battery packs optimized for best energy-to-weight ratio for extended flight times.',
+          batteryImage: '/images/projects/project-one/battery.webp',
+          materials: ['LW-PLA', 'ASA', isDE ? 'Kohlefaser' : 'Carbon Fiber', '18650 Cells']
+        }
       },
+      // Section 3: Capabilities (sensors, GPS, antenna)
+      {
+        id: 'capability',
+        title: isDE ? 'Fähigkeiten' : 'Capabilities',
+        content: isDE
+          ? 'Fortschrittliche Sensoren, GPS-gestützte Autonomie und Dual-Antennen-Design für optimale Reichweite.'
+          : 'Advanced sensor array, GPS-guided autonomy, and dual antenna design for optimal range.',
+        background: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' },
+        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_1.webp' },
+        layoutType: 'capabilities',
+        layoutData: {
+          sensorTitle: isDE ? 'Sensorik' : 'Sensor Array',
+          sensorDescription: isDE
+            ? 'Digitale und analoge Videoübertragung für Echtzeit-Aufklärungsmissionen. Maßgeschneidertes FPV-Setup für kombinierte First- und Third-Person-Ansichten.'
+            : 'Digital and analog video transmission for real-time reconnaissance missions. Custom FPV setup for combined first and third-person views.',
+          sensorImage: '/images/projects/project-one/FPV_Headset.webp',
+          antennaTitle: isDE ? 'Dual-RX-Antenne' : 'Dual RX Antenna',
+          antennaDescription: isDE
+            ? 'Diversitäts-Empfang für optimale Reichweite und Signalqualität auch bei schwierigen Bedingungen.'
+            : 'Diversity reception for optimal range and signal quality even in challenging conditions.',
+          antennaImage: '/images/projects/project-one/battery.webp',
+          gpsTitle: isDE ? 'GPS-Autonomie' : 'GPS Autonomy',
+          gpsFeatures: isDE
+            ? ['Wegpunkt-Navigation', 'Return-to-Home', 'Loiter-Modus', 'Geofencing']
+            : ['Waypoint Navigation', 'Return-to-Home', 'Loiter Mode', 'Geofencing']
+        }
+      },
+      // Section 4: Testing & Optimization
       {
         id: 'testing',
-        title: isDE ? 'Feldtests & Validierung' : 'Field Testing & Validation',
+        title: isDE ? 'Tests & Optimierung' : 'Testing & Optimization',
         content: isDE
-          ? 'Präsentation der Flugtestergebnisse, darunter Ausdauer, Reichweite und Nutzlast (Coming Soon). Das UAV demonstrierte über 2 Stunden Flugzeit und eine Reichweite von über 20 km.'
-          : 'Presentation of flight test data, including endurance, range, and payload capacity metrics (Coming Soon). The UAV successfully demonstrated over 2 hours of flight time and a range of more than 20 km.',
+          ? 'Iterative Entwicklung über mehrere Versionen. Materialvergleiche und über 25 Testflüge.'
+          : 'Iterative development across multiple versions. Material comparisons and over 25 test flights.',
         background: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' },
-        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' }
+        backgroundMobile: { type: 'image', value: '/images/projects/project-one/sub_bg_3.webp' },
+        layoutType: 'testing',
+        layoutData: {
+          introText: isDE
+            ? 'Der Weg zur optimalen Leistung erforderte umfangreiche Iterationen bei Druckeinstellungen, Materialien und Strukturkonfigurationen.'
+            : 'The path to optimal performance required extensive iteration across print settings, materials, and structural configurations.',
+          materialImage: '/images/projects/project-one/material_comparison.webp',
+          versionImage: '/images/projects/project-one/version_evolution.webp',
+          stats: [
+            { value: 'V1→V4', label: isDE ? 'Iterationen' : 'Iterations' },
+            { value: '25+', label: isDE ? 'Testflüge' : 'Test Flights' },
+            { value: isDE ? 'Gewicht' : 'Weight', label: isDE ? 'Optimiert' : 'Optimized' }
+          ]
+        }
       }
     ],
     readMoreLinkText: isDE ? 'Mehr erfahren' : 'Explore More'
@@ -279,7 +399,7 @@ export function getProjects(locale: Locale): Project[] {
       { type: 'image', value: '/images/projects/project-two/bg1.jpg' }
     ],
     backgroundsMobile: [
-      { type: 'image', value: '/images/projects/project-two/bg_mobile.jpg' }
+      { type: 'image', value: '/images/projects/project-two/bg_mobile.webp' }
     ],
     tags: isDE
       ? ['Mission Control', 'Sensorfusion', 'Echtzeit-Analytik']

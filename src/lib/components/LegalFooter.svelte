@@ -21,7 +21,10 @@
 	}
 
 	const handleNavigate = (url: string) => {
-		transitionStore.fadeToBlackAndNavigate(withLang(url));
+		// Navigation history is tracked in +layout.svelte via navigationHistoryStore
+		// No need to pass returnTo param - BackButton reads from the store
+		const targetUrl = withLang(url);
+		transitionStore.fadeToBlackAndNavigate(targetUrl);
 	};
   
 	// Accessibility: small helper for keyboard activation on Enter/Space when needed
