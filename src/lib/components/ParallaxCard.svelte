@@ -270,8 +270,9 @@
     overflow: hidden;
     border-radius: 10px;
     transition: transform 1s cubic-bezier(0.445, 0.05, 0.55, 0.95), box-shadow 1s cubic-bezier(0.445, 0.05, 0.55, 0.95);
-  will-change: transform;
-  contain: paint;
+    will-change: transform;
+    contain: paint;
+    container-type: inline-size;
   }
 
   .card-bg {
@@ -306,7 +307,7 @@
     right: var(--card-info-padding);
     bottom: var(--card-title-bottom-anchor);
     
-    font-size: clamp(1.4rem, 10vw, 2rem);
+    font-size: 13cqi;
     font-family: var(--card-font-family);
     text-shadow: rgba(0, 0, 0, 0.5) 0 10px 10px;
     letter-spacing: var(--card-title-letter-spacing-base);
@@ -335,7 +336,7 @@
       transform var(--card-description-slide-duration) cubic-bezier(0.16, 1, 0.3, 1);
     
     text-shadow: black 0 2px 3px;
-    font-size: 0.9rem;
+    font-size: 6cqi;
     line-height: 1.5;
     font-family: var(--card-font-family);
   }

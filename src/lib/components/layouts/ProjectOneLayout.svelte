@@ -292,6 +292,10 @@
     text-shadow: 0 2px 8px rgba(0,0,0,0.5);
   }
 
+  .text-block.project-two {
+    width: 35%;
+  }
+
   .read-more-btn {
     position: relative;
     padding: 0.875rem 2rem;
@@ -471,5 +475,9 @@
   .layout-container.mobile-layout .cards-block :global(.carousel-viewport) {
     padding-top: 1rem;
     padding-bottom: 2.5rem;
+  }
+
+  .layout-container.mobile-layout .text-block.project-two p {
+    font-size: 0.8rem;
   }
 </style>

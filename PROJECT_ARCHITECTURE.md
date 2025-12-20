@@ -164,6 +164,28 @@ allSectionsData = [
 
 ---
 
+## Project Sub-Page Architecture
+
+The project detail pages (`src/routes/[lang=lang]/projects/[slug]/+page.svelte`) function as independent orchestrators for vertical scrolling within a specific project.
+
+### Structure & Data
+- **Orchestrator:** Handles its own navigation state, touch gestures, and section rendering.
+- **Data Source:** `src/lib/data/projectsData.ts` defines the structure via `subPageSections`.
+- **Layout Types:** Sections are rendered based on `layoutType`:
+  - `overview`: Hero section with stats
+  - `manufacturing`: Two-column layout with materials strip
+  - `capabilities`: Feature grid
+  - `testing`: Vertical gallery
+  - `simple`: Fallback centered content
+
+### Animation Strategy
+Unlike the main page which uses lifecycle methods (`onEnterSection`), sub-pages use a reactive prop pattern:
+- **Prop:** `isActive={i === currentSectionIndex}` passed to each section.
+- **Behavior:** Components watch `isActive` to trigger GSAP entrance/exit animations.
+- **Components:** Located in `src/lib/components/subpage/sections/`.
+
+---
+
 ## Navigation Systems
 
 ### Desktop Navigation
@@ -364,6 +386,20 @@ fadeToBlackAndNavigate(href): void
 ├── ContactSection.svelte
 │   └── ContactEffect.svelte (raymarching)
 └── MobileNavDots.svelte (mobile only)
+```
+
+### Project Sub-Page Components
+```
+src/lib/components/subpage/
+├── sections/
+│   ├── OverviewSection.svelte
+│   ├── ManufacturingSection.svelte
+│   ├── CapabilitiesSection.svelte
+│   └── TestingSection.svelte
+├── SectionTitle.svelte (Shared headline animation)
+├── StatsBar.svelte
+├── MaterialsStrip.svelte
+└── FeatureCard.svelte
 ```
 
 ### Global Layout Components

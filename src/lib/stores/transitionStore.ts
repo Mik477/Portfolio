@@ -1,6 +1,8 @@
 // src/lib/stores/transitionStore.ts
 import { writable } from 'svelte/store';
 import { goto } from '$app/navigation';
+import { navigationHistoryStore, isLegalPage } from '$lib/stores/navigationHistoryStore';
+import { browser } from '$app/environment';
 
 interface TransitionState {
   visible: boolean;
@@ -25,6 +27,16 @@ export const transitionStore = {
    * @param href The destination URL to navigate to.
    */
   fadeToBlackAndNavigate: (href: string) => {
+    // Record current page in navigation history before navigating away
+    // This ensures the BackButton on legal pages knows where to return
+    if (browser) {
+      const currentPath = window.location.pathname;
+      const currentHash = window.location.hash;
+      if (!isLegalPage(currentPath)) {
+        navigationHistoryStore.recordPageVisit(currentPath, currentHash);
+      }
+    }
+
     transitionToken++;
     const token = transitionToken;
     if (navigateTimeoutId !== null) {

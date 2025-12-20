@@ -54,9 +54,9 @@
   });
 
   /* ---------------- Lifecycle & Animation ---------------- */
-  export async function initializeEffect() {
+  export async function initializeEffect(signal?: AbortSignal) {
     if (contactEffectInstance?.initializeEffect) {
-      await contactEffectInstance.initializeEffect();
+      await contactEffectInstance.initializeEffect(signal);
     }
   }
 
@@ -67,27 +67,38 @@
       contactEffectInstance.onEnterSection();
     }
 
-    if (!h2El || !pEl || keyPositionElements.length === 0) return;
+    // Robustness: Don't fail completely if some elements are missing
+    if (!h2El && !pEl && keyPositionElements.length === 0) return;
 
-    gsap.set(h2El, { autoAlpha: 0, y: 30 });
-    gsap.set(pEl, { autoAlpha: 0, y: 20 });
-    gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
+    if (h2El) gsap.set(h2El, { autoAlpha: 0, y: 30 });
+    if (pEl) gsap.set(pEl, { autoAlpha: 0, y: 20 });
+    if (keyPositionElements.length > 0) gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
 
     enterTimeline?.kill();
     enterTimeline = gsap.timeline({
       delay: 0.5,
       onComplete: () => { dispatch('animationComplete'); }
-    })
-      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0)
-      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 0.1)
-      .to(keyPositionElements, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power3.out', stagger: 0.08 }, 0.25);
+    });
+
+    if (h2El) enterTimeline.to(h2El, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0);
+    if (pEl) enterTimeline.to(pEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 0.1);
+    if (keyPositionElements.length > 0) {
+      enterTimeline.to(keyPositionElements, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power3.out', stagger: 0.08 }, 0.25);
+    }
   }
 
   export async function onTransitionComplete() {
     // Ensure effect is fully initialized before we trigger its transition-complete fade
     if (contactEffectInstance) {
       if (contactEffectInstance.initializeEffect) {
-        try { await contactEffectInstance.initializeEffect(); } catch {}
+        try { 
+          // Race initialization with a timeout to prevent hanging
+          const initPromise = contactEffectInstance.initializeEffect();
+          const timeoutPromise = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000));
+          await Promise.race([initPromise, timeoutPromise]); 
+        } catch (e) {
+          // Proceed even if init failed or timed out
+        }
       }
       contactEffectInstance.onTransitionComplete?.();
     }
@@ -99,17 +110,21 @@
     enterTimeline?.kill();
     enterTimeline = null;
 
-    const all = [h2El, pEl, ...keyPositionElements];
-    gsap.killTweensOf(all);
-    gsap.set(all, { autoAlpha: 0 });
+    const all = [h2El, pEl, ...keyPositionElements].filter(el => !!el);
+    if (all.length > 0) {
+      gsap.killTweensOf(all);
+      gsap.set(all, { autoAlpha: 0 });
+    }
   }
 
   export function onUnload() {
     // Ensure our own animations are cleared even if unload happens without a leave.
     enterTimeline?.kill();
     enterTimeline = null;
-    const all = [h2El, pEl, ...keyPositionElements];
-    gsap.killTweensOf(all);
+    const all = [h2El, pEl, ...keyPositionElements].filter(el => !!el);
+    if (all.length > 0) {
+      gsap.killTweensOf(all);
+    }
     contactEffectInstance?.onUnload();
   }
 
