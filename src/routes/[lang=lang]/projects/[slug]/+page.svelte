@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { get, writable } from 'svelte/store';
   import { page } from '$app/stores';
+  import { browser } from '$app/environment';
   import { gsap } from 'gsap';
   import { siteConfig } from '$lib/data/siteConfig';
   import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
@@ -106,6 +107,75 @@
   let activeTransitionTimeline: gsap.core.Timeline | null = null;
   let resizeTimer: number | null = null;
 
+  // --- Locale Change Handling ---
+  // Track locale to detect changes and handle them gracefully during animations
+  let previousLocale: string | null = null;
+  let hasMounted = false;
+
+  /**
+   * Reactive handler for locale changes.
+   * When the locale changes (via language switcher), we need to:
+   * 1. Re-query DOM elements (in case Svelte re-rendered them)
+   * 2. Restore the current visual state without interrupting ongoing animations
+   * 
+   * The key insight is that Svelte's keyed {#each} preserves DOM elements when keys match,
+   * but we still re-query to be safe in case of edge cases (especially after hard refresh).
+   */
+  $: if (browser && hasMounted && $page.params.lang) {
+    const currentLocale = $page.params.lang;
+    if (previousLocale !== null && previousLocale !== currentLocale) {
+      // Locale has changed - handle gracefully
+      handleLocaleChange();
+    }
+    previousLocale = currentLocale;
+  }
+
+  async function handleLocaleChange() {
+    // Wait for Svelte to process any DOM updates from the data change
+    await tick();
+    
+    if (isDestroyed) return;
+    
+    // Re-query DOM elements in case they were updated
+    const newSectionElements = allSubSections.map(section => document.getElementById(section.id) as HTMLElement);
+    
+    // Check if elements have actually changed (different references)
+    const elementsChanged = newSectionElements.some((el, i) => el !== sectionElements[i]);
+    
+    if (elementsChanged) {
+      // Elements have changed - update references and restore visual state
+      sectionElements = newSectionElements;
+      
+      // Restore the visual state based on current animation state
+      sectionElements.forEach((el, index) => {
+        if (!el) return;
+        
+        if (isAnimating && activeTransitionTimeline) {
+          // Animation in progress - let it continue but ensure elements are positioned correctly
+          // The navActiveIndex represents where we're animating TO
+          if (index === navActiveIndex) {
+            // This is the target section - should be visible and animating in
+            // Don't override GSAP's current animation state
+          } else if (index === currentSectionIndex && currentSectionIndex !== navActiveIndex) {
+            // This is the source section - should be animating out
+            // Don't override GSAP's current animation state
+          } else {
+            // Other sections should be hidden
+            gsap.set(el, { yPercent: index > navActiveIndex ? 100 : -100, autoAlpha: 0 });
+          }
+        } else {
+          // No animation in progress - just ensure correct static positioning
+          if (index === currentSectionIndex) {
+            gsap.set(el, { yPercent: 0, autoAlpha: 1 });
+          } else {
+            gsap.set(el, { yPercent: index > currentSectionIndex ? 100 : -100, autoAlpha: 0 });
+          }
+        }
+      });
+    }
+    // If elements haven't changed, text content updated in-place - nothing else needed
+  }
+
   // --- Natural Mobile Scroll Navigation with Progressive Drag ---
   let touchStartY = 0;
   let touchStartX = 0;
@@ -128,6 +198,10 @@
   const MAX_VISUAL_FEEDBACK = 0.20; // Cap visual feedback at 20% of screen (just a nudge)
 
   onMount(() => {
+    // Initialize locale tracking for the reactive handler
+    previousLocale = $page.params.lang ?? null;
+    hasMounted = true;
+
     const runPreloadAndSetup = async () => {
       startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
       const assetUrls = new Set<string>();
@@ -163,6 +237,7 @@
 
     return () => {
       isDestroyed = true;
+      hasMounted = false;
       if (suppressHashResetTimer !== null) {
         window.clearTimeout(suppressHashResetTimer);
         suppressHashResetTimer = null;

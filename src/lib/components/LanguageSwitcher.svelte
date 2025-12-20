@@ -17,9 +17,10 @@
     document.cookie = `${name}=${value};${expires};path=/;SameSite=Lax`;
   }
 
-  function switchLocale(target: 'en' | 'de') {
-    if (target === locale) return;
-    setCookie('locale', target);
+  /**
+   * Compute the target URL for a locale switch
+   */
+  function computeTargetUrl(target: 'en' | 'de'): string {
     const current = $page.url;
     const pathname = current.pathname;
     let newPath = '';
@@ -27,45 +28,55 @@
     // Helper: map special slugs between locales
     const mapSpecial = (restPath: string): string | null => {
       if (target === 'de') {
-  if (restPath === '/privacy') return '/de/datenschutz';
-  if (restPath === '/imprint') return '/de/impressum';
-  if (restPath === '/accessibility') return '/de/barrierefreiheit';
+        if (restPath === '/privacy') return '/de/datenschutz';
+        if (restPath === '/imprint') return '/de/impressum';
+        if (restPath === '/accessibility') return '/de/barrierefreiheit';
       } else {
-  if (restPath === '/datenschutz') return '/en/privacy';
-  if (restPath === '/impressum') return '/en/imprint';
-  if (restPath === '/barrierefreiheit') return '/en/accessibility';
+        if (restPath === '/datenschutz') return '/en/privacy';
+        if (restPath === '/impressum') return '/en/imprint';
+        if (restPath === '/barrierefreiheit') return '/en/accessibility';
       }
       return null;
     };
 
-      if (pathname === '/') {
-      // On root, go to target locale root
+    if (pathname === '/') {
       newPath = `/${target}`;
     } else if (/^\/(en|de)(\/|$)/.test(pathname)) {
-      // Strip current locale and map remainder
       const rest = pathname.replace(/^\/(en|de)/, '');
-      const restPath = rest === '' ? '/' : rest; // ensure leading slash remains
+      const restPath = rest === '' ? '/' : rest;
       const special = mapSpecial(restPath);
       if (special) {
         newPath = special;
       } else {
-        // Project detail pages: /{lang}/projects/{slug}
         const projectMatch = restPath.match(/^\/projects\/([^/]+)$/);
         if (projectMatch) {
           const slug = projectMatch[1];
-          newPath = `/${target}/projects/${slug}`; // slugs assumed identical across locales
+          newPath = `/${target}/projects/${slug}`;
         } else {
           newPath = `/${target}${restPath}`;
         }
       }
     } else {
-      // No locale segment: prefix target and keep rest
       newPath = `/${target}${pathname}`;
     }
-  // Preserve hash (subsection deep link) for project detail pages
-  const isProjectDetail = /\/(en|de)\/projects\//.test(newPath);
-  const finalUrl = newPath + current.search + (isProjectDetail ? current.hash : current.hash);
-  goto(finalUrl, { keepFocus: true });
+
+    // Preserve hash for all pages (important for section deep links)
+    return newPath + current.search + current.hash;
+  }
+
+  /**
+   * Switch locale - executes immediately without blocking.
+   * Pages with animations handle locale changes gracefully via reactive handlers.
+   */
+  function switchLocale(target: 'en' | 'de') {
+    if (target === locale) return;
+    
+    const targetUrl = computeTargetUrl(target);
+    setCookie('locale', target);
+    
+    // Use noScroll to prevent SvelteKit from scrolling, and keepFocus to maintain focus
+    // The receiving page will handle any DOM updates needed for animations
+    goto(targetUrl, { keepFocus: true, noScroll: true });
   }
 </script>
 

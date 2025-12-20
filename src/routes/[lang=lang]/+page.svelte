@@ -39,6 +39,8 @@
 	// Section Data Structure (reactive to locale)
 	let allSectionsData: any[] = [];
 	let currentLocale: Locale;
+	let previousLocale: Locale | null = null; // Track previous locale to detect changes
+	let hasMounted = false; // Track if initial mount is complete
 	$: currentLocale = ((($page.params as any)?.lang === 'de') ? 'de' : 'en');
 	$: localizedProjects = getProjects(currentLocale);
 	// Pull localized static content for About & Contact (must be reactive for language switch)
@@ -57,6 +59,75 @@
 	];
 	let contactSectionIndex: number = allSectionsData.findIndex(s => s.id === 'contact');
 	$: contactSectionIndex = allSectionsData.findIndex(s => s.id === 'contact');
+
+	// --- LOCALE CHANGE HANDLER ---
+	// When locale changes via LanguageSwitcher (even during animations),
+	// we need to re-query DOM elements and ensure GSAP positions are correct.
+	// This handler gracefully updates DOM references without interrupting animations.
+	$: if (hasMounted && currentLocale && previousLocale !== null && previousLocale !== currentLocale) {
+		handleLocaleChange();
+	}
+	// Always update previousLocale AFTER the check
+	$: if (currentLocale) {
+		tick().then(() => {
+			previousLocale = currentLocale;
+		});
+	}
+
+	async function handleLocaleChange() {
+		// Wait for Svelte to update the DOM with new content
+		await tick();
+		
+		// Re-query DOM elements (they may have been recreated by Svelte's keyed each)
+		const newSectionElements = allSectionsData.map(section => 
+			document.getElementById(section.id) as HTMLElement
+		);
+		
+		// Check if elements have actually changed (different references)
+		const elementsChanged = newSectionElements.some((el, i) => el !== sectionElements[i]);
+		
+		if (elementsChanged) {
+			sectionElements = newSectionElements;
+			
+			const currentIdx = get(currentSectionIndex);
+			const targetIdx = get(navActiveIndex);
+			const animating = get(isAnimating);
+			
+			// Ensure GSAP positions are correct after DOM update
+			sectionElements.forEach((el, idx) => {
+				if (!el) return;
+				
+				if (animating && activeMasterTransitionTl) {
+					// Animation in progress - preserve the animation targets
+					if (idx === targetIdx) {
+						// Target section - should be animating in (don't override GSAP)
+					} else if (idx === currentIdx && currentIdx !== targetIdx) {
+						// Source section - should be animating out (don't override GSAP)
+					} else {
+						// Other sections should be hidden
+						gsap.set(el, { yPercent: idx > targetIdx ? 100 : -100, autoAlpha: 0, force3D: true });
+					}
+				} else {
+					// No animation - set static positions
+					if (idx === currentIdx) {
+						gsap.set(el, { yPercent: 0, autoAlpha: 1, force3D: true });
+					} else {
+						gsap.set(el, { yPercent: 100, autoAlpha: 0, force3D: true });
+					}
+				}
+			});
+		}
+		
+		// Reset particle layer position if on hero
+		const particleLayer = document.querySelector('.particle-effect-layer') as HTMLElement;
+		if (particleLayer) {
+			gsap.set(particleLayer, { yPercent: 0, force3D: true });
+		}
+		
+		// Update inert states
+		const currentIdx = get(currentSectionIndex);
+		setActiveSectionInert(currentIdx);
+	}
 
 		// Localized data overrides (recompute when base content or translation messages change)
 		let aboutData = { ...baseAboutContent };
@@ -512,6 +583,11 @@
 		};
 
 		mountLogic();
+		
+		// Mark component as mounted to enable locale change detection
+		hasMounted = true;
+		// Initialize previousLocale to current to avoid triggering change on first mount
+		previousLocale = currentLocale;
     
 	unsubInitialLoadComplete = initialSiteLoadComplete.subscribe(complete => {
 		if (!startOnHero) return; // deep link path handles its own reveal
@@ -520,6 +596,7 @@
 
 		return () => {
 			isDestroyed = true;
+			hasMounted = false; // Reset on destroy
 			orchestratorAbortController?.abort();
 			orchestratorAbortController = null;
 			legacyScheduler?.dispose();
@@ -619,7 +696,7 @@
 		}
     
 		isAnimating.set(true); 
-		isTransitioning.set(true); 
+		isTransitioning.set(true);
 
 		if (oldIndex === 0 && newIndex > 0) {
 			isLeavingHero.set(true);
@@ -718,7 +795,7 @@
 		navUnlockDelayedCall?.kill();
 		navUnlockDelayedCall = gsap.delayedCall(Math.max(transitionDuration, minSectionDisplayDuration), () => { 
 			if (isDestroyed) return;
-			isAnimating.set(false); 
+			isAnimating.set(false);
 			// After animation complete, update hash (avoid doing for hero index 0 to keep URL clean?)
 			const id = allSectionsData[newIndex].id;
 			if (typeof window !== 'undefined') {
