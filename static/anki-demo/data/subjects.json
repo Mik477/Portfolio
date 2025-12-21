@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "subjects": [
+    {
+      "name": "Basic",
+      "folder_name": "Basic",
+      "prompt_count": 5,
+      "created_at": "2025-11-14T23:15:27.309129"
+    },
+    {
+      "name": "Enhanced",
+      "folder_name": "Enhanced",
+      "prompt_count": 5,
+      "created_at": "2025-12-05T20:46:07.442663"
+    },
+    {
+      "name": "Minimal",
+      "folder_name": "Minimal",
+      "prompt_count": 5,
+      "created_at": "2025-12-05T20:46:07.425935"
+    }
+  ],
+  "total_count": 3
+}

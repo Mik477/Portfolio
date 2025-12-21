@@ -1,0 +1,37 @@
+{
+  "success": true,
+  "prompts": [
+    {
+      "number": 1,
+      "preview": "You are to assume the role of an expert academic a...",
+      "file_size": 4677,
+      "modified_at": "2025-12-05T21:07:10.846572"
+    },
+    {
+      "number": 2,
+      "preview": "Phase 2 (25 Cards per Day): Content Analysis & **F...",
+      "file_size": 10226,
+      "modified_at": "2025-12-05T21:27:03.441832"
+    },
+    {
+      "number": 3,
+      "preview": "Phase 3: Anki Card Generation.  The Anki Blueprint...",
+      "file_size": 14566,
+      "modified_at": "2025-12-06T20:15:57.471196"
+    },
+    {
+      "number": 4,
+      "preview": "Great, proceed with the next at most 10 cards from...",
+      "file_size": 249,
+      "modified_at": "2025-12-05T21:07:10.846572"
+    },
+    {
+      "number": 5,
+      "preview": "Excellent. We will now restart the entire process...",
+      "file_size": 1607,
+      "modified_at": "2025-12-05T21:07:10.846572"
+    }
+  ],
+  "total_count": 5,
+  "subject": "Enhanced"
+}

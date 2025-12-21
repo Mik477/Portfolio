@@ -61,7 +61,9 @@
     }
 
     // Preserve hash for all pages (important for section deep links)
-    return newPath + current.search + current.hash;
+    // Use window.location.hash if available to get the most current hash (SvelteKit store might be stale due to manual history.replaceState)
+    const currentHash = (typeof window !== 'undefined') ? window.location.hash : current.hash;
+    return newPath + current.search + currentHash;
   }
 
   /**

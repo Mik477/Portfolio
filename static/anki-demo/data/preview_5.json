@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "card_index": 5,
+  "total_cards": 10,
+  "fields": {
+    "Front": "<p>What are the <span class=\"badge badge-amber\">ACID</span> properties?</p>\n\n<p>Hint: <span class=\"spoiler\" tabindex=\"0\">Atomicity, Consistency, Isolation, Durability</span></p>\n",
+    "Back": "<dl>\n  <dt>Atomicity</dt>\n  <dd>All operations succeed or all fail together</dd>\n\n  <dt>Consistency</dt>\n  <dd>Database remains in a valid state</dd>\n\n  <dt>Isolation</dt>\n  <dd>Concurrent transactions don't interfere</dd>\n\n  <dt>Durability</dt>\n  <dd>Committed transactions persist after failures</dd>\n</dl>\n\n<div class=\"error\">\n  <strong>Common Mistake:</strong> Confusing Isolation levels (READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE) with the Isolation property itself.\n</div>\n"
+  },
+  "deck": "Anki-Automation-Showcase",
+  "model": "Anki Automation",
+  "uid": "showcase-006",
+  "tags": [
+    "databases",
+    "transactions",
+    "theory"
+  ]
+}

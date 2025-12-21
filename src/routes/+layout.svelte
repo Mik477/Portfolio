@@ -22,6 +22,10 @@
   // Treat /, /en and /de as home (with or without trailing slash)
   $: isHome = /^\/(|en\/|de\/?|en|de)$/.test($page.url.pathname);
   $: showFooter = isHome ? ($initialSiteLoadComplete || footerForcedVisible) : true;
+  
+  // Hide language switcher on Anki Automation demo pages
+  $: showLanguageSwitcher = !$page.url.pathname.includes('/anki-automation-demo');
+
   const fadeIn = { duration: 250 };
 
   // Keep document language in sync with the active locale
@@ -120,14 +124,16 @@
         return { ...l, url: localizedUrl, name: finalName };
       })}
     >
-      <LanguageSwitcher
-        locale={data.locale}
-        groupLabel={data.messages?.common?.language?.groupLabel ?? 'Language'}
-        labelEn={data.messages?.common?.language?.en ?? 'EN'}
-        labelDe={data.messages?.common?.language?.de ?? 'DE'}
-        switchToEnLabel={data.messages?.common?.language?.switchToEn ?? 'Switch to English'}
-        switchToDeLabel={data.messages?.common?.language?.switchToDe ?? 'Switch to German'}
-      />
+      {#if showLanguageSwitcher}
+        <LanguageSwitcher
+          locale={data.locale}
+          groupLabel={data.messages?.common?.language?.groupLabel ?? 'Language'}
+          labelEn={data.messages?.common?.language?.en ?? 'EN'}
+          labelDe={data.messages?.common?.language?.de ?? 'DE'}
+          switchToEnLabel={data.messages?.common?.language?.switchToEn ?? 'Switch to English'}
+          switchToDeLabel={data.messages?.common?.language?.switchToDe ?? 'Switch to German'}
+        />
+      {/if}
     </LegalFooter>
   </div>
 {/if}

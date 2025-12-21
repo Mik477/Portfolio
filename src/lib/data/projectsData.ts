@@ -129,6 +129,15 @@ export interface Project {
   readMoreLinkText?: string;
   paperUrl?: string; // Optional PDF link for projects without subpages
   cardDisplay?: ProjectCardDisplayConfig;
+  // Navigation links for projects with external demo/guides (like Anki Automation)
+  navigationLinks?: {
+    demo?: { label: string; url: string };
+    guide?: { label: string; url: string };
+    cardSetup?: { label: string; url: string };
+    github?: { label: string; url: string };
+  };
+  // Flag to indicate this project uses a custom layout with navigation focus
+  layoutType?: 'standard' | 'navigation-focused';
 }
 
 export type Locale = 'en' | 'de';
@@ -450,7 +459,50 @@ export function getProjects(locale: Locale): Project[] {
     paperUrl: '/papers/Redacted_Report_Mika_Mueller.pdf'
   };
 
-  return [projectOne, projectTwo];
+  const projectThree: Project = {
+    id: 'project-three',
+    slug: 'AnkiAutomation',
+    headline: isDE ? 'Anki Automation' : 'Anki Automation',
+    headlineSegments: [
+      { text: 'Anki', bold: true, weight: 520 },
+      { text: 'Automation', breakBefore: false, fontScale: 1, weight: 300 }
+    ],
+    summary: isDE
+      ? 'Eine Desktop-Anwendung zur KI-gestützten Erstellung von Anki-Lernkarten. Entwickelt für effizientes Lernen an der Universität. Jetzt mit professionellem Installer und UI veröffentlicht.'
+      : 'A desktop application for AI-powered Anki flashcard creation. Built for efficient university learning. Now released with professional installer and UI.',
+    backgrounds: [
+      { type: 'image', value: '/images/projects/project-three/bg3.jpg' }
+    ],
+    backgroundsMobile: [
+      { type: 'image', value: '/images/projects/project-three/bg_mobile.webp' }
+    ],
+    tags: isDE
+      ? ['Python', 'Flask', 'YAML', 'Anki', 'Desktop App']
+      : ['Python', 'Flask', 'YAML', 'Anki', 'Desktop App'],
+    layoutType: 'navigation-focused',
+    navigationLinks: {
+      demo: {
+        label: isDE ? 'Demo starten' : 'Try Demo',
+        url: '/anki-automation-demo'
+      },
+      guide: {
+        label: isDE ? 'Erste Schritte' : 'Getting Started',
+        url: '/anki-automation-demo/getting-started'
+      },
+      cardSetup: {
+        label: isDE ? 'Karten-Setup' : 'Card Setup',
+        url: '/anki-automation-demo/card-setup'
+      },
+      github: {
+        label: 'GitHub',
+        url: 'https://github.com/Mik477/Anki-Automation'
+      }
+    },
+    cards: [], // No cards - uses navigation-focused layout
+    readMoreLinkText: isDE ? 'Demo starten' : 'Try Demo'
+  };
+
+  return [projectOne, projectTwo, projectThree];
 }
 
 // Backward-compatible default export (English)

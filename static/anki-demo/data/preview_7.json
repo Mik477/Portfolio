@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "card_index": 7,
+  "total_cards": 10,
+  "fields": {
+    "Front": "<p>What does <code>HTTP 404</code> status code mean?</p>\n",
+    "Back": "<p><span class=\"badge badge-red\">404 Not Found</span></p>\n\n<p>The server cannot find the requested resource. This typically means:</p>\n\n<ul>\n<li>The URL is incorrect or misspelled</li>\n<li>The resource has been moved or deleted</li>\n<li>The link is broken</li>\n</ul>\n\n<div class=\"info\">\n  <strong>Related Codes:</strong>\n  *   <code>400</code> - Bad Request\n  *   <code>401</code> - Unauthorized\n  *   <code>403</code> - Forbidden\n  *   <code>500</code> - Internal Server Error\n</div>\n"
+  },
+  "deck": "Anki-Automation-Showcase",
+  "model": "Anki Automation",
+  "uid": "showcase-008",
+  "tags": [
+    "web-development",
+    "http",
+    "status-codes"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "card_index": 0,
+  "total_cards": 10,
+  "fields": {
+    "Front": "<p>What is the <span class=\"badge badge-cyan\">Primary</span> purpose of <strong>Anki Automation</strong>?</p>\n",
+    "Back": "<div class=\"info\">\n  <strong>Definition:</strong> Anki Automation is a tool that uses AI to generate professional flashcards from lecture materials, PDFs, and notes.\n</div>\n\n<p>Key benefits:</p>\n\n<ul>\n<li>Saves hours of manual card creation</li>\n<li>Ensures consistent, high-quality formatting</li>\n<li>Supports LaTeX, tables, and rich HTML styling</li>\n</ul>\n"
+  },
+  "deck": "Anki-Automation-Showcase",
+  "model": "Anki Automation",
+  "uid": "showcase-001",
+  "tags": [
+    "intro",
+    "definition"
+  ]
+}

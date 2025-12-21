@@ -24,6 +24,7 @@
 	import ContactSection from '$lib/components/sections/ContactSection.svelte';
 	import ProjectSection from '$lib/components/sections/ProjectSection.svelte'; 
 	import ProjectOneLayout from '$lib/components/layouts/ProjectOneLayout.svelte';
+	import ProjectThreeLayout from '$lib/components/layouts/ProjectThreeLayout.svelte';
 	import MobileNavDots from '$lib/components/MobileNavDots.svelte';
 
 	// Type Imports
@@ -55,6 +56,7 @@
 		{ id: 'about', component: AboutSection, data: baseAboutContent, layout: null },
 		{ id: `project-${localizedProjects[0].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[0] },
 		{ id: `project-${localizedProjects[1].id}`, component: ProjectSection, layout: ProjectOneLayout, data: localizedProjects[1] },
+		{ id: `project-${localizedProjects[2].id}`, component: ProjectSection, layout: localizedProjects[2].layoutType === 'navigation-focused' ? ProjectThreeLayout : ProjectOneLayout, data: localizedProjects[2] },
 		{ id: 'contact', component: ContactSection, data: baseContactContent, layout: null }
 	];
 	let contactSectionIndex: number = allSectionsData.findIndex(s => s.id === 'contact');
