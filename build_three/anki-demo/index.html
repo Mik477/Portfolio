@@ -1,0 +1,2548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Anki Automation - AI-Powered Flashcard Creator with YAML Editor">
+    <title>Anki Automation - YAML Card Creator</title>
+    
+    <!-- Favicon using Bootstrap Icons -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text x='0' y='14' font-size='14'>📚</text></svg>">
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
+    <!-- Military Intelligence Theme -->
+    <link rel="stylesheet" href="static/css/military-theme.css">
+    
+    <!-- CodeMirror CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">
+    
+    <!-- MathJax for LaTeX rendering -->
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['\\(', '\\)']],
+                displayMath: [['\\[', '\\]']],
+                processEscapes: true
+            },
+            svg: {
+                fontCache: 'global'
+            }
+        };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js" async></script>
+    
+    <!-- Custom CSS -->
+    <style>
+        /* ==================== THEME VARIABLES ==================== */
+        :root {
+            /* Core colors */
+            --primary-color: #0d6efd;
+            --secondary-color: #6c757d;
+            --success-color: #198754;
+            --danger-color: #dc3545;
+            --warning-color: #ffc107;
+            
+            /* Editor (always dark) */
+            --editor-bg: #272822;
+            --editor-text: #f8f8f2;
+        }
+        
+        /* Light Mode (Default for initial load, will switch to dark) */
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f9fa;
+            --bg-tertiary: #e9ecef;
+            --text-primary: #212529;
+            --text-secondary: #6c757d;
+            --text-muted: #adb5bd;
+            --border-color: #dee2e6;
+            --card-bg: #ffffff;
+            --card-header-bg: #f8f9fa;
+            --preview-bg: #ffffff;
+            --preview-face-bg: #f8f9fa;
+            --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+            --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+            --card-stack-bg: #ffffff;
+            --carousel-nav-bg: rgba(255, 255, 255, 0.95);
+            --carousel-btn-bg: #f8f9fa;
+            --carousel-btn-hover: #e9ecef;
+        }
+        
+        /* Dark Mode */
+        [data-theme="dark"] {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #e6edf3;
+            --text-secondary: #8b949e;
+            --text-muted: #6e7681;
+            --border-color: #30363d;
+            --card-bg: #161b22;
+            --card-header-bg: #21262d;
+            --preview-bg: #161b22;
+            --preview-face-bg: #0d1117;
+            --shadow-sm: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 0.5rem 1rem rgba(0, 0, 0, 0.5);
+            --card-stack-bg: #1c2128;
+            --carousel-nav-bg: rgba(22, 27, 34, 0.95);
+            --carousel-btn-bg: #21262d;
+            --carousel-btn-hover: #30363d;
+        }
+        
+        /* ==================== GLOBAL STYLES ==================== */
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        
+        .navbar-brand {
+            font-weight: 600;
+            font-size: 1.25rem;
+        }
+        
+        /* Theme Toggle Button */
+        .theme-toggle {
+            background: transparent;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.9);
+            padding: 0.375rem 0.75rem;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .theme-toggle:hover {
+            border-color: rgba(255, 255, 255, 0.5);
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .theme-toggle i {
+            font-size: 1.1rem;
+        }
+        
+        .main-container {
+            min-height: calc(100vh - 56px);
+        }
+        
+        /* Editor Styles (Always Dark Mode) */
+        .editor-container {
+            height: 600px;
+            border: 1px solid rgba(128, 128, 128, 0.3);
+            border-radius: 0.375rem;
+            overflow: hidden;
+            background: #1e1e1e;
+        }
+        
+        .CodeMirror {
+            height: 100% !important;
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 14px;
+            background: #1e1e1e !important;
+            color: #d4d4d4 !important;
+        }
+        
+        /* Force dark theme for CodeMirror gutters - with cyan accent */
+        .CodeMirror-gutters {
+            background: #1a1a1a !important;
+            border-right: 1px solid #00E5FF !important;
+        }
+        
+        .CodeMirror-linenumber {
+            color: #858585 !important;
+        }
+        
+        .CodeMirror-activeline-background {
+            background: rgba(0, 229, 255, 0.05) !important;
+        }
+        
+        /* Active line gutter with cyan accent */
+        .CodeMirror-activeline .CodeMirror-linenumber {
+            color: #00E5FF !important;
+        }
+        
+        /* Selection color - cyan */
+        .CodeMirror-selected {
+            background: rgba(0, 229, 255, 0.15) !important;
+        }
+        
+        .CodeMirror-focused .CodeMirror-selected {
+            background: rgba(0, 229, 255, 0.2) !important;
+        }
+        
+        /* Cursor color - cyan */
+        .CodeMirror-cursor {
+            border-left: 2px solid #00E5FF !important;
+        }
+        
+        /* Matching brackets - cyan */
+        .CodeMirror-matchingbracket {
+            color: #00E5FF !important;
+            font-weight: bold;
+            background: rgba(0, 229, 255, 0.1) !important;
+        }
+        
+        /* Non-matching brackets - red */
+        .CodeMirror-nonmatchingbracket {
+            color: #FF1744 !important;
+            background: rgba(255, 23, 68, 0.1) !important;
+        }
+        
+        /* ==================== YAML Syntax Highlighting (Cyan, Red, White only) ==================== */
+        
+        /* YAML Keys - Cyan */
+        .cm-property,
+        .cm-attribute {
+            color: #00E5FF !important;
+        }
+        
+        /* YAML Values - White */
+        .cm-string,
+        .cm-string-2 {
+            color: #ffffff !important;
+        }
+        
+        /* YAML Numbers - Cyan */
+        .cm-number {
+            color: #00E5FF !important;
+        }
+        
+        /* YAML Booleans - Cyan */
+        .cm-atom {
+            color: #00E5FF !important;
+        }
+        
+        /* YAML Comments - Gray (muted white) */
+        .cm-comment {
+            color: #858585 !important;
+            font-style: italic;
+        }
+        
+        /* YAML Special characters (-, :, |, >) - Red */
+        .cm-punctuation,
+        .cm-operator {
+            color: #FF1744 !important;
+        }
+        
+        /* YAML Document separators (---) - Red */
+        .cm-hr {
+            color: #FF1744 !important;
+        }
+        
+        /* YAML Tags (!tag) - Red */
+        .cm-tag {
+            color: #FF1744 !important;
+        }
+        
+        /* YAML Anchors and References (&anchor, *reference) - Cyan */
+        .cm-variable,
+        .cm-variable-2,
+        .cm-variable-3 {
+            color: #00E5FF !important;
+        }
+        
+        /* YAML Null values - Gray */
+        .cm-keyword {
+            color: #858585 !important;
+        }
+        
+        /* Disable all yellow/orange colors from Monokai */
+        .cm-def,
+        .cm-qualifier,
+        .cm-type,
+        .cm-builtin {
+            color: #ffffff !important;
+        }
+        
+        /* CodeMirror scrollbar - grey */
+        .CodeMirror-scrollbar-filler,
+        .CodeMirror-gutter-filler {
+            background-color: #1a1a1a !important;
+        }
+        
+        /* Vertical scrollbar */
+        .CodeMirror-vscrollbar::-webkit-scrollbar {
+            width: 10px;
+        }
+        
+        .CodeMirror-vscrollbar::-webkit-scrollbar-track {
+            background: #1a1a1a !important;
+        }
+        
+        .CodeMirror-vscrollbar::-webkit-scrollbar-thumb {
+            background: rgba(128, 128, 128, 0.5) !important;
+            border-radius: 5px;
+        }
+        
+        .CodeMirror-vscrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(128, 128, 128, 0.8) !important;
+        }
+        
+        /* Horizontal scrollbar */
+        .CodeMirror-hscrollbar::-webkit-scrollbar {
+            height: 10px;
+        }
+        
+        .CodeMirror-hscrollbar::-webkit-scrollbar-track {
+            background: #1a1a1a !important;
+        }
+        
+        .CodeMirror-hscrollbar::-webkit-scrollbar-thumb {
+            background: rgba(128, 128, 128, 0.5) !important;
+            border-radius: 5px;
+        }
+        
+        .CodeMirror-hscrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(128, 128, 128, 0.8) !important;
+        }
+        
+        /* Preview Panel Styles */
+        .card-preview {
+            min-height: 400px;
+            background: var(--preview-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 2rem;
+            box-shadow: var(--shadow-sm);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        
+        .card-face {
+            margin-bottom: 2rem;
+        }
+        
+        .card-face-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            font-size: 0.875rem;
+            letter-spacing: 0.05em;
+        }
+        
+        .card-face-content {
+            padding: 1.5rem;
+            background: var(--preview-face-bg);
+            border-radius: 0.375rem;
+            min-height: 150px;
+            transition: background-color 0.3s ease;
+        }
+        
+        /* Status Messages */
+        .status-message {
+            position: fixed;
+            top: 70px;
+            right: 20px;
+            min-width: 300px;
+            z-index: 1050;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        /* Loading Spinner */
+        .spinner-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        
+        .spinner-overlay.active {
+            display: flex;
+        }
+        
+        .spinner-overlay .spinner-border {
+            width: 3rem;
+            height: 3rem;
+        }
+        
+        /* Button Styles */
+        .btn-group-actions {
+            gap: 0.5rem;
+        }
+        
+        .btn i {
+            margin-right: 0.25rem;
+        }
+        
+        /* Stats Cards */
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .stat-card .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        
+        .stat-card .stat-label {
+            font-size: 0.875rem;
+            opacity: 0.9;
+        }
+        
+        /* Validation Errors */
+        .validation-errors {
+            background: var(--bg-tertiary);
+            border: 1px solid #ffc107;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .validation-error-item {
+            padding: 0.5rem;
+            border-left: 3px solid var(--danger-color);
+            margin-bottom: 0.5rem;
+            background: var(--card-bg);
+        }
+        
+        /* Card Navigation */
+        .card-navigation {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 0;
+            border-top: 1px solid var(--border-color);
+            margin-top: 1rem;
+        }
+        
+        .card-counter {
+            font-weight: 600;
+            color: #6c757d;
+        }
+        
+        /* Card Stack Carousel */
+        .card-stack-container {
+            position: relative;
+            width: 100%;
+            height: 560px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            perspective: 1200px;
+            margin: 20px 0;
+            padding: 20px;
+        }
+        
+        .card-stack {
+            position: relative;
+            width: 420px;
+            height: 540px;
+        }
+        
+        .preview-card {
+            position: absolute;
+            width: 400px;
+            height: 520px;
+            background: var(--card-stack-bg);
+            border-radius: 24px;
+            box-shadow: 0 35px 14px rgba(0,0,0,0.01), 
+                        0 20px 12px rgba(0,0,0,0.05), 
+                        0 9px 9px rgba(0,0,0,0.09), 
+                        0 2px 5px rgba(0,0,0,0.1);
+            cursor: grab;
+            user-select: none;
+            overflow: hidden;
+            left: 0;
+            top: 0;
+            will-change: transform, opacity, z-index;
+            perspective: 400px;
+            transition: background-color 0.3s ease;
+        }
+        
+        .preview-card:active {
+            cursor: grabbing;
+        }
+        
+        /* 
+         * Card Stack Animation System (Figma-inspired)
+         * Uses CSS custom properties for smooth spring animations
+         * Cards use transform-origin: center center for natural scaling
+         */
+        
+        /* Default transition for position changes - smooth spring animation */
+        .preview-card {
+            --card-scale: 1;
+            --card-x: 0px;
+            --card-y: 0px;
+            --card-rotate: 0deg;
+            --card-z: 4;
+            transform: scale(var(--card-scale)) translateX(var(--card-x)) translateY(var(--card-y)) rotate(var(--card-rotate));
+            z-index: var(--card-z);
+            opacity: 1;
+        }
+        
+        /* When not dragging, apply smooth spring transitions */
+        .preview-card:not(.dragging) {
+            transition: 
+                transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.3s ease-out;
+            /* z-index transition delayed to avoid visual stacking issues */
+            transition-property: transform, opacity, z-index;
+            transition-duration: 0.5s, 0.3s, 0s;
+            transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1), ease-out, linear;
+            transition-delay: 0s, 0s, 0.05s;
+        }
+        
+        /* When dragging, disable transitions for immediate response */
+        .preview-card.dragging {
+            transition: none !important;
+        }
+        
+        /* Position-specific transforms (Figma values) */
+        .preview-card[data-position="0"] {
+            --card-scale: 1;
+            --card-x: 0px;
+            --card-y: 0px;
+            --card-rotate: 0deg;
+            --card-z: 4;
+        }
+        
+        .preview-card[data-position="1"] {
+            --card-scale: 0.9;
+            --card-x: 32px;
+            --card-y: -12px;
+            --card-rotate: 2deg;
+            --card-z: 3;
+            pointer-events: none;
+        }
+        
+        .preview-card[data-position="2"] {
+            --card-scale: 0.85;
+            --card-x: 48px;
+            --card-y: 0px;
+            --card-rotate: 4deg;
+            --card-z: 2;
+            pointer-events: none;
+        }
+        
+        .preview-card[data-position="3"] {
+            --card-scale: 0.8;
+            --card-x: 62px;
+            --card-y: 12px;
+            --card-rotate: 7deg;
+            --card-z: 1;
+            pointer-events: none;
+        }
+        
+        /* Card going to back of stack - animate to back position then wrap around */
+        .preview-card.to-back {
+            --card-scale: 0.8;
+            --card-x: 62px;
+            --card-y: 12px;
+            --card-rotate: 7deg;
+            --card-z: 0;
+            transition: 
+                transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.3s ease-out !important;
+        }
+        
+        /* Card animating to the right (next button) */
+        .preview-card.swipe-right {
+            z-index: 5 !important;
+            transition: 
+                transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                opacity 0.3s ease-out !important;
+        }
+        
+        /* Card coming from back to front (prev button) */
+        .preview-card.from-back {
+            z-index: 5 !important;
+            transition: 
+                transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                opacity 0.3s ease-out !important;
+        }
+        
+        .card-face-container {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .card-half {
+            flex: 1;
+            padding: 24px;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .card-half.front {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 24px 24px 0 0;
+        }
+        
+        .card-half.back {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border-radius: 0 0 24px 24px;
+            border-top: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .card-half-label {
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 12px;
+            opacity: 0.95;
+            flex-shrink: 0;
+        }
+        
+        .card-half-content {
+            font-size: 16px;
+            line-height: 1.7;
+            flex: 1;
+            overflow-y: auto;
+            position: relative;
+            padding-right: 8px;
+            margin-right: -8px;
+        }
+        
+        .card-half-content p {
+            margin-bottom: 0.75rem;
+        }
+        
+        .card-half-content p:last-child {
+            margin-bottom: 0;
+        }
+        
+        .card-half-content strong {
+            font-weight: 700;
+        }
+        
+        .card-half-content em {
+            font-style: italic;
+        }
+        
+        .card-half-content ul, .card-half-content ol {
+            padding-left: 1.5rem;
+            margin-bottom: 0.75rem;
+            margin-top: 0.5rem;
+        }
+        
+        .card-half-content ul {
+            list-style-type: disc;
+            list-style-position: outside;
+        }
+        
+        .card-half-content ol {
+            list-style-type: decimal;
+            list-style-position: outside;
+        }
+        
+        .card-half-content li {
+            margin: 0.35rem 0;
+            line-height: 1.6;
+        }
+        
+        .card-half-content ul ul {
+            list-style-type: circle;
+            margin-top: 0.25rem;
+        }
+        
+        .card-half-content ul ul ul {
+            list-style-type: square;
+        }
+        
+        /* Table styling for GFM (GitHub Flavored Markdown) tables */
+        .card-half-content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 0.75rem 0;
+            font-size: 0.95em;
+        }
+        
+        .card-half-content thead {
+            background: rgba(255, 255, 255, 0.15);
+        }
+        
+        .card-half.back .card-half-content thead {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        
+        .card-half-content th,
+        .card-half-content td {
+            padding: 0.5rem 0.75rem;
+            text-align: left;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .card-half.back .card-half-content th,
+        .card-half.back .card-half-content td {
+            border-color: rgba(0, 0, 0, 0.15);
+        }
+        
+        .card-half-content th {
+            font-weight: 600;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .card-half.back .card-half-content th {
+            border-bottom-color: rgba(0, 0, 0, 0.2);
+        }
+        
+        .card-half-content tbody tr:nth-child(even) {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        
+        .card-half.back .card-half-content tbody tr:nth-child(even) {
+            background: rgba(0, 0, 0, 0.03);
+        }
+        
+        .card-half-content tbody tr:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .card-half.back .card-half-content tbody tr:hover {
+            background: rgba(0, 0, 0, 0.05);
+        }
+        
+        /* Code blocks within content */
+        .card-half-content pre {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 0.75rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 0.5rem 0;
+        }
+        
+        .card-half.back .card-half-content pre {
+            background: rgba(0, 0, 0, 0.1);
+        }
+        
+        .card-half-content code {
+            font-family: 'Courier New', 'Consolas', monospace;
+            font-size: 0.9em;
+        }
+        
+        .card-half-content pre code {
+            background: transparent;
+            padding: 0;
+        }
+        
+        /* Custom scrollbar for card content */
+        .card-half-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .card-half-content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        
+        .card-half-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.35);
+            border-radius: 10px;
+        }
+        
+        .card-half-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+        
+        /* Overflow indicator */
+        .overflow-indicator {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 50px;
+            background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.4));
+            display: none;
+            align-items: flex-end;
+            justify-content: center;
+            padding-bottom: 10px;
+            pointer-events: none;
+        }
+        
+        .card-half.front .overflow-indicator {
+            border-radius: 0;
+        }
+        
+        .card-half.back .overflow-indicator {
+            border-radius: 0 0 22px 22px;
+        }
+        
+        .overflow-indicator.visible {
+            display: flex;
+        }
+        
+        .overflow-indicator-text {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: white;
+            opacity: 1;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        /* Navigation controls */
+        .carousel-nav {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 24px;
+            margin-top: 30px;
+            margin-bottom: 20px;
+        }
+        
+        .carousel-nav-btn {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: var(--carousel-btn-bg);
+            border: 2px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            font-size: 20px;
+            color: var(--text-primary);
+        }
+        
+        .carousel-nav-btn:hover:not(:disabled) {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-color: #667eea;
+            color: white;
+            transform: scale(1.15);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .carousel-nav-btn:disabled {
+            opacity: 0.25;
+            cursor: not-allowed;
+        }
+        
+        .carousel-counter {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--text-primary);
+            min-width: 100px;
+            text-align: center;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .carousel-counter .current {
+            color: #667eea;
+        }
+        
+        /* ==================== BOOTSTRAP OVERRIDES ==================== */
+        /* Cards */
+        .card {
+            background-color: var(--card-bg);
+            border-color: var(--border-color);
+            color: var(--text-primary);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        
+        .card-header {
+            background-color: var(--card-header-bg);
+            border-bottom-color: var(--border-color);
+            color: var(--text-primary);
+        }
+        
+        .card-footer {
+            background-color: var(--card-header-bg);
+            border-top-color: var(--border-color);
+        }
+        
+        /* Always keep specific headers dark */
+        .card-header.bg-dark {
+            background-color: #212529 !important;
+            color: white !important;
+        }
+        
+        /* Override .bg-light to respect theme */
+        .bg-light {
+            background-color: var(--card-header-bg) !important;
+            color: var(--text-primary) !important;
+        }
+        
+        /* Keep colored backgrounds but adjust for dark mode */
+        [data-theme="dark"] .bg-warning {
+            background-color: #9a7b0a !important; /* Darker yellow for dark mode */
+            color: #ffffff !important;
+        }
+        
+        [data-theme="dark"] .bg-info {
+            background-color: #0a6d99 !important; /* Darker cyan for dark mode */
+            color: #ffffff !important;
+        }
+        
+        /* Buttons in light theme get slight adjustments */
+        .btn-outline-secondary {
+            color: var(--text-secondary);
+            border-color: var(--border-color);
+        }
+        
+        .btn-outline-secondary:hover {
+            background-color: var(--bg-tertiary);
+            border-color: var(--border-color);
+            color: var(--text-primary);
+        }
+        
+        .btn-outline-primary:hover {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        /* Alerts */
+        .alert {
+            border-color: var(--border-color);
+        }
+        
+        /* Form controls */
+        input, textarea, select {
+            background-color: var(--bg-primary);
+            border-color: var(--border-color);
+            color: var(--text-primary);
+        }
+        
+        input:focus, textarea:focus, select:focus {
+            background-color: var(--bg-primary);
+            border-color: var(--primary-color);
+            color: var(--text-primary);
+        }
+    </style>
+    
+    
+<!-- Prompt Manager CSS -->
+<link rel="stylesheet" href="static/css/components/prompt-manager.css">
+<!-- History Dropdown CSS -->
+<link rel="stylesheet" href="static/css/components/history-dropdown.css">
+<!-- Import Terminal CSS -->
+<link rel="stylesheet" href="static/css/components/import-terminal.css">
+<!-- YAML Editor CSS -->
+<link rel="stylesheet" href="static/css/yaml-editor.css">
+<!-- Card Stack Preview CSS -->
+<link rel="stylesheet" href="static/css/card-stack.css">
+
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">
+                <i class="bi bi-stack"></i>
+                Anki Automation
+            </a>
+            <div class="ms-auto">
+                <button class="theme-toggle" id="themeToggleBtn" title="Toggle theme">
+                    <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
+                    <span id="themeLabel">Dark</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Loading Overlay -->
+    <div class="spinner-overlay" id="loadingOverlay">
+        <div class="spinner-border text-light" role="status" style="width: 3rem; height: 3rem;">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+    
+    <!-- Status Messages Container -->
+    <div id="statusMessages"></div>
+    
+    <!-- Main Content -->
+    <div class="main-container">
+        
+<div class="container-fluid py-4">
+    <!-- AI Prompt Manager Component -->
+    <!-- AI Prompt Manager Component -->
+<div class="prompt-manager-container mb-4">
+    <div class="card shadow-sm">
+        <!-- Collapsible Header -->
+        <div class="card-header bg-primary text-white cursor-pointer" 
+             data-bs-toggle="collapse" data-bs-target="#promptManagerBody" aria-expanded="true">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="bi bi-robot"></i> AI Prompt Manager
+                </h5>
+                <button class="btn btn-sm btn-link text-white text-decoration-none p-0" type="button">
+                    <i class="bi bi-chevron-down" id="toggleIcon"></i>
+                </button>
+            </div>
+        </div>
+        
+        <!-- Collapsible Body -->
+        <div id="promptManagerBody" class="collapse show">
+            <div class="card-body p-0">
+                <div class="row g-0">
+                    <!-- Subject Panel (Left Sidebar - 25%) -->
+                    <div class="col-md-3 border-end bg-light">
+                        <div class="p-3">
+                            <!-- New Subject Button -->
+                            <button class="btn btn-primary btn-sm w-100 mb-3" id="newSubjectBtn">
+                                <i class="bi bi-plus-circle"></i> New Subject
+                            </button>
+                            
+                            <!-- Subject List (Accordion) -->
+                            <div class="accordion accordion-flush" id="subjectAccordion">
+                                <!-- Empty state -->
+                                <div id="emptySubjectState" class="text-center text-muted py-4">
+                                    <i class="bi bi-folder-x" style="font-size: 2rem;"></i>
+                                    <p class="mt-2 mb-0 small">No subjects yet.<br>Create one to get started!</p>
+                                </div>
+                                <!-- Subject items will be dynamically inserted here -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Prompt Editor Panel (Right Main Area - 75%) -->
+                    <div class="col-md-9">
+                        <div class="p-3">
+                            <!-- Prompt Header -->
+                            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                                <!-- Left: Prompt Counter -->
+                                <div>
+                                    <span id="promptCounter" class="badge bg-secondary">
+                                        No prompt selected
+                                    </span>
+                                </div>
+                                
+                                <!-- Center: Navigation Buttons -->
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-sm btn-outline-secondary" id="prevPromptBtn" 
+                                            title="Previous prompt" disabled>
+                                        <i class="bi bi-chevron-left"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-secondary" id="nextPromptBtn" 
+                                            title="Next prompt" disabled>
+                                        <i class="bi bi-chevron-right"></i>
+                                    </button>
+                                </div>
+                                
+                                <!-- Right: View Mode Toggle -->
+                                <div class="btn-group" role="group">
+                                    <input type="radio" class="btn-check" name="viewMode" 
+                                           id="rawMode" value="raw" autocomplete="off">
+                                    <label class="btn btn-sm btn-outline-primary" for="rawMode">
+                                        <i class="bi bi-code-slash"></i> Raw
+                                    </label>
+                                    
+                                    <input type="radio" class="btn-check" name="viewMode" 
+                                           id="renderedMode" value="rendered" autocomplete="off" checked>
+                                    <label class="btn btn-sm btn-outline-primary" for="renderedMode">
+                                        <i class="bi bi-eye"></i> Rendered
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <!-- Editor Area -->
+                            <div id="promptEditorContainer" class="mb-3">
+                                <!-- Empty State -->
+                                <div id="promptEmptyState" class="border rounded p-4 bg-light text-center text-muted">
+                                    <i class="bi bi-file-earmark-text" style="font-size: 3rem;"></i>
+                                    <p class="mt-3 mb-0">Select or create a prompt to get started</p>
+                                </div>
+                                
+                                <!-- Raw Mode: CodeMirror -->
+                                <textarea id="promptEditorRaw" 
+                                          class="form-control" 
+                                          style="display: none; min-height: 400px; font-family: 'Courier New', monospace;"></textarea>
+                                
+                                <!-- Rendered Mode: HTML div -->
+                                <div id="promptEditorRendered" 
+                                     class="border rounded p-3 bg-white"
+                                     style="display: none; min-height: 400px; max-height: 600px; overflow-y: auto; line-height: 1.6;">
+                                    <!-- Rendered markdown will be inserted here -->
+                                </div>
+                            </div>
+                            
+                            <!-- Action Buttons -->
+                            <div class="d-flex justify-content-between flex-wrap gap-2">
+                                <!-- Primary Actions (Left) -->
+                                <div class="d-flex align-items-center gap-2">
+                                    <button class="btn btn-primary" id="copyPromptBtn" disabled>
+                                        <i class="bi bi-clipboard"></i> Copy to Clipboard
+                                    </button>
+                                    <!-- Auto-save Loading Spinner -->
+                                    <div id="autoSaveSpinner" class="spinner-border spinner-border-sm" 
+                                         role="status" style="display: none;">
+                                        <span class="visually-hidden">Saving...</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Secondary Actions (Right) -->
+                                <div class="btn-group">
+                                    <button class="btn btn-outline-secondary btn-sm" id="moveUpBtn" 
+                                            title="Move prompt up" disabled>
+                                        <i class="bi bi-arrow-up"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm" id="moveDownBtn" 
+                                            title="Move prompt down" disabled>
+                                        <i class="bi bi-arrow-down"></i>
+                                    </button>
+                                    <button class="btn btn-outline-info btn-sm" id="newPromptBtn" 
+                                            title="Create new prompt" disabled>
+                                        <i class="bi bi-plus"></i>
+                                    </button>
+                                    <button class="btn btn-outline-danger btn-sm" id="deletePromptBtn" 
+                                            title="Delete prompt" disabled>
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New Subject Modal -->
+<div class="modal fade" id="newSubjectModal" tabindex="-1" aria-labelledby="newSubjectModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="newSubjectModalLabel">
+                    <i class="bi bi-folder-plus"></i> Create New Subject
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="newSubjectForm">
+                    <div class="mb-3">
+                        <label for="subjectNameInput" class="form-label">Subject Name</label>
+                        <input type="text" class="form-control" id="subjectNameInput" 
+                               placeholder="e.g., Economics, Machine Learning" required>
+                        <div class="form-text">Choose a descriptive name for your subject</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="createSubjectBtn">
+                    <i class="bi bi-check-circle"></i> Create
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Rename Subject Modal -->
+<div class="modal fade" id="renameSubjectModal" tabindex="-1" aria-labelledby="renameSubjectModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="renameSubjectModalLabel">
+                    <i class="bi bi-pencil"></i> Rename Subject
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="renameSubjectForm">
+                    <div class="mb-3">
+                        <label for="renameSubjectInput" class="form-label">New Subject Name</label>
+                        <input type="text" class="form-control" id="renameSubjectInput" required>
+                        <input type="hidden" id="renameSubjectOldName">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirmRenameBtn">
+                    <i class="bi bi-check-circle"></i> Rename
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteConfirmModal" tabindex="-1" aria-labelledby="deleteConfirmModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-danger text-white">
+                <h5 class="modal-title" id="deleteConfirmModalLabel">
+                    <i class="bi bi-exclamation-triangle"></i> Confirm Deletion
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p id="deleteConfirmMessage">Are you sure you want to delete this?</p>
+                <p class="text-danger small mb-0">
+                    <i class="bi bi-exclamation-circle"></i> This action cannot be undone!
+                </p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">
+                    <i class="bi bi-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+    
+    <div class="row">
+        <!-- Left Column: YAML Editor -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm mb-4">
+                <div class="card-header bg-dark text-white">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="bi bi-file-code"></i>
+                            YAML Editor
+                        </h5>
+                        <!-- History Dropdown (in header, right side) -->
+                        <div id="historyDropdownContainer"></div>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="editor-container">
+                        <textarea id="yamlEditor"></textarea>
+                    </div>
+                </div>
+                <div class="card-footer bg-light">
+                    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-success btn-sm" id="validateBtn">
+                                <i class="bi bi-check-circle"></i> Validate
+                            </button>
+                            <button class="btn btn-outline-info btn-sm" id="previewBtn">
+                                <i class="bi bi-eye"></i> Preview
+                            </button>
+                            <button class="btn btn-outline-primary btn-sm" id="importBtn">
+                                <i class="bi bi-upload"></i> Import to Anki
+                            </button>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" id="clearBtn">
+                                <i class="bi bi-x-circle"></i> Clear
+                            </button>
+                            <button class="btn btn-outline-secondary btn-sm" id="loadTemplateBtn">
+                                <i class="bi bi-folder-open"></i> Load Template
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Validation Results -->
+            <div id="validationPanel" style="display: none;">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-warning text-dark">
+                        <h6 class="mb-0">
+                            <i class="bi bi-exclamation-triangle"></i>
+                            Validation Results
+                        </h6>
+                    </div>
+                    <div class="card-body" id="validationContent">
+                        <!-- Validation errors will be inserted here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Right Column: Preview Panel -->
+        <div class="col-lg-6">
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-card-text"></i>
+                        Card Preview
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div id="previewPanel">
+                        <!-- Empty State -->
+                        <div id="emptyState" class="text-center text-muted py-5" style="padding: 3rem;">
+                            <i class="bi bi-eye-slash" style="font-size: 3.5rem;"></i>
+                            <p class="mt-3 mb-0" style="font-size: 1.1rem;">Click "Preview" to render your cards</p>
+                        </div>
+                        
+                        <!-- Card Stack Container (hidden initially) -->
+                        <div id="cardStackContainer" class="card-stack-container" style="display: none;">
+                            <div class="card-stack" id="cardStack">
+                                <!-- Cards will be dynamically inserted here -->
+                            </div>
+                        </div>
+                        
+                        <!-- Carousel Navigation -->
+                        <div id="carouselNav" class="carousel-nav" style="display: none;">
+                            <button class="carousel-nav-btn" id="prevCardBtn" title="Previous card">
+                                <i class="bi bi-chevron-left"></i>
+                            </button>
+                            <div class="carousel-counter">
+                                <span class="current" id="currentCardNum">1</span> / <span id="totalCardsNum">1</span>
+                            </div>
+                            <button class="carousel-nav-btn" id="nextCardBtn" title="Next card">
+                                <i class="bi bi-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Statistics Panel -->
+            <div class="card shadow-sm mt-4" id="statsPanel" style="display: none;">
+                <div class="card-header bg-info text-white">
+                    <h6 class="mb-0">
+                        <i class="bi bi-bar-chart"></i>
+                        Statistics
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="stat-value" id="statTotalCards">0</div>
+                            <div class="stat-label">Total Cards</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="stat-value" id="statValidCards">0</div>
+                            <div class="stat-label">Valid</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="stat-value" id="statErrors">0</div>
+                            <div class="stat-label">Errors</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    </div>
+    
+    <!-- Bootstrap 5 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- CodeMirror JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/yaml/yaml.min.js"></script>
+    
+    <!-- Utility Functions -->
+    <script>
+        // ==================== THEME MANAGEMENT ====================
+        // Initialize theme on page load
+        (function initTheme() {
+            // Default to dark mode if no preference saved
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+            updateThemeButton(savedTheme);
+        })();
+        
+        // Theme toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const themeToggle = document.getElementById('themeToggleBtn');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', toggleTheme);
+            }
+        });
+        
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            
+            document.documentElement.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            updateThemeButton(newTheme);
+        }
+        
+        function updateThemeButton(theme) {
+            const icon = document.getElementById('themeIcon');
+            const label = document.getElementById('themeLabel');
+            
+            if (theme === 'dark') {
+                icon.className = 'bi bi-moon-stars-fill';
+                label.textContent = 'Dark';
+            } else {
+                icon.className = 'bi bi-sun-fill';
+                label.textContent = 'Light';
+            }
+        }
+        
+        // ==================== UTILITY FUNCTIONS ====================
+        // Show loading overlay
+        function showLoading() {
+            document.getElementById('loadingOverlay').classList.add('active');
+        }
+        
+        // Hide loading overlay
+        function hideLoading() {
+            document.getElementById('loadingOverlay').classList.remove('active');
+        }
+        
+        // Show status message
+        function showStatus(message, type = 'info', duration = 5000) {
+            const container = document.getElementById('statusMessages');
+            const alertClass = `alert-${type}`;
+            const iconMap = {
+                'success': 'check-circle',
+                'danger': 'exclamation-triangle',
+                'warning': 'exclamation-circle',
+                'info': 'info-circle'
+            };
+            
+            const alert = document.createElement('div');
+            alert.className = `alert ${alertClass} alert-dismissible fade show status-message`;
+            alert.innerHTML = `
+                <i class="bi bi-${iconMap[type] || 'info-circle'}"></i>
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            container.appendChild(alert);
+            
+            if (duration > 0) {
+                setTimeout(() => {
+                    alert.classList.remove('show');
+                    setTimeout(() => alert.remove(), 300);
+                }, duration);
+            }
+        }
+        
+        // API Request Helper
+        async function apiRequest(endpoint, method = 'GET', data = null) {
+            const options = {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+            
+            if (data) {
+                options.body = JSON.stringify(data);
+            }
+            
+            try {
+                const response = await fetch(endpoint, options);
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.error || 'Request failed');
+                }
+                
+                return result;
+            } catch (error) {
+                console.error('API Request Error:', error);
+                throw error;
+            }
+        }
+    </script>
+    
+    
+<script>
+    // Initialize CodeMirror
+    const editor = CodeMirror.fromTextArea(document.getElementById('yamlEditor'), {
+        mode: 'yaml',
+        theme: 'monokai',
+        lineNumbers: true,
+        lineWrapping: true,
+        indentUnit: 2,
+        tabSize: 2,
+        indentWithTabs: false,
+        autofocus: true,
+        extraKeys: {
+            'Tab': function(cm) {
+                cm.replaceSelection('  ', 'end');
+            }
+        }
+    });
+    
+    // Initialize History Dropdown
+    let historyDropdown;
+    document.addEventListener('DOMContentLoaded', () => {
+        historyDropdown = new HistoryDropdown('historyDropdownContainer', editor);
+    });
+    
+    // Set default YAML template - Feature Showcase
+    const defaultYaml = `deck: "Anki-Automation-Showcase"
+model: "Anki Automation"
+tags: ["showcase", "demo"]
+cards:
+  - uid: "showcase-001"
+    fields:
+      Front: |
+        What is the <span class="badge badge-cyan">Primary</span> purpose of **Anki Automation**?
+      Back: |
+        <div class="info">
+          <strong>Definition:</strong> Anki Automation is a tool that uses AI to generate professional flashcards from lecture materials, PDFs, and notes.
+        </div>
+
+        Key benefits:
+        *   Saves hours of manual card creation
+        *   Ensures consistent, high-quality formatting
+        *   Supports LaTeX, tables, and rich HTML styling
+    tags: ["intro", "definition"]
+
+  - uid: "showcase-002"
+    fields:
+      Front: |
+        Explain the difference between <mark>Supervised</mark> and <mark class="highlight-green">Unsupervised</mark> Learning.
+      Back: |
+        | Aspect | Supervised Learning | Unsupervised Learning |
+        |:-------|:-------------------:|:---------------------:|
+        | Data | Labeled | Unlabeled |
+        | Goal | Predict outcomes | Find patterns |
+        | Examples | Classification, Regression | Clustering |
+
+        <div class="tip">
+          <strong>Tip:</strong> Think of supervised learning as learning with a teacher!
+        </div>
+    tags: ["machine-learning", "comparison"]
+
+  - uid: "showcase-003"
+    fields:
+      Front: |
+        What is the <span class="badge badge-purple">Quadratic Formula</span>?
+
+        Hint: <span class="spoiler" tabindex="0">It solves ax² + bx + c = 0</span>
+      Back: |
+        The general form of a quadratic equation is:
+
+        \\[ ax^2 + bx + c = 0 \\]
+
+        The solutions are given by:
+
+        \\[ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a} \\]
+
+        <div class="warning">
+          <strong>Note:</strong> The discriminant \\( \\Delta = b^2 - 4ac \\) determines the nature of roots.
+        </div>
+    tags: ["mathematics", "algebra"]
+
+  - uid: "showcase-004"
+    fields:
+      Front: |
+        What keyboard shortcut opens the <kbd>Command Palette</kbd> in VS Code?
+      Back: |
+        Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> (Windows/Linux)
+
+        Or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> (macOS)
+
+        <div class="info">
+          <strong>Pro Tip:</strong> You can also use <kbd>F1</kbd> as an alternative!
+        </div>
+    tags: ["shortcuts", "vscode"]
+
+  - uid: "showcase-005"
+    fields:
+      Front: |
+        Write a Python function for <span class="badge badge-green">factorial</span>.
+      Back: |
+        <pre><code>def factorial(n):
+            if n == 0 or n == 1:
+                return 1
+            return n * factorial(n - 1)
+
+        print(factorial(5))  # Output: 120</code></pre>
+
+        <div class="tip">
+          <strong>Complexity:</strong> \\( O(n) \\) for recursive calls
+        </div>
+    tags: ["programming", "python"]
+
+  - uid: "showcase-006"
+    fields:
+      Front: |
+        What are the <span class="badge badge-amber">ACID</span> properties?
+
+        Hint: <span class="spoiler" tabindex="0">Atomicity, Consistency, Isolation, Durability</span>
+      Back: |
+        <dl>
+          <dt>Atomicity</dt>
+          <dd>All operations succeed or all fail together</dd>
+
+          <dt>Consistency</dt>
+          <dd>Database remains in a valid state</dd>
+
+          <dt>Isolation</dt>
+          <dd>Concurrent transactions don't interfere</dd>
+
+          <dt>Durability</dt>
+          <dd>Committed transactions persist after failures</dd>
+        </dl>
+
+        <div class="error">
+          <strong>Common Mistake:</strong> Confusing Isolation levels (READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE) with the Isolation property itself.
+        </div>
+    tags: ["databases", "transactions", "theory"]
+
+  - uid: "showcase-007"
+    fields:
+      Front: |
+        <details class="spoiler-block">
+          <summary>Click to reveal the question about Neural Networks</summary>
+          <p>What are the three main types of layers in a neural network?</p>
+        </details>
+      Back: |
+        | Layer Type | Function | Position |
+        |:-----------|:--------:|:--------:|
+        | <span class="badge badge-blue">Input</span> | Receives raw data | First |
+        | <span class="badge badge-purple">Hidden</span> | Learns features and patterns | Middle |
+        | <span class="badge badge-green">Output</span> | Produces final predictions | Last |
+
+        <blockquote>
+          "Deep learning allows computational models that are composed of multiple processing layers to learn representations of data with multiple levels of abstraction."
+          <cite>— Yann LeCun, Yoshua Bengio, Geoffrey Hinton</cite>
+        </blockquote>
+    tags: ["deep-learning", "neural-networks", "architecture"]
+
+  - uid: "showcase-008"
+    fields:
+      Front: |
+        What does <code>HTTP 404</code> status code mean?
+      Back: |
+        <span class="badge badge-red">404 Not Found</span>
+
+        The server cannot find the requested resource. This typically means:
+
+        *   The URL is incorrect or misspelled
+        *   The resource has been moved or deleted
+        *   The link is broken
+
+        <div class="info">
+          <strong>Related Codes:</strong>
+          *   <code>400</code> - Bad Request
+          *   <code>401</code> - Unauthorized
+          *   <code>403</code> - Forbidden
+          *   <code>500</code> - Internal Server Error
+        </div>
+    tags: ["web-development", "http", "status-codes"]
+
+  - uid: "showcase-009"
+    fields:
+      Front: |
+        Compare <span class="yes">✓</span> advantages and <span class="no">✗</span> disadvantages of **SQL** vs **NoSQL** databases.
+      Back: |
+        | Feature | SQL | NoSQL |
+        |---------|-----|-------|
+        | Schema | <span class="no">✗</span> Fixed | <span class="yes">✓</span> Flexible |
+        | Scalability | Vertical | <span class="yes">✓</span> Horizontal |
+        | ACID Compliance | <span class="yes">✓</span> Full | Partial |
+        | Complex Queries | <span class="yes">✓</span> Excellent | Limited |
+        | Speed (simple ops) | Good | <span class="yes">✓</span> Faster |
+
+        <div class="tip">
+          <strong>When to use SQL:</strong> Complex relationships, transactions, data integrity
+        </div>
+
+        <div class="tip">
+          <strong>When to use NoSQL:</strong> Rapid scaling, unstructured data, real-time apps
+        </div>
+    tags: ["databases", "comparison", "architecture"]
+
+  - uid: "showcase-010"
+    fields:
+      Front: |
+        What is <mark class="highlight-yellow">Big O Notation</mark> and why is it important?
+      Back: |
+        Big O notation describes the **upper bound** of an algorithm's time or space complexity as input size grows.
+
+        Common complexities (best to worst):
+
+        | Notation | Name | Example |
+        |:---------|:----:|--------:|
+        | \\( O(1) \\) | Constant | Array access |
+        | \\( O(\\log n) \\) | Logarithmic | Binary search |
+        | \\( O(n) \\) | Linear | Simple loop |
+        | \\( O(n \\log n) \\) | Linearithmic | Merge sort |
+        | \\( O(n^2) \\) | Quadratic | Nested loops |
+        | \\( O(2^n) \\) | Exponential | Recursive Fibonacci |
+
+        <div class="error">
+          <strong>Important:</strong> Big O ignores constants and lower-order terms. \\( O(2n) \\) simplifies to \\( O(n) \\).
+        </div>
+    tags: ["algorithms", "complexity", "fundamentals"]
+`;
+    
+    editor.setValue(defaultYaml);
+    
+    // Global state - matches Figma implementation
+    let currentCardIndex = 0;
+    let totalCards = 0;
+    let allCardsData = [];
+    let cardIndices = [0, 1, 2, 3]; // Stack rotation: [front, second, third, back]
+    
+    // Global drag state
+    let dragState = {
+        isDragging: false,
+        activeCard: null,
+        startX: 0,
+        startY: 0,
+        currentX: 0,
+        currentY: 0,
+        dragStartTime: 0
+    };
+    
+    // Animation settings (from Figma CarouselStack)
+    const animationSettings = {
+        springDuration: 0.3,       // Duration of spring animation
+        springBounce: 0.3,         // Bounce factor for spring
+        xSpringDuration: 0.5,      // X-axis specific spring duration
+        xSpringBounce: 0.1,        // X-axis specific bounce
+        dragElastic: 0.7,          // How much the card follows the cursor (0-1)
+        swipeConfidenceThreshold: 10000,  // Power threshold for swipe detection
+        zIndexDelay: 0.05          // Delay for z-index change to avoid visual glitches
+    };
+    
+    // Initialize global drag handlers once (not per-card)
+    function initGlobalDragHandlers() {
+        // Mouse move handler
+        document.addEventListener('mousemove', (e) => {
+            if (!dragState.isDragging || !dragState.activeCard) return;
+            handleDragMove(e.clientX, e.clientY);
+        });
+        
+        // Mouse up handler
+        document.addEventListener('mouseup', () => {
+            if (!dragState.isDragging || !dragState.activeCard) return;
+            handleDragEnd();
+        });
+        
+        // Touch move handler (for document level)
+        document.addEventListener('touchmove', (e) => {
+            if (!dragState.isDragging || !dragState.activeCard) return;
+            const touch = e.touches[0];
+            handleDragMove(touch.clientX, touch.clientY);
+        }, { passive: true });
+        
+        // Touch end handler (for document level)
+        document.addEventListener('touchend', () => {
+            if (!dragState.isDragging || !dragState.activeCard) return;
+            handleDragEnd();
+        });
+        
+        document.addEventListener('touchcancel', () => {
+            if (!dragState.isDragging || !dragState.activeCard) return;
+            handleDragEnd();
+        });
+    }
+    
+    // Call once on page load
+    initGlobalDragHandlers();
+    
+    // Handle drag move (called from global listener)
+    function handleDragMove(clientX, clientY) {
+        const card = dragState.activeCard;
+        if (!card) return;
+        
+        dragState.currentX = clientX;
+        dragState.currentY = clientY;
+        
+        const offsetX = dragState.currentX - dragState.startX;
+        const offsetY = dragState.currentY - dragState.startY;
+        
+        // Apply drag elastic (from Figma settings)
+        const elasticX = offsetX * animationSettings.dragElastic;
+        const elasticY = offsetY * animationSettings.dragElastic * 0.3;
+        
+        // Calculate slight rotation based on drag direction
+        const rotationAmount = Math.min(Math.max(elasticX / 30, -15), 15);
+        
+        // Apply transform during drag
+        card.style.transform = `scale(1) translateX(${elasticX}px) translateY(${elasticY}px) rotate(${rotationAmount}deg)`;
+        card.style.zIndex = '5';
+    }
+    
+    // Handle drag end (called from global listener)
+    function handleDragEnd() {
+        const card = dragState.activeCard;
+        if (!card) return;
+        
+        const offsetX = dragState.currentX - dragState.startX;
+        const offsetY = dragState.currentY - dragState.startY;
+        const elapsedTime = Date.now() - dragState.dragStartTime;
+        
+        // Calculate velocity
+        const velocityX = Math.abs(offsetX) / Math.max(elapsedTime, 1) * 1000;
+        const velocityY = Math.abs(offsetY) / Math.max(elapsedTime, 1) * 1000;
+        
+        // Calculate swipe power
+        const powerX = swipePower(offsetX, velocityX);
+        const powerY = swipePower(offsetY, velocityY);
+        const totalPower = Math.max(Math.abs(powerX), Math.abs(powerY));
+        
+        // Remove dragging class
+        card.classList.remove('dragging');
+        card.style.cursor = 'grab';
+        card.style.zIndex = '';
+        
+        // Check if swipe meets threshold
+        if (totalPower > animationSettings.swipeConfidenceThreshold) {
+            animateCardToBack(card);
+        } else {
+            springBackToPosition(card);
+        }
+        
+        // Reset drag state
+        dragState.isDragging = false;
+        dragState.activeCard = null;
+    }
+    
+    // Validate YAML
+    document.getElementById('validateBtn').addEventListener('click', async function() {
+        const yamlContent = editor.getValue();
+        
+        if (!yamlContent.trim()) {
+            showStatus('Please enter YAML content', 'warning');
+            return;
+        }
+        
+        showLoading();
+        
+        try {
+            const result = await apiRequest('/api/validate', 'POST', { yaml_content: yamlContent });
+            hideLoading();
+            
+            if (result.valid) {
+                // Build status message with reverse card info
+                let statusMsg = `✅ Validation successful! ${result.card_count} cards found`;
+                if (result.reverse_count > 0) {
+                    statusMsg += ` (+${result.reverse_count} reverse cards = ${result.total_cards} total)`;
+                }
+                statusMsg += '.';
+                showStatus(statusMsg, 'success');
+                document.getElementById('validationPanel').style.display = 'none';
+                
+                // Update stats with total cards (including reverse)
+                document.getElementById('statsPanel').style.display = 'block';
+                document.getElementById('statTotalCards').textContent = result.total_cards;
+                document.getElementById('statValidCards').textContent = result.total_cards;
+                document.getElementById('statErrors').textContent = 0;
+            } else {
+                showStatus('❌ Validation failed. Check errors below.', 'danger');
+                displayValidationErrors(result.errors);
+                
+                // Update stats
+                document.getElementById('statsPanel').style.display = 'block';
+                document.getElementById('statTotalCards').textContent = result.card_count || 0;
+                document.getElementById('statValidCards').textContent = 0;
+                document.getElementById('statErrors').textContent = result.errors.length;
+            }
+        } catch (error) {
+            hideLoading();
+            showStatus(`Error: ${error.message}`, 'danger');
+        }
+    });
+    
+    // Preview Cards
+    document.getElementById('previewBtn').addEventListener('click', async function() {
+        const yamlContent = editor.getValue();
+        
+        if (!yamlContent.trim()) {
+            showStatus('Please enter YAML content', 'warning');
+            return;
+        }
+        
+        showLoading();
+        
+        try {
+            // First validate
+            const validation = await apiRequest('/api/validate', 'POST', { yaml_content: yamlContent });
+            
+            if (!validation.valid) {
+                hideLoading();
+                showStatus('Please fix validation errors before previewing', 'warning');
+                displayValidationErrors(validation.errors);
+                return;
+            }
+            
+            totalCards = validation.card_count;
+            currentCardIndex = 0;
+            allCardsData = [];
+            
+            // Load all cards
+            for (let i = 0; i < totalCards; i++) {
+                const result = await apiRequest('/api/preview', 'POST', {
+                    yaml_content: yamlContent,
+                    card_index: i
+                });
+                if (result.success) {
+                    allCardsData.push(result);
+                }
+            }
+            
+            // Initialize carousel
+            initializeCarousel();
+            
+            hideLoading();
+            showStatus(`Loaded ${totalCards} cards for preview`, 'success');
+        } catch (error) {
+            hideLoading();
+            showStatus(`Error: ${error.message}`, 'danger');
+        }
+    });
+    
+    // Initialize carousel with cards
+    function initializeCarousel() {
+        if (allCardsData.length === 0) return;
+        
+        // Hide empty state, show carousel
+        document.getElementById('emptyState').style.display = 'none';
+        document.getElementById('cardStackContainer').style.display = 'flex';
+        document.getElementById('carouselNav').style.display = 'flex';
+        
+        // Reset to start: show cards 0, 1, 2, 3
+        currentCardIndex = 0;
+        
+        // Initialize indices for the visible stack positions
+        const visibleCount = Math.min(4, allCardsData.length);
+        cardIndices = [];
+        for (let i = 0; i < visibleCount; i++) {
+            cardIndices[i] = i % allCardsData.length;
+        }
+        
+        // Create the initial card elements (they will be reused)
+        createCardStack();
+        updateCarouselNav();
+    }
+    
+    // Create the card stack elements (called once during init)
+    function createCardStack() {
+        const cardStack = document.getElementById('cardStack');
+        cardStack.innerHTML = '';
+        
+        if (allCardsData.length === 0) {
+            console.error('No cards to render');
+            return;
+        }
+        
+        const visibleCount = Math.min(4, allCardsData.length);
+        
+        console.log(`Creating ${visibleCount} card elements. Total cards: ${allCardsData.length}`);
+        
+        // Create card elements for each stack position
+        for (let i = 0; i < visibleCount; i++) {
+            const cardDataIndex = cardIndices[i];
+            const cardData = allCardsData[cardDataIndex];
+            
+            const card = createCardElement(cardData, i, cardDataIndex);
+            cardStack.appendChild(card);
+        }
+        
+        // Trigger MathJax rendering
+        triggerMathJax();
+    }
+    
+    // Create a single card element with a unique ID based on data index
+    function createCardElement(cardData, stackPosition, dataIndex) {
+        const card = document.createElement('div');
+        card.className = 'preview-card';
+        card.dataset.position = stackPosition.toString();
+        card.dataset.cardIndex = dataIndex.toString(); // Track which card data this shows
+        
+        const frontContent = cardData.fields.Front || '';
+        const backContent = cardData.fields.Back || '';
+        
+        card.innerHTML = `
+            <div class="card-face-container">
+                <div class="card-half front">
+                    <div class="card-half-label">FRONT</div>
+                    <div class="card-half-content">
+                        ${frontContent}
+                    </div>
+                    <div class="overflow-indicator">
+                        <span class="overflow-indicator-text">
+                            <i class="bi bi-three-dots"></i> MORE CONTENT
+                        </span>
+                    </div>
+                </div>
+                <div class="card-half back">
+                    <div class="card-half-label">BACK</div>
+                    <div class="card-half-content">
+                        ${backContent}
+                    </div>
+                    <div class="overflow-indicator">
+                        <span class="overflow-indicator-text">
+                            <i class="bi bi-three-dots"></i> MORE CONTENT
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // All cards get drag listeners, but only position 0 will respond
+        addDragListeners(card);
+        
+        return card;
+    }
+    
+    // Update the stack positions (Figma-style animation)
+    // Each card element tracks its data index via data-card-index
+    // We update data-position based on where that data should appear in the stack
+    function updateStackPositions() {
+        const cardStack = document.getElementById('cardStack');
+        const cards = Array.from(cardStack.querySelectorAll('.preview-card'));
+        const visibleCount = Math.min(4, allCardsData.length);
+        
+        console.log(`Updating positions. cardIndices: [${cardIndices.join(', ')}]`);
+        
+        // Build a map of data index -> desired position
+        const positionMap = new Map();
+        for (let pos = 0; pos < visibleCount; pos++) {
+            positionMap.set(cardIndices[pos], pos);
+        }
+        
+        // Track which positions are assigned
+        const assignedPositions = new Set();
+        const cardsNeedingNewData = [];
+        
+        // First pass: assign positions to cards whose data is still in view
+        cards.forEach((card) => {
+            const cardDataIndex = parseInt(card.dataset.cardIndex);
+            
+            if (positionMap.has(cardDataIndex)) {
+                const newPosition = positionMap.get(cardDataIndex);
+                card.dataset.position = newPosition.toString();
+                assignedPositions.add(newPosition);
+                console.log(`  Card (data=${cardDataIndex}): → position ${newPosition}`);
+            } else {
+                // This card's data is no longer visible, needs reassignment
+                cardsNeedingNewData.push(card);
+            }
+        });
+        
+        // Second pass: reassign cards whose data left the view
+        // Give them new data from positions not yet covered
+        cardsNeedingNewData.forEach((card) => {
+            for (let pos = 0; pos < visibleCount; pos++) {
+                if (!assignedPositions.has(pos)) {
+                    const newDataIndex = cardIndices[pos];
+                    card.dataset.cardIndex = newDataIndex.toString();
+                    card.dataset.position = pos.toString();
+                    assignedPositions.add(pos);
+                    
+                    // Update this card's content
+                    const cardData = allCardsData[newDataIndex];
+                    updateCardContent(card, cardData);
+                    
+                    console.log(`  Card reassigned: data=${newDataIndex}, position=${pos}`);
+                    break;
+                }
+            }
+        });
+        
+        // Re-trigger MathJax for any updated content
+        triggerMathJax();
+        
+        // Check overflow after animation completes
+        setTimeout(() => {
+            cards.forEach((card) => checkCardOverflow(card));
+        }, 500);
+    }
+    
+    // Update a card's content
+    function updateCardContent(card, cardData) {
+        const frontContent = card.querySelector('.card-half.front .card-half-content');
+        const backContent = card.querySelector('.card-half.back .card-half-content');
+        
+        if (frontContent) {
+            frontContent.innerHTML = cardData.fields.Front || '';
+        }
+        if (backContent) {
+            backContent.innerHTML = cardData.fields.Back || '';
+        }
+    }
+    
+    // Check overflow for a specific card element
+    function checkCardOverflow(card) {
+        const frontContent = card.querySelector('.card-half.front .card-half-content');
+        const backContent = card.querySelector('.card-half.back .card-half-content');
+        const frontIndicator = card.querySelector('.card-half.front .overflow-indicator');
+        const backIndicator = card.querySelector('.card-half.back .overflow-indicator');
+        
+        if (frontContent && frontIndicator) {
+            if (frontContent.scrollHeight > frontContent.clientHeight) {
+                frontIndicator.classList.add('visible');
+            } else {
+                frontIndicator.classList.remove('visible');
+            }
+        }
+        
+        if (backContent && backIndicator) {
+            if (backContent.scrollHeight > backContent.clientHeight) {
+                backIndicator.classList.add('visible');
+            } else {
+                backIndicator.classList.remove('visible');
+            }
+        }
+    }
+    
+    // Trigger MathJax rendering
+    function triggerMathJax() {
+        const cardStack = document.getElementById('cardStack');
+        requestAnimationFrame(() => {
+            if (typeof MathJax !== 'undefined' && MathJax.typesetPromise) {
+                MathJax.typesetPromise([cardStack]).then(() => {
+                    console.log('✓ MathJax rendering complete');
+                }).catch((err) => {
+                    console.error('✗ MathJax error:', err);
+                });
+            }
+        });
+        
+        // Initialize spoiler click handlers
+        initSpoilerHandlers();
+    }
+    
+    // Initialize spoiler click/tap handlers for reveal functionality
+    function initSpoilerHandlers() {
+        const spoilers = document.querySelectorAll('.card-half-content .spoiler');
+        spoilers.forEach(spoiler => {
+            // Remove any existing listeners to prevent duplicates
+            spoiler.removeEventListener('click', toggleSpoiler);
+            spoiler.addEventListener('click', toggleSpoiler);
+            // Make it focusable for keyboard/tap support
+            if (!spoiler.hasAttribute('tabindex')) {
+                spoiler.setAttribute('tabindex', '0');
+            }
+        });
+    }
+    
+    // Toggle spoiler reveal state
+    function toggleSpoiler(e) {
+        e.target.classList.toggle('revealed');
+    }
+    
+    // Legacy render function - now just calls createCardStack
+    function renderCardStack() {
+        createCardStack();
+    }
+    
+    // Add drag/swipe listeners to a card (only position 0 can be dragged)
+    function addDragListeners(card) {
+        // Mouse down - start drag (only if position 0)
+        card.addEventListener('mousedown', (e) => {
+            if (card.dataset.position !== '0') return; // Only front card
+            e.preventDefault();
+            startDrag(card, e.clientX, e.clientY);
+        });
+        
+        // Touch start - start drag (only if position 0)
+        card.addEventListener('touchstart', (e) => {
+            if (card.dataset.position !== '0') return; // Only front card
+            const touch = e.touches[0];
+            startDrag(card, touch.clientX, touch.clientY);
+        }, { passive: true });
+        
+        // Touch move on card itself (for preventing scroll)
+        card.addEventListener('touchmove', (e) => {
+            if (dragState.isDragging && dragState.activeCard === card) {
+                e.preventDefault();
+            }
+        }, { passive: false });
+    }
+    
+    // Start dragging a card
+    function startDrag(card, clientX, clientY) {
+        if (dragState.isDragging) return;
+        
+        dragState.isDragging = true;
+        dragState.activeCard = card;
+        dragState.startX = clientX;
+        dragState.startY = clientY;
+        dragState.currentX = clientX;
+        dragState.currentY = clientY;
+        dragState.dragStartTime = Date.now();
+        
+        // Add dragging class to disable CSS transitions
+        card.classList.add('dragging');
+        card.style.cursor = 'grabbing';
+    }
+    
+    // Animate the dragged card to back position, then update all cards
+    function animateCardToBack(card) {
+        // The dragged card animates to back-of-stack position
+        card.classList.add('to-back');
+        
+        // Apply the back-of-stack transform
+        card.style.transform = 'scale(0.8) translateX(62px) translateY(12px) rotate(7deg)';
+        card.style.opacity = '0.85';
+        
+        // After animation, update all card positions together
+        setTimeout(() => {
+            // Remove transition override from dragged card
+            card.classList.remove('to-back');
+            card.style.transform = '';
+            card.style.opacity = '';
+            
+            // Now paginate - this will update all data-position attributes
+            // and CSS transitions will smoothly animate all cards to new positions
+            paginate();
+        }, 350); // Slightly shorter than the CSS transition
+    }
+    
+    // Spring back to original position (when swipe wasn't strong enough)
+    function springBackToPosition(card) {
+        // The CSS transition will handle the spring animation
+        // Just reset the inline styles to let data-position take over
+        card.style.transform = '';
+        card.style.opacity = '';
+    }
+    
+    // Calculate swipe power (Figma formula: |offset| × velocity)
+    function swipePower(offset, velocity) {
+        return Math.abs(offset) * velocity;
+    }
+    
+    // Paginate function (from Figma) - advance to next card
+    // Rotates the indices array so each card animates to its new position
+    function paginate() {
+        // Move to next card in sequence
+        currentCardIndex = (currentCardIndex + 1) % allCardsData.length;
+        
+        // Rotate cardIndices (Figma style): front card goes to back
+        // [0,1,2,3] -> [1,2,3,0] -> [2,3,0,1] -> etc.
+        const visibleCount = Math.min(4, allCardsData.length);
+        cardIndices = [];
+        for (let i = 0; i < visibleCount; i++) {
+            cardIndices[i] = (currentCardIndex + i) % allCardsData.length;
+        }
+        
+        // Update positions - CSS handles smooth animation
+        updateStackPositions();
+        updateCarouselNav();
+    }
+    
+    // Navigate to previous card (reverse direction)
+    function goToPrevious() {
+        // Move to previous card in sequence
+        currentCardIndex = (currentCardIndex - 1 + allCardsData.length) % allCardsData.length;
+        
+        // Rebuild cardIndices based on currentCardIndex
+        const visibleCount = Math.min(4, allCardsData.length);
+        cardIndices = [];
+        for (let i = 0; i < visibleCount; i++) {
+            cardIndices[i] = (currentCardIndex + i) % allCardsData.length;
+        }
+        
+        // Update positions - CSS handles smooth animation
+        updateStackPositions();
+        updateCarouselNav();
+    }
+    
+    // Navigate to next card via button - animate card swiping right
+    function navigateNext() {
+        const cardStack = document.getElementById('cardStack');
+        const frontCard = cardStack.querySelector('[data-position="0"]');
+        
+        if (!frontCard) {
+            paginate();
+            return;
+        }
+        
+        // Animate the front card swiping to the right
+        frontCard.classList.add('swipe-right');
+        frontCard.style.transform = 'scale(0.9) translateX(150px) translateY(-20px) rotate(15deg)';
+        frontCard.style.opacity = '0.7';
+        
+        // After animation, paginate
+        setTimeout(() => {
+            frontCard.classList.remove('swipe-right');
+            frontCard.style.transform = '';
+            frontCard.style.opacity = '';
+            paginate();
+        }, 300);
+    }
+    
+    // Navigate to previous card via button - animate card coming from back
+    function navigatePrev() {
+        const cardStack = document.getElementById('cardStack');
+        const cards = Array.from(cardStack.querySelectorAll('.preview-card'));
+        const visibleCount = Math.min(4, allCardsData.length);
+        
+        if (cards.length === 0) {
+            goToPrevious();
+            return;
+        }
+        
+        // Calculate what the previous card index will be
+        const prevCardIndex = (currentCardIndex - 1 + allCardsData.length) % allCardsData.length;
+        
+        // Find the card that will become the new front (currently at back or needs new data)
+        // First, update cardIndices to the new state
+        const newCardIndices = [];
+        for (let i = 0; i < visibleCount; i++) {
+            newCardIndices[i] = (prevCardIndex + i) % allCardsData.length;
+        }
+        
+        // Find a card element to use as the "incoming" card from the back
+        // This will be the card that currently shows data NOT in the new front position
+        let incomingCard = null;
+        let cardsToShiftBack = [];
+        
+        cards.forEach((card) => {
+            const cardDataIndex = parseInt(card.dataset.cardIndex);
+            const currentPos = parseInt(card.dataset.position);
+            
+            // Check if this card's data will be at position 0 (front) in the new state
+            if (cardDataIndex === newCardIndices[0]) {
+                incomingCard = card;
+            } else if (newCardIndices.includes(cardDataIndex)) {
+                // This card will shift back one position
+                cardsToShiftBack.push(card);
+            }
+        });
+        
+        // If no card has the incoming data, pick the back card and update its data
+        if (!incomingCard) {
+            const backCard = cardStack.querySelector('[data-position="3"]') || 
+                            cardStack.querySelector('[data-position="2"]') ||
+                            cardStack.querySelector('[data-position="1"]');
+            if (backCard) {
+                incomingCard = backCard;
+                // Update its data to the new front card data
+                const newFrontData = allCardsData[newCardIndices[0]];
+                incomingCard.dataset.cardIndex = newCardIndices[0].toString();
+                updateCardContent(incomingCard, newFrontData);
+            }
+        }
+        
+        if (incomingCard) {
+            // Start the incoming card off-screen to the left, behind the stack
+            incomingCard.classList.add('from-back');
+            incomingCard.style.transform = 'scale(0.7) translateX(-150px) translateY(30px) rotate(-15deg)';
+            incomingCard.style.opacity = '0.5';
+            incomingCard.style.zIndex = '5';
+            
+            // Force reflow to ensure the starting position is applied
+            incomingCard.offsetHeight;
+            
+            // Now animate to front position
+            requestAnimationFrame(() => {
+                incomingCard.style.transform = 'scale(1) translateX(0px) translateY(0px) rotate(0deg)';
+                incomingCard.style.opacity = '1';
+            });
+        }
+        
+        // Update the indices and positions after a short delay
+        setTimeout(() => {
+            // Clean up animation classes
+            if (incomingCard) {
+                incomingCard.classList.remove('from-back');
+                incomingCard.style.transform = '';
+                incomingCard.style.opacity = '';
+                incomingCard.style.zIndex = '';
+            }
+            
+            goToPrevious();
+        }, 350);
+    }
+    
+    // Update carousel navigation (infinite scrolling - buttons always enabled)
+    function updateCarouselNav() {
+        // Display current position (1-indexed for user)
+        const displayPosition = currentCardIndex + 1;
+        document.getElementById('currentCardNum').textContent = displayPosition;
+        document.getElementById('totalCardsNum').textContent = allCardsData.length;
+        
+        // Debug logging
+        console.log(`Navigation Update: Card ${displayPosition}/${allCardsData.length}, Indices: [${cardIndices.join(', ')}]`);
+        
+        // Infinite scrolling - buttons never disabled
+        document.getElementById('prevCardBtn').disabled = false;
+        document.getElementById('nextCardBtn').disabled = false;
+    }
+    
+    // Previous card
+    document.getElementById('prevCardBtn').addEventListener('click', function() {
+        navigatePrev();
+    });
+    
+    // Next card
+    document.getElementById('nextCardBtn').addEventListener('click', function() {
+        navigateNext();
+    });
+    
+    // Import to Anki
+    document.getElementById('importBtn').addEventListener('click', async function() {
+        const yamlContent = editor.getValue();
+        const importBtn = document.getElementById('importBtn');
+        const originalBtnText = importBtn.innerHTML;
+        
+        if (!yamlContent.trim()) {
+            showStatus('Please enter YAML content', 'warning');
+            return;
+        }
+        
+        // Parse YAML to get card count (for validation)
+        let cardCount = 0;
+        let reverseCount = 0;
+        let totalCards = 0;
+        try {
+            const parseResult = await apiRequest('/api/parse', 'POST', { yaml_content: yamlContent });
+            if (parseResult.success && parseResult.data && parseResult.data.cards) {
+                cardCount = parseResult.card_count || parseResult.data.cards.length;
+                reverseCount = parseResult.reverse_count || 0;
+                totalCards = parseResult.total_cards || cardCount;
+            }
+        } catch (error) {
+            console.error('Failed to parse YAML:', error);
+            showStatus('Failed to parse YAML content', 'danger');
+            return;
+        }
+        
+        if (cardCount === 0) {
+            showStatus('No cards found in YAML content', 'warning');
+            return;
+        }
+        
+        // Log reverse card info
+        if (reverseCount > 0) {
+            console.log(`Import: ${cardCount} cards + ${reverseCount} reverse cards = ${totalCards} total`);
+        }
+        
+        // Disable import button during import
+        importBtn.disabled = true;
+        console.log('Starting import process with terminal view...');
+        
+        try {
+            // Use the new terminal-style import with streaming
+            const result = await window.importTerminal.startImport(yamlContent);
+            
+            console.log('Import result:', result);
+            
+            if (result && (result.success || result.added > 0 || result.updated > 0)) {
+                showStatus(`Import completed: ${result.added} added, ${result.updated} updated, ${result.failed} failed`, 'success');
+                
+                // Reload history dropdown to show new import
+                if (historyDropdown) {
+                    historyDropdown.loadHistory();
+                }
+            } else if (result) {
+                let errorMsg = `Import completed with errors: ${result.failed} failed.`;
+                if (result.errors && result.errors.length > 0) {
+                    errorMsg = result.errors[0];
+                }
+                showStatus(errorMsg, 'danger');
+                console.error('Import errors:', result.errors);
+            }
+        } catch (error) {
+            console.error('Import failed:', error);
+            
+            let userMsg = error.message;
+            if (error.message.includes('Anki is not running')) {
+                userMsg = 'Anki is not running. Please start Anki with AnkiConnect and try again.';
+            }
+            
+            showStatus(userMsg, 'danger');
+        } finally {
+            // Reset button state
+            importBtn.disabled = false;
+        }
+    });
+    
+    // Clear editor
+    document.getElementById('clearBtn').addEventListener('click', function() {
+        if (confirm('Clear all editor content?')) {
+            editor.setValue('');
+            // Reset preview
+            document.getElementById('emptyState').style.display = 'block';
+            document.getElementById('cardStackContainer').style.display = 'none';
+            document.getElementById('carouselNav').style.display = 'none';
+            document.getElementById('validationPanel').style.display = 'none';
+            document.getElementById('statsPanel').style.display = 'none';
+            // Reset state
+            allCardsData = [];
+            currentCardIndex = 0;
+            totalCards = 0;
+        }
+    });
+    
+    // Load template
+    document.getElementById('loadTemplateBtn').addEventListener('click', function() {
+        editor.setValue(defaultYaml);
+        showStatus('Template loaded!', 'success');
+    });
+    
+    // Display validation errors
+    function displayValidationErrors(errors) {
+        const panel = document.getElementById('validationPanel');
+        const content = document.getElementById('validationContent');
+        
+        let html = '<div class="validation-errors">';
+        html += '<h6 class="text-danger mb-3"><i class="bi bi-exclamation-circle"></i> Validation Errors:</h6>';
+        
+        errors.forEach((error, index) => {
+            html += `
+                <div class="validation-error-item">
+                    <strong>Error ${index + 1}:</strong> ${error.message}
+                    ${error.line ? `<br><small class="text-muted">Line ${error.line}</small>` : ''}
+                    ${error.field ? `<br><small class="text-muted">Field: ${error.field}</small>` : ''}
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        content.innerHTML = html;
+        panel.style.display = 'block';
+    }
+    
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        // Ctrl/Cmd + Enter = Validate
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('validateBtn').click();
+        }
+        // Ctrl/Cmd + P = Preview
+        if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+            e.preventDefault();
+            document.getElementById('previewBtn').click();
+        }
+    });
+</script>
+
+<!-- Marked.js for markdown rendering in Prompt Manager -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<!-- Import Terminal JavaScript -->
+<script src="static/js/import-terminal.js"></script>
+
+<!-- History Dropdown JavaScript -->
+<script src="static/js/history-dropdown.js"></script>
+
+<!-- Prompt Manager JavaScript -->
+<script src="static/js/prompt-manager.js"></script>
+
+
+<script src="data.js"></script>
+<script src="demo-adapter.js"></script>
+</body>
+</html>

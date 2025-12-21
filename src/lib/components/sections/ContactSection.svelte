@@ -202,8 +202,24 @@
   .keyboard-buttons-wrapper svg { width: 1.75rem; height: 1.75rem; color: var(--keyboard-contrast); }
   .key-position { perspective: 800px; transform: rotateY(0.05turn) rotateX(-0.1turn); }
   .key { position: relative; width: var(--keyboard-key-base-size); height: var(--keyboard-key-base-size); font-size: calc(var(--keyboard-key-base-size) / 2.2); border: 0.1rem solid var(--keyboard-background-3); border-radius: calc(var(--keyboard-key-base-size) * 0.2); background: var(--keyboard-background-2); color: var(--keyboard-contrast); box-shadow: 0.15rem 0.15rem 0 0 var(--keyboard-background-3), 0.3rem 0.3rem 0 0 var(--keyboard-background-3), 0.45rem 0.45rem 0 0 var(--keyboard-background-3), 0.6rem 0.6rem 0 0 var(--keyboard-background-3); transition: transform 0.2s ease, box-shadow 0.2s ease; display: flex; align-items: center; justify-content: center; text-decoration: none; transform-style: preserve-3d; }
-  .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); }
-  .key:active { transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
+  .key:hover { 
+    cursor: pointer; 
+    transform: translate(0.3rem, 0.3rem); 
+    box-shadow: 
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0.15rem 0.15rem 0 0 var(--keyboard-background-3),
+      0.3rem 0.3rem 0 0 var(--keyboard-background-3);
+  }
+  .key:active { 
+    cursor: grabbing; 
+    transform: translate(0.6rem, 0.6rem); 
+    box-shadow: 
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3);
+  }
   .key.call-to-action { width: 160px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   .call-to-action-content { position: relative; }
   .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }

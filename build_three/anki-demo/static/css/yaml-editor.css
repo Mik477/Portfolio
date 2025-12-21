@@ -1,0 +1,144 @@
+/* ===================================================================
+   YAML Editor Component Styles
+   Custom styling for YAML editor buttons and validation
+   =================================================================== */
+
+/* --- YAML Editor Buttons --- */
+
+/* Validate Button - Green outline */
+#validateBtn {
+    background-color: transparent;
+    border: 1px solid #00E676;
+    color: #00E676;
+    transition: all 0.2s ease;
+}
+
+[data-theme="light"] #validateBtn {
+    border-color: #00C853;
+    color: #00C853;
+}
+
+#validateBtn:hover {
+    background-color: #00E676;
+    border-color: #00E676;
+    color: #000000;
+}
+
+[data-theme="light"] #validateBtn:hover {
+    background-color: #00C853;
+    border-color: #00C853;
+    color: #ffffff;
+}
+
+/* Preview Button - Cyan outline */
+#previewBtn {
+    background-color: transparent;
+    border: 1px solid #00E5FF;
+    color: #00E5FF;
+    transition: all 0.2s ease;
+}
+
+[data-theme="light"] #previewBtn {
+    border-color: #00B8D4;
+    color: #00B8D4;
+}
+
+#previewBtn:hover {
+    background-color: #00E5FF;
+    border-color: #00E5FF;
+    color: #000000;
+}
+
+[data-theme="light"] #previewBtn:hover {
+    background-color: #00B8D4;
+    border-color: #00B8D4;
+    color: #ffffff;
+}
+
+/* Import Button - Blue outline */
+#importBtn {
+    background-color: transparent;
+    border: 1px solid #2196F3;
+    color: #2196F3;
+    transition: all 0.2s ease;
+}
+
+[data-theme="light"] #importBtn {
+    border-color: #1976D2;
+    color: #1976D2;
+}
+
+#importBtn:hover {
+    background-color: #2196F3;
+    border-color: #2196F3;
+    color: #ffffff;
+}
+
+[data-theme="light"] #importBtn:hover {
+    background-color: #1976D2;
+    border-color: #1976D2;
+    color: #ffffff;
+}
+
+/* Clear and Load Template Buttons - Gray outline */
+#clearBtn,
+#loadTemplateBtn {
+    background-color: transparent;
+    border: 1px solid rgba(128, 128, 128, 0.5);
+    color: rgba(255, 255, 255, 0.8);
+    transition: all 0.2s ease;
+}
+
+[data-theme="light"] #clearBtn,
+[data-theme="light"] #loadTemplateBtn {
+    border-color: rgba(0, 0, 0, 0.3);
+    color: rgba(0, 0, 0, 0.7);
+}
+
+#clearBtn:hover,
+#loadTemplateBtn:hover {
+    background-color: rgba(128, 128, 128, 0.2);
+    border-color: rgba(128, 128, 128, 0.7);
+    color: #ffffff;
+}
+
+[data-theme="light"] #clearBtn:hover,
+[data-theme="light"] #loadTemplateBtn:hover {
+    background-color: rgba(0, 0, 0, 0.1);
+    border-color: rgba(0, 0, 0, 0.5);
+    color: #000000;
+}
+
+/* --- Card Footer Styling --- */
+
+.card-footer {
+    background-color: #1e1e1e !important;
+    border-top: 1px solid rgba(128, 128, 128, 0.3) !important;
+}
+
+[data-theme="light"] .card-footer {
+    background-color: #f8f9fa !important;
+    border-top-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+/* --- Validation Panel --- */
+
+#validationPanel .card-header {
+    background-color: transparent !important;
+    border: 1px solid #FF1744;
+    color: #FF1744 !important;
+}
+
+#validationPanel .card-header h6 {
+    color: #FF1744 !important;
+    margin: 0;
+}
+
+#validationPanel .card-body {
+    background-color: rgba(255, 23, 68, 0.05);
+    color: var(--color-text-primary);
+}
+
+[data-theme="light"] #validationPanel .card-body {
+    background-color: rgba(255, 23, 68, 0.03);
+}

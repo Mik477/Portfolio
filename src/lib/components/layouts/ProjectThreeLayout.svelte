@@ -276,17 +276,21 @@
   .key:hover {
     cursor: pointer;
     transform: translate(0.3rem, 0.3rem);
+    box-shadow: 
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0.15rem 0.15rem 0 0 var(--keyboard-background-3),
+      0.3rem 0.3rem 0 0 var(--keyboard-background-3);
   }
 
   .key:active {
     cursor: grabbing;
-    transform: translate(0.8rem, 0.8rem);
+    transform: translate(0.6rem, 0.6rem);
     box-shadow: 
-      0.1rem 0.1rem 0 0 var(--keyboard-background-3),
-      0.1rem 0.1rem 0 0 var(--keyboard-background-3),
-      0.2rem 0.2rem 0 0 var(--keyboard-background-3),
-      0.2rem 0.2rem 0 0 var(--keyboard-background-3);
-    filter: blur(0.02rem);
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3);
   }
 
   /* Wide key for text buttons */
@@ -341,8 +345,9 @@
 
   .key.key-primary:hover {
     box-shadow: 
-      0.1rem 0.1rem 0 0 #00B8D4,
-      0.2rem 0.2rem 0 0 #00B8D4,
+      0 0 0 0 #00B8D4,
+      0 0 0 0 #00B8D4,
+      0.15rem 0.15rem 0 0 #00B8D4,
       0.3rem 0.3rem 0 0 #00B8D4,
       0 0 25px rgba(0, 229, 255, 0.4),
       0 0 50px rgba(0, 229, 255, 0.2);
@@ -350,8 +355,10 @@
 
   .key.key-primary:active {
     box-shadow: 
-      0.1rem 0.1rem 0 0 #00B8D4,
-      0.1rem 0.1rem 0 0 #00B8D4,
+      0 0 0 0 #00B8D4,
+      0 0 0 0 #00B8D4,
+      0 0 0 0 #00B8D4,
+      0 0 0 0 #00B8D4,
       0 0 15px rgba(0, 229, 255, 0.3);
   }
 
@@ -394,7 +401,7 @@
   }
 
   .layout-container.mobile-layout p {
-    font-size: 0.85rem;
+    font-size: 0.80rem;
     margin-bottom: 1.5rem;
     line-height: 1.7;
   }

@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "card_index": 8,
+  "total_cards": 10,
+  "fields": {
+    "Front": "<p>Compare <span class=\"yes\">\u2713</span> advantages and <span class=\"no\">\u2717</span> disadvantages of <strong>SQL</strong> vs <strong>NoSQL</strong> databases.</p>\n",
+    "Back": "<table>\n<thead>\n<tr>\n  <th>Feature</th>\n  <th>SQL</th>\n  <th>NoSQL</th>\n</tr>\n</thead>\n<tbody>\n<tr>\n  <td>Schema</td>\n  <td><span class=\"no\">\u2717</span> Fixed</td>\n  <td><span class=\"yes\">\u2713</span> Flexible</td>\n</tr>\n<tr>\n  <td>Scalability</td>\n  <td>Vertical</td>\n  <td><span class=\"yes\">\u2713</span> Horizontal</td>\n</tr>\n<tr>\n  <td>ACID Compliance</td>\n  <td><span class=\"yes\">\u2713</span> Full</td>\n  <td>Partial</td>\n</tr>\n<tr>\n  <td>Complex Queries</td>\n  <td><span class=\"yes\">\u2713</span> Excellent</td>\n  <td>Limited</td>\n</tr>\n<tr>\n  <td>Speed (simple ops)</td>\n  <td>Good</td>\n  <td><span class=\"yes\">\u2713</span> Faster</td>\n</tr>\n</tbody>\n</table>\n\n<div class=\"tip\">\n  <strong>When to use SQL:</strong> Complex relationships, transactions, data integrity\n</div>\n\n<div class=\"tip\">\n  <strong>When to use NoSQL:</strong> Rapid scaling, unstructured data, real-time apps\n</div>\n"
+  },
+  "deck": "Anki-Automation-Showcase",
+  "model": "Anki Automation",
+  "uid": "showcase-009",
+  "tags": [
+    "databases",
+    "comparison",
+    "architecture"
+  ]
+}

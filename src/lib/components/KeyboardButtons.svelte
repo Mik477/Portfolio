@@ -212,8 +212,24 @@
     transform-style: preserve-3d;
   }
   .key span { color: inherit; margin: 0; padding: 0; }
-  .key:hover { cursor: pointer; transform: translate(0.3rem, 0.3rem); }
-  .key:active { cursor: grabbing; transform: translate(0.8rem, 0.8rem); box-shadow: 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.1rem 0.1rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3), 0.2rem 0.2rem 0 0 var(--keyboard-background-3); filter: blur(0.02rem); }
+  .key:hover { 
+    cursor: pointer; 
+    transform: translate(0.3rem, 0.3rem); 
+    box-shadow: 
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0.15rem 0.15rem 0 0 var(--keyboard-background-3),
+      0.3rem 0.3rem 0 0 var(--keyboard-background-3);
+  }
+  .key:active { 
+    cursor: grabbing; 
+    transform: translate(0.6rem, 0.6rem); 
+    box-shadow: 
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3),
+      0 0 0 0 var(--keyboard-background-3);
+  }
   @media (max-width: 640px) {
     .keyboard-buttons-wrapper {
       flex-direction: row;

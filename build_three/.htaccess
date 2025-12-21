@@ -1,0 +1,8 @@
+# Minimal baseline .htaccess for initial deployment
+AddDefaultCharset UTF-8
+Options -Indexes
+ErrorDocument 404 /404.html
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+</IfModule>
+# End minimal file

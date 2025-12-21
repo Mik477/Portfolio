@@ -261,6 +261,9 @@
     if (card.dataset.position !== '0') return;
     const touch = e.touches[0];
     if (touch) {
+      // Store initial touch position to detect swipe vs scroll later
+      dragState.startX = touch.clientX;
+      dragState.startY = touch.clientY;
       startDrag(card, touch.clientX, touch.clientY);
     }
   }
@@ -278,9 +281,47 @@
   }
   
   // Prevent touch scroll on card content from triggering section navigation
+  // But allow horizontal swipes to bubble up for card dragging
+  let contentScrollStartX = 0;
+  let contentScrollStartY = 0;
+  let isVerticalScroll = false;
+  let hasDetectedScrollDirection = false;
+
+  function handleContentTouchStart(e: TouchEvent) {
+    const touch = e.touches[0];
+    if (touch) {
+      contentScrollStartX = touch.clientX;
+      contentScrollStartY = touch.clientY;
+      hasDetectedScrollDirection = false;
+      isVerticalScroll = false;
+    }
+  }
+
   function handleContentTouchMove(e: TouchEvent) {
-    // Stop propagation to prevent section scroll when scrolling card content
-    e.stopPropagation();
+    const touch = e.touches[0];
+    if (!touch) return;
+
+    // Only detect direction once per touch sequence
+    if (!hasDetectedScrollDirection) {
+      const deltaX = Math.abs(touch.clientX - contentScrollStartX);
+      const deltaY = Math.abs(touch.clientY - contentScrollStartY);
+      
+      // If movement is primarily vertical, it's a scroll - stop propagation
+      // If primarily horizontal, it's a card swipe - allow bubbling
+      if (deltaY > deltaX && deltaY > 5) {
+        hasDetectedScrollDirection = true;
+        isVerticalScroll = true;
+        e.stopPropagation();
+      } else if (deltaX > deltaY && deltaX > 5) {
+        hasDetectedScrollDirection = true;
+        isVerticalScroll = false;
+        // Don't stop propagation - let it bubble to card drag handlers
+      }
+    } else if (isVerticalScroll) {
+      // Direction already detected as vertical - continue stopping propagation
+      e.stopPropagation();
+    }
+    // If horizontal swipe, don't stop propagation - let card drag happen
   }
   
   // Toggle spoiler state
@@ -353,7 +394,7 @@
         <div class="card-face-container">
           <div class="card-half front">
             <div class="card-half-label">FRONT</div>
-            <div class="card-half-content" on:wheel|stopPropagation on:touchmove|stopPropagation={handleContentTouchMove}>
+            <div class="card-half-content" on:wheel|stopPropagation on:touchstart={handleContentTouchStart} on:touchmove={handleContentTouchMove}>
               {@html data.fields.Front}
             </div>
             <div class="overflow-indicator">
@@ -362,7 +403,7 @@
           </div>
           <div class="card-half back">
             <div class="card-half-label">BACK</div>
-            <div class="card-half-content" on:wheel|stopPropagation on:touchmove|stopPropagation={handleContentTouchMove}>
+            <div class="card-half-content" on:wheel|stopPropagation on:touchstart={handleContentTouchStart} on:touchmove={handleContentTouchMove}>
               {@html data.fields.Back}
             </div>
             <div class="overflow-indicator">

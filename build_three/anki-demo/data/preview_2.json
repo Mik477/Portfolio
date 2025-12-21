@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "card_index": 2,
+  "total_cards": 10,
+  "fields": {
+    "Front": "<p>What is the <span class=\"badge badge-purple\">Quadratic Formula</span>?</p>\n\n<p>Hint: <span class=\"spoiler\" tabindex=\"0\">It solves ax\u00b2 + bx + c = 0</span></p>\n",
+    "Back": "<p>The general form of a quadratic equation is:</p>\n\n<p>\\[ ax^2 + bx + c = 0 \\]</p>\n\n<p>The solutions are given by:</p>\n\n<p>\\[ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a} \\]</p>\n\n<div class=\"warning\">\n  <strong>Note:</strong> The discriminant \\( \\Delta = b^2 - 4ac \\) determines the nature of roots.\n</div>\n"
+  },
+  "deck": "Anki-Automation-Showcase",
+  "model": "Anki Automation",
+  "uid": "showcase-003",
+  "tags": [
+    "mathematics",
+    "algebra"
+  ]
+}

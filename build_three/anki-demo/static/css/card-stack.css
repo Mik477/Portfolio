@@ -1,0 +1,1197 @@
+/* Card Stack Preview - Figma-inspired smooth animations */
+/* With Anki Card Styling - Light/Dark Mode Support */
+
+/* ============================================================
+   PREVIEW PANEL & CONTAINER
+   ============================================================ */
+
+/* Container for the entire preview area */
+#previewPanel {
+  position: relative;
+  min-height: 600px;
+  background: var(--card-stack-bg, #1c2128);
+  overflow: hidden;
+  transition: background-color 0.3s ease;
+}
+
+[data-theme="light"] #previewPanel {
+  background: #f3f4f6;
+}
+
+[data-theme="dark"] #previewPanel {
+  background: #1c2128;
+}
+
+/* Card stack container (centered viewport) */
+.card-stack-container {
+  position: relative;
+  width: 100%;
+  height: 600px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
+/* The actual stack holder */
+.card-stack {
+  position: relative;
+  width: 320px;
+  height: 480px;
+  perspective: 400px;
+  transform-style: preserve-3d;
+}
+
+/* ============================================================
+   PREVIEW CARD BASE - Matches Anki Card Styling
+   ============================================================ */
+
+/* Individual preview card - Figma style animations */
+.preview-card {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  /* Light Mode Default */
+  background: #FFFFFF;
+  border-radius: 16px;
+  box-shadow:
+    0px 35px 14px rgba(0, 0, 0, 0.01),
+    0px 20px 12px rgba(0, 0, 0, 0.05),
+    0px 9px 9px rgba(0, 0, 0, 0.09),
+    0px 2px 5px rgba(0, 0, 0, 0.1);
+  cursor: grab;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+  overflow: hidden;
+  will-change: transform, opacity;
+  border: 1px solid #E5E7EB;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Dark Mode Card */
+[data-theme="dark"] .preview-card {
+  background: #111827;
+  border-color: #374151;
+  box-shadow:
+    0px 35px 14px rgba(0, 0, 0, 0.05),
+    0px 20px 12px rgba(0, 0, 0, 0.15),
+    0px 9px 9px rgba(0, 0, 0, 0.2),
+    0px 2px 5px rgba(0, 0, 0, 0.25);
+}
+
+.preview-card:active {
+  cursor: grabbing;
+}
+
+/* 
+ * Card Stack Animation System (Figma-inspired)
+ * Spring transitions for smooth card movements
+ */
+
+/* When not dragging, apply smooth spring transitions */
+.preview-card:not(.dragging) {
+  transition: 
+    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.3s ease-out;
+  /* z-index transition delayed to avoid visual stacking issues */
+  transition-property: transform, opacity, z-index;
+  transition-duration: 0.5s, 0.3s, 0s;
+  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1), ease-out, linear;
+  transition-delay: 0s, 0s, 0.05s;
+}
+
+/* When dragging, disable transitions for immediate response */
+.preview-card.dragging {
+  transition: none !important;
+  cursor: grabbing;
+}
+
+/* Card positions in stack (0=front, 3=back) - Figma values */
+.preview-card[data-position="0"] {
+  z-index: 4;
+  transform: translateX(0px) translateY(0px) scale(1) rotate(0deg);
+  opacity: 1;
+}
+
+.preview-card[data-position="1"] {
+  z-index: 3;
+  transform: translateX(32px) translateY(-12px) scale(0.9) rotate(2deg);
+  opacity: 1;
+  pointer-events: none;
+}
+
+.preview-card[data-position="2"] {
+  z-index: 2;
+  transform: translateX(48px) translateY(0px) scale(0.85) rotate(4deg);
+  opacity: 1;
+  pointer-events: none;
+}
+
+.preview-card[data-position="3"] {
+  z-index: 1;
+  transform: translateX(62px) translateY(12px) scale(0.8) rotate(7deg);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+/* Card going to back of stack - smooth transition */
+.preview-card.to-back {
+  z-index: 0 !important;
+  transition: 
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.3s ease-out !important;
+}
+
+/* Card animating to the right (next button) */
+.preview-card.swipe-right {
+  z-index: 5 !important;
+  transition: 
+    transform 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    opacity 0.3s ease-out !important;
+}
+
+/* Card coming from back to front (prev button) */
+.preview-card.from-back {
+  z-index: 5 !important;
+  transition: 
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.3s ease-out !important;
+}
+
+/* Cards moving backward in stack (prev button - others shift back) */
+.preview-card.shift-back {
+  transition: 
+    transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.3s ease-out !important;
+}
+
+/* ============================================================
+   CARD FACE LAYOUT - Front/Back Split with Divider
+   ============================================================ */
+
+/* Card content layout - Front and Back split */
+.card-face-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+.card-half {
+  flex: 1;
+  position: relative;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* Front/Back Divider Line - Dark themed */
+.card-half.front {
+  border-bottom: 2px solid #D1D5DB;
+}
+
+[data-theme="dark"] .card-half.front {
+  border-bottom-color: #374151;
+}
+
+.card-half:last-child {
+  border-bottom: none;
+}
+
+/* Light Mode Card Faces */
+.card-half.front {
+  background: #FFFFFF;
+  color: #1F2937;
+  border-radius: 16px 16px 0 0;
+}
+
+.card-half.back {
+  background: #FFFFFF;
+  color: #1F2937;
+  border-radius: 0 0 16px 16px;
+}
+
+/* Dark Mode Card Faces */
+[data-theme="dark"] .card-half.front {
+  background: #111827;
+  color: #E5E7EB;
+}
+
+[data-theme="dark"] .card-half.back {
+  background: #111827;
+  color: #E5E7EB;
+}
+
+/* Card Labels (FRONT/BACK) */
+.card-half-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  opacity: 0.6;
+  color: #6B7280;
+}
+
+[data-theme="dark"] .card-half-label {
+  color: #9CA3AF;
+}
+
+/* Card Content Area */
+.card-half-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-size: 14px;
+  line-height: 1.6;
+  position: relative;
+  
+  /* Custom scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(107, 114, 128, 0.4) transparent;
+}
+
+[data-theme="dark"] .card-half-content {
+  scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
+}
+
+.card-half-content::-webkit-scrollbar {
+  width: 5px;
+}
+
+.card-half-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.card-half-content::-webkit-scrollbar-thumb {
+  background: rgba(107, 114, 128, 0.4);
+  border-radius: 3px;
+}
+
+[data-theme="dark"] .card-half-content::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.3);
+}
+
+/* ============================================================
+   ANKI CARD CONTENT STYLING - Light Mode (Default)
+   ============================================================ */
+
+/* MathJax / LaTeX */
+.card-half-content .mjx-container,
+.card-half-content .MathJax,
+.card-half-content mjx-container {
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 6px 0;
+  font-size: 1em !important;
+}
+
+/* Inline Code */
+.card-half-content code {
+  font-family: 'SF Mono', 'Consolas', 'Monaco', 'Menlo', monospace;
+  background-color: #F3F4F6;
+  padding: 2px 5px;
+  border-radius: 3px;
+  font-size: 0.85em;
+  color: #1F2937;
+}
+
+[data-theme="dark"] .card-half-content code {
+  background-color: #374151;
+  color: #E5E7EB;
+}
+
+/* Code Blocks (pre) */
+.card-half-content pre {
+  background-color: #1F2937;
+  color: #E5E7EB;
+  padding: 12px 14px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-family: 'SF Mono', 'Consolas', 'Monaco', 'Menlo', monospace;
+  font-size: 0.8em;
+  line-height: 1.5;
+}
+
+[data-theme="dark"] .card-half-content pre {
+  background-color: #0F172A;
+}
+
+.card-half-content pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* Strong & Emphasis */
+.card-half-content strong,
+.card-half-content b {
+  font-weight: 600;
+  color: #111827;
+}
+
+[data-theme="dark"] .card-half-content strong,
+[data-theme="dark"] .card-half-content b {
+  color: #F9FAFB;
+}
+
+.card-half-content em,
+.card-half-content i {
+  font-style: italic;
+}
+
+/* Lists */
+.card-half-content ul,
+.card-half-content ol {
+  margin: 10px 0;
+  padding-left: 18px;
+}
+
+.card-half-content li {
+  margin: 4px 0;
+  line-height: 1.5;
+}
+
+/* Headings */
+.card-half-content h1,
+.card-half-content h2,
+.card-half-content h3,
+.card-half-content h4,
+.card-half-content h5,
+.card-half-content h6 {
+  margin: 12px 0 8px 0;
+  color: #111827;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.card-half-content h1 { font-size: 1.3em; }
+.card-half-content h2 { font-size: 1.2em; }
+.card-half-content h3 { font-size: 1.1em; }
+.card-half-content h4 { font-size: 1em; }
+
+[data-theme="dark"] .card-half-content h1,
+[data-theme="dark"] .card-half-content h2,
+[data-theme="dark"] .card-half-content h3,
+[data-theme="dark"] .card-half-content h4,
+[data-theme="dark"] .card-half-content h5,
+[data-theme="dark"] .card-half-content h6 {
+  color: #F3F4F6;
+}
+
+/* Links */
+.card-half-content a {
+  color: #2563EB;
+  text-decoration: none;
+}
+
+.card-half-content a:hover {
+  text-decoration: underline;
+  color: #1D4ED8;
+}
+
+[data-theme="dark"] .card-half-content a {
+  color: #60A5FA;
+}
+
+[data-theme="dark"] .card-half-content a:hover {
+  color: #93C5FD;
+}
+
+/* ============================================================
+   TABLE STYLING
+   ============================================================ */
+
+.card-half-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  background: #FFFFFF;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  overflow: hidden;
+  font-size: 0.85em;
+}
+
+[data-theme="dark"] .card-half-content table {
+  background: #1F2937;
+  border-color: #374151;
+}
+
+.card-half-content th {
+  background-color: #F3F4F6;
+  color: #374151;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid #E5E7EB;
+}
+
+[data-theme="dark"] .card-half-content th {
+  background-color: #374151;
+  color: #F9FAFB;
+  border-bottom-color: #4B5563;
+}
+
+.card-half-content td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #E5E7EB;
+  vertical-align: top;
+  background-color: #FFFFFF;
+}
+
+[data-theme="dark"] .card-half-content td {
+  border-bottom-color: #374151;
+  background-color: #1F2937;
+}
+
+.card-half-content tr:last-child td {
+  border-bottom: none;
+}
+
+.card-half-content tr:nth-child(even) td {
+  background-color: #F9FAFB;
+}
+
+[data-theme="dark"] .card-half-content tr:nth-child(even) td {
+  background-color: #263244;
+}
+
+/* Table alignment */
+.card-half-content th.text-center,
+.card-half-content td.text-center,
+.card-half-content th[align="center"],
+.card-half-content td[align="center"] {
+  text-align: center;
+}
+
+.card-half-content th.text-right,
+.card-half-content td.text-right,
+.card-half-content th[align="right"],
+.card-half-content td[align="right"] {
+  text-align: right;
+}
+
+/* ============================================================
+   CALLOUT BOXES
+   ============================================================ */
+
+.card-half-content .callout,
+.card-half-content .info,
+.card-half-content .warning,
+.card-half-content .tip,
+.card-half-content .error {
+  padding: 10px 12px;
+  border-radius: 6px;
+  margin: 10px 0;
+  border-left: 3px solid;
+  font-size: 0.9em;
+}
+
+.card-half-content .callout-info,
+.card-half-content .info {
+  background-color: rgba(59, 130, 246, 0.08);
+  border-left-color: #3B82F6;
+  color: #1F2937;
+}
+
+[data-theme="dark"] .card-half-content .callout-info,
+[data-theme="dark"] .card-half-content .info {
+  background-color: rgba(96, 165, 250, 0.1);
+  border-left-color: #60A5FA;
+  color: #E5E7EB;
+}
+
+.card-half-content .callout-warning,
+.card-half-content .warning {
+  background-color: rgba(251, 191, 36, 0.1);
+  border-left-color: #F59E0B;
+  color: #1F2937;
+}
+
+[data-theme="dark"] .card-half-content .callout-warning,
+[data-theme="dark"] .card-half-content .warning {
+  background-color: rgba(251, 191, 36, 0.1);
+  color: #E5E7EB;
+}
+
+.card-half-content .callout-tip,
+.card-half-content .tip {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-left-color: #10B981;
+  color: #1F2937;
+}
+
+[data-theme="dark"] .card-half-content .callout-tip,
+[data-theme="dark"] .card-half-content .tip {
+  background-color: rgba(52, 211, 153, 0.1);
+  color: #E5E7EB;
+}
+
+.card-half-content .callout-error,
+.card-half-content .error {
+  background-color: rgba(239, 68, 68, 0.1);
+  border-left-color: #EF4444;
+  color: #1F2937;
+}
+
+[data-theme="dark"] .card-half-content .callout-error,
+[data-theme="dark"] .card-half-content .error {
+  background-color: rgba(248, 113, 113, 0.1);
+  color: #E5E7EB;
+}
+
+.card-half-content .callout strong,
+.card-half-content .info strong,
+.card-half-content .warning strong,
+.card-half-content .tip strong,
+.card-half-content .error strong {
+  display: block;
+  margin-bottom: 4px;
+  color: inherit;
+}
+
+/* ============================================================
+   SPOILER / REVEAL STYLING
+   The actual hint text is hidden until clicked/hovered
+   ============================================================ */
+
+.card-half-content .spoiler {
+  background-color: #E5E7EB;
+  color: transparent;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: inline-block;
+  user-select: none;
+  border: 1px dashed #9CA3AF;
+  position: relative;
+  min-width: 80px;
+  text-align: center;
+}
+
+/* Show "Click to reveal" placeholder when hidden */
+.card-half-content .spoiler::before {
+  content: "👁 Reveal";
+  color: #6B7280;
+  font-size: 0.85em;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  transition: opacity 0.3s ease;
+}
+
+/* Hide placeholder and show content when revealed */
+.card-half-content .spoiler:hover::before,
+.card-half-content .spoiler.revealed::before {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.card-half-content .spoiler:hover,
+.card-half-content .spoiler.revealed {
+  background-color: #F3F4F6;
+  color: #1F2937;
+  border-color: #6B7280;
+  border-style: solid;
+}
+
+/* Dark mode spoiler */
+[data-theme="dark"] .card-half-content .spoiler {
+  background-color: #374151;
+  border-color: #4B5563;
+}
+
+[data-theme="dark"] .card-half-content .spoiler::before {
+  color: #9CA3AF;
+}
+
+[data-theme="dark"] .card-half-content .spoiler:hover,
+[data-theme="dark"] .card-half-content .spoiler.revealed {
+  background-color: #4B5563;
+  border-color: #6B7280;
+  color: #E5E7EB;
+}
+
+/* Details/Summary spoiler (click-to-expand) */
+.card-half-content details.spoiler-block {
+  background-color: #F3F4F6;
+  border: 1px solid #E5E7EB;
+  border-radius: 6px;
+  margin: 10px 0;
+  overflow: hidden;
+}
+
+[data-theme="dark"] .card-half-content details.spoiler-block {
+  background-color: #1F2937;
+  border-color: #374151;
+}
+
+.card-half-content details.spoiler-block summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #374151;
+  background-color: #F9FAFB;
+  border-bottom: 1px solid #E5E7EB;
+  user-select: none;
+  list-style: none;
+  font-size: 0.9em;
+}
+
+[data-theme="dark"] .card-half-content details.spoiler-block summary {
+  background-color: #263244;
+  border-bottom-color: #374151;
+  color: #E5E7EB;
+}
+
+.card-half-content details.spoiler-block summary::-webkit-details-marker {
+  display: none;
+}
+
+.card-half-content details.spoiler-block summary::before {
+  content: "▶ ";
+  display: inline-block;
+  transition: transform 0.2s ease;
+}
+
+.card-half-content details.spoiler-block[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.card-half-content details.spoiler-block > *:not(summary) {
+  padding: 10px 12px;
+}
+
+/* ============================================================
+   BADGES / TAGS
+   ============================================================ */
+
+.card-half-content .badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75em;
+  font-weight: 500;
+  margin: 2px 3px 2px 0;
+  vertical-align: middle;
+}
+
+/* Light Mode Badges */
+.card-half-content .badge-cyan,
+.card-half-content .badge-primary {
+  background-color: rgba(0, 229, 255, 0.15);
+  color: #0891B2;
+}
+
+.card-half-content .badge-blue {
+  background-color: rgba(59, 130, 246, 0.15);
+  color: #2563EB;
+}
+
+.card-half-content .badge-green,
+.card-half-content .badge-success {
+  background-color: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+
+.card-half-content .badge-amber,
+.card-half-content .badge-warning {
+  background-color: rgba(251, 191, 36, 0.15);
+  color: #D97706;
+}
+
+.card-half-content .badge-red,
+.card-half-content .badge-error {
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #DC2626;
+}
+
+.card-half-content .badge-purple {
+  background-color: rgba(139, 92, 246, 0.15);
+  color: #7C3AED;
+}
+
+.card-half-content .badge-gray {
+  background-color: rgba(107, 114, 128, 0.15);
+  color: #4B5563;
+}
+
+/* Dark Mode Badges */
+[data-theme="dark"] .card-half-content .badge-cyan,
+[data-theme="dark"] .card-half-content .badge-primary {
+  background-color: rgba(34, 211, 238, 0.2);
+  color: #67E8F9;
+}
+
+[data-theme="dark"] .card-half-content .badge-blue {
+  background-color: rgba(96, 165, 250, 0.2);
+  color: #93C5FD;
+}
+
+[data-theme="dark"] .card-half-content .badge-green,
+[data-theme="dark"] .card-half-content .badge-success {
+  background-color: rgba(52, 211, 153, 0.2);
+  color: #6EE7B7;
+}
+
+[data-theme="dark"] .card-half-content .badge-amber,
+[data-theme="dark"] .card-half-content .badge-warning {
+  background-color: rgba(251, 191, 36, 0.2);
+  color: #FCD34D;
+}
+
+[data-theme="dark"] .card-half-content .badge-red,
+[data-theme="dark"] .card-half-content .badge-error {
+  background-color: rgba(248, 113, 113, 0.2);
+  color: #FCA5A5;
+}
+
+[data-theme="dark"] .card-half-content .badge-purple {
+  background-color: rgba(167, 139, 250, 0.2);
+  color: #C4B5FD;
+}
+
+[data-theme="dark"] .card-half-content .badge-gray {
+  background-color: rgba(156, 163, 175, 0.2);
+  color: #D1D5DB;
+}
+
+/* ============================================================
+   KEYBOARD KEYS
+   ============================================================ */
+
+.card-half-content kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-family: 'SF Mono', 'Consolas', monospace;
+  font-size: 0.8em;
+  color: #374151;
+  background: linear-gradient(180deg, #FFFFFF 0%, #F3F4F6 100%);
+  border: 1px solid #D1D5DB;
+  border-radius: 4px;
+  box-shadow: 0 2px 0 #D1D5DB;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
+[data-theme="dark"] .card-half-content kbd {
+  background: linear-gradient(180deg, #374151 0%, #1F2937 100%);
+  color: #E5E7EB;
+  border-color: #4B5563;
+  box-shadow: 0 2px 0 #374151;
+}
+
+/* ============================================================
+   BLOCKQUOTE
+   ============================================================ */
+
+.card-half-content blockquote {
+  border-left: 3px solid #D1D5DB;
+  margin: 10px 0;
+  padding: 8px 14px;
+  background-color: #F9FAFB;
+  border-radius: 0 6px 6px 0;
+  color: #4B5563;
+  font-style: italic;
+  font-size: 0.9em;
+}
+
+[data-theme="dark"] .card-half-content blockquote {
+  background-color: #1F2937;
+  border-left-color: #4B5563;
+  color: #9CA3AF;
+}
+
+.card-half-content blockquote cite {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.85em;
+  color: #6B7280;
+  font-style: normal;
+}
+
+/* ============================================================
+   HIGHLIGHT / MARK
+   ============================================================ */
+
+.card-half-content mark,
+.card-half-content .highlight {
+  background-color: rgba(251, 191, 36, 0.35);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: inherit;
+}
+
+.card-half-content .highlight-yellow {
+  background-color: rgba(251, 191, 36, 0.35);
+}
+
+.card-half-content .highlight-green {
+  background-color: rgba(16, 185, 129, 0.3);
+}
+
+.card-half-content .highlight-red {
+  background-color: rgba(239, 68, 68, 0.2);
+}
+
+.card-half-content .highlight-cyan {
+  background-color: rgba(0, 229, 255, 0.25);
+}
+
+[data-theme="dark"] .card-half-content mark,
+[data-theme="dark"] .card-half-content .highlight {
+  background-color: rgba(251, 191, 36, 0.3);
+}
+
+[data-theme="dark"] .card-half-content .highlight-yellow {
+  background-color: rgba(251, 191, 36, 0.3);
+}
+
+[data-theme="dark"] .card-half-content .highlight-green {
+  background-color: rgba(52, 211, 153, 0.25);
+}
+
+[data-theme="dark"] .card-half-content .highlight-cyan {
+  background-color: rgba(34, 211, 238, 0.25);
+}
+
+[data-theme="dark"] .card-half-content .highlight-red {
+  background-color: rgba(248, 113, 113, 0.2);
+}
+
+/* ============================================================
+   COMPARISON (YES/NO, CHECK/CROSS)
+   ============================================================ */
+
+.card-half-content .yes,
+.card-half-content .check {
+  color: #10B981;
+  font-weight: bold;
+}
+
+.card-half-content .no,
+.card-half-content .cross {
+  color: #EF4444;
+  font-weight: bold;
+}
+
+/* ============================================================
+   CLOZE DELETIONS
+   ============================================================ */
+
+.card-half-content .cloze {
+  font-weight: 600;
+  color: #2563EB;
+  background-color: rgba(59, 130, 246, 0.1);
+  padding: 2px 5px;
+  border-radius: 3px;
+}
+
+[data-theme="dark"] .card-half-content .cloze {
+  color: #60A5FA;
+  background-color: rgba(96, 165, 250, 0.15);
+}
+
+/* ============================================================
+   DEFINITION LIST
+   ============================================================ */
+
+.card-half-content dl {
+  margin: 10px 0;
+}
+
+.card-half-content dt {
+  font-weight: 600;
+  color: #1F2937;
+  margin-top: 8px;
+}
+
+[data-theme="dark"] .card-half-content dt {
+  color: #F3F4F6;
+}
+
+.card-half-content dd {
+  margin-left: 14px;
+  padding: 6px 0;
+  color: #4B5563;
+  border-left: 2px solid #E5E7EB;
+  padding-left: 12px;
+}
+
+[data-theme="dark"] .card-half-content dd {
+  color: #9CA3AF;
+  border-left-color: #374151;
+}
+
+/* ============================================================
+   HORIZONTAL RULE (Answer Divider)
+   ============================================================ */
+
+.card-half-content hr,
+.card-half-content hr#answer {
+  border: none;
+  height: 1px;
+  background-color: #D1D5DB;
+  margin: 16px 0;
+}
+
+[data-theme="dark"] .card-half-content hr,
+[data-theme="dark"] .card-half-content hr#answer {
+  background-color: #374151;
+}
+
+/* ============================================================
+   IMAGES
+   ============================================================ */
+
+.card-half-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 8px 0;
+}
+
+/* ============================================================
+   OVERFLOW INDICATOR
+   ============================================================ */
+
+/* Overflow indicator */
+.overflow-indicator {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 36px;
+  background: linear-gradient(to bottom, transparent, rgba(255, 255, 255, 0.95));
+  display: none;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .overflow-indicator {
+  background: linear-gradient(to bottom, transparent, rgba(17, 24, 39, 0.95));
+}
+
+.overflow-indicator.visible {
+  display: flex;
+}
+
+.overflow-indicator-text {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #6B7280;
+  opacity: 0.8;
+}
+
+[data-theme="dark"] .overflow-indicator-text {
+  color: #9CA3AF;
+}
+
+/* ============================================================
+   CAROUSEL NAVIGATION
+   ============================================================ */
+
+/* Carousel navigation */
+.carousel-nav {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px;
+  background: var(--carousel-nav-bg, rgba(22, 27, 34, 0.95));
+  border-top: 1px solid var(--border-color, #30363d);
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+[data-theme="light"] .carousel-nav {
+  background: rgba(255, 255, 255, 0.95);
+  border-top-color: #E5E7EB;
+}
+
+[data-theme="dark"] .carousel-nav {
+  background: rgba(22, 27, 34, 0.95);
+  border-top-color: #374151;
+}
+
+.carousel-nav-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid #D1D5DB;
+  background: transparent;
+  color: #6B7280;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+[data-theme="dark"] .carousel-nav-btn {
+  border-color: #4B5563;
+  color: #9CA3AF;
+}
+
+.carousel-nav-btn:hover:not(:disabled) {
+  background: #F3F4F6;
+  color: #374151;
+  transform: scale(1.05);
+  border-color: #9CA3AF;
+}
+
+[data-theme="dark"] .carousel-nav-btn:hover:not(:disabled) {
+  background: #374151;
+  color: #E5E7EB;
+  border-color: #6B7280;
+}
+
+.carousel-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  border-color: #E5E7EB;
+  color: #D1D5DB;
+}
+
+[data-theme="dark"] .carousel-nav-btn:disabled {
+  border-color: #374151;
+  color: #4B5563;
+}
+
+.carousel-counter {
+  font-size: 16px;
+  font-weight: 500;
+  color: #6B7280;
+  min-width: 60px;
+  text-align: center;
+}
+
+[data-theme="dark"] .carousel-counter {
+  color: #9CA3AF;
+}
+
+.carousel-counter .current {
+  font-weight: 700;
+  color: #374151;
+}
+
+[data-theme="dark"] .carousel-counter .current {
+  color: #E5E7EB;
+}
+
+/* ============================================================
+   EMPTY STATE
+   ============================================================ */
+
+/* Empty state */
+#emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6B7280;
+  animation: fadeIn 0.3s ease;
+}
+
+[data-theme="dark"] #emptyState {
+  color: #9CA3AF;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================================ */
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .card-stack-container {
+    padding: 20px;
+    height: 500px;
+  }
+  
+  .card-stack {
+    width: 280px;
+    height: 420px;
+  }
+  
+  .preview-card[data-position="1"] {
+    transform: translateX(24px) translateY(-10px) scale(0.92) rotate(2deg);
+  }
+  
+  .preview-card[data-position="2"] {
+    transform: translateX(36px) translateY(0px) scale(0.87) rotate(4deg);
+  }
+  
+  .preview-card[data-position="3"] {
+    transform: translateX(48px) translateY(10px) scale(0.82) rotate(7deg);
+  }
+  
+  .card-half {
+    padding: 12px;
+  }
+  
+  .card-half-content {
+    font-size: 12px;
+  }
+  
+  .card-half-content .badge {
+    font-size: 0.7em;
+  }
+  
+  .card-half-content table {
+    font-size: 0.8em;
+  }
+}
+
+/* ============================================================
+   SPOILER CLICK/TAP FUNCTIONALITY (JS-free fallback)
+   ============================================================ */
+
+.card-half-content .spoiler:focus {
+  background-color: #F3F4F6;
+  color: #1F2937;
+  border-color: #00E5FF;
+  border-style: solid;
+  outline: none;
+}
+
+.card-half-content .spoiler:focus::before {
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-theme="dark"] .card-half-content .spoiler:focus {
+  background-color: #4B5563;
+  color: #E5E7EB;
+  border-color: #22D3EE;
+}
+
+[data-theme="dark"] .card-half-content .spoiler:focus::before {
+  opacity: 0;
+}
