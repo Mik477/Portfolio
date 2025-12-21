@@ -61,57 +61,52 @@
   }
 
   export function onEnterSection() {
-    // Force initialization attempt immediately when entering (covers direct jumps where preload didn't run)
+    // CRITICAL: Start ALL animations here synchronously (like ProjectSection)
+    // Fire-and-forget initialization (if not already done by preloader)
     if (contactEffectInstance) {
       void initializeEffect().catch(() => {});
+      // Start background fade-in immediately (non-blocking)
       contactEffectInstance.onEnterSection();
     }
 
     // Robustness: Don't fail completely if some elements are missing
     if (!h2El && !pEl && keyPositionElements.length === 0) return;
 
+    // Kill any existing timeline to ensure clean restart
     enterTimeline?.kill();
     enterTimeline = null;
 
-    // Set initial hidden state
-    gsap.set(h2El, { autoAlpha: 0, y: 30 });
-    gsap.set(pEl, { autoAlpha: 0, y: 20 });
-    gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
+    // Set initial hidden state (defensive checks for each element)
+    if (h2El) gsap.set(h2El, { autoAlpha: 0, y: 30 });
+    if (pEl) gsap.set(pEl, { autoAlpha: 0, y: 20 });
+    if (keyPositionElements.length > 0) gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
 
-    // Create animation timeline
+    // Create animation timeline with defensive element checks
     enterTimeline = gsap.timeline({
       delay: 0.5,
       onComplete: () => { dispatch('animationComplete'); }
-    })
-      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0)
-      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 0.1)
-      .to(keyPositionElements, {
+    });
+    
+    if (h2El) enterTimeline.to(h2El, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0);
+    if (pEl) enterTimeline.to(pEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 0.1);
+    if (keyPositionElements.length > 0) {
+      enterTimeline.to(keyPositionElements, {
         autoAlpha: 1,
         y: 0,
         duration: 0.7,
         ease: 'power3.out',
         stagger: 0.08
       }, 0.25);
+    }
   }
 
-  export async function onTransitionComplete() {
-    // Ensure effect is fully initialized before we trigger its transition-complete fade
-    if (contactEffectInstance) {
-      // CRITICAL: Always attempt initialization before calling onTransitionComplete
-      // This handles cases where rapid navigation arrives before preloading completes
-      try { 
-        // Race initialization with a timeout to prevent hanging
-        const initPromise = contactEffectInstance.initializeEffect();
-        const timeoutPromise = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
-        await Promise.race([initPromise, timeoutPromise]); 
-      } catch (e) {
-        // Proceed even if init failed or timed out
-        console.warn('[ContactSection] Effect initialization timeout/failure during transition complete:', e);
-      }
-      
-      // CRITICAL: Only call onTransitionComplete AFTER initialization completes (or times out)
-      // This ensures effectInstance exists before attempting fade-in animation
-      contactEffectInstance.onTransitionComplete?.();
+  // CRITICAL: Called at END of transition for heavy work only (WebGL animation)
+  // NOT used for critical fade-ins (those happen in onEnterSection)
+  export function onTransitionComplete() {
+    if (contactEffectInstance?.onTransitionComplete) {
+      // Just trigger WebGL animation start (non-critical)
+      // Effect will check its own readiness internally
+      contactEffectInstance.onTransitionComplete();
     }
   }
 

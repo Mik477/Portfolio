@@ -520,15 +520,29 @@
 					navActiveIndex.set(targetIdx);
 					setActiveSectionInert(targetIdx);
 					announceSection(targetIdx);
-					// Eagerly initialize heavy effect (todo 20) before lifecycle enter/complete to avoid first-frame pop-in
+					
+					// CRITICAL: For deep links, initialize effect COMPLETELY before calling lifecycle methods
+					// This prevents the 3-second timeout issue where effects aren't ready yet
 					const secId = allSectionsData[targetIdx].id;
 					const inst = sectionInstances.get(secId);
 					if (inst?.initializeEffect) {
-						try { await inst.initializeEffect(orchestratorSignal); } catch {}
+						try { 
+							// Use longer timeout for initial deep-link load (no 3-second limit)
+							// This ensures effects are fully ready before starting animations
+							await inst.initializeEffect(orchestratorSignal);
+						} catch (e) {
+							// Log but continue - section will gracefully degrade
+							console.warn(`[Deep Link] Failed to initialize ${secId} effect:`, e);
+						}
 					}
 					if (isDestroyed) return;
+					
+					// Now that effect is initialized (or gracefully failed), call lifecycle methods
 					inst?.onEnterSection();
-					safeRaf(() => inst?.onTransitionComplete?.());
+					// Use setTimeout instead of safeRaf to ensure initialization fully completes
+					await new Promise(resolve => setTimeout(resolve, 50));
+					if (isDestroyed) return;
+					inst?.onTransitionComplete?.();
 				}
 
 			const setupInitialLoad = async () => {

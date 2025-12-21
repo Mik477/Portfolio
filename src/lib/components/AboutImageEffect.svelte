@@ -94,28 +94,38 @@
   }
   
     export function onTransitionComplete() {
-          if ($prm) { return; }
+        if ($prm) { return; }
+        
+        // CRITICAL: Gracefully handle case where effect isn't initialized
+        // This prevents breaking section visibility
+        if (!effectInstance) {
+            console.warn('[AboutImageEffect] Effect instance not available during transition complete - skipping particle animation');
+            cancelKickoff();
+            return;
+        }
+        
+        // CRITICAL: Ensure effect restarts cleanly on every re-entry
+        // Stop any existing animation before restarting
+        effectInstance.stop();
+        
         cancelKickoff();
         const token = kickoffToken;
 
-        // Safety: ensure initialization happened even if preload didn't call it (non-blocking)
-        // If initialization is pending, wait for it.
-        const init = initializeEffect();
-        const promise = init instanceof Promise ? init : Promise.resolve();
-
-        promise.catch(() => {}).finally(() => {
-            const kickoff = () => {
-                if (isDestroyed || token !== kickoffToken) return;
-                if (effectInstance && effectInstance.isReady()) {
-                  effectInstance.onWindowResize();
-                  effectInstance.start();
-                  kickoffRafId = null;
-                } else {
-                  kickoffRafId = requestAnimationFrame(kickoff);
-                }
-            };
-            kickoff();
-        });
+        // Effect is initialized, start it immediately
+        const kickoff = () => {
+            if (isDestroyed || token !== kickoffToken) return;
+            if (effectInstance && effectInstance.isReady()) {
+              // Ensure proper state reset before starting
+              effectInstance.onWindowResize();
+              effectInstance.start();
+              kickoffRafId = null;
+            } else {
+              // Effect lost or became unready - abort
+              console.warn('[AboutImageEffect] Effect became unavailable during kickoff');
+              kickoffRafId = null;
+            }
+        };
+        kickoff();
     }
 
   export function onLeaveSection() {

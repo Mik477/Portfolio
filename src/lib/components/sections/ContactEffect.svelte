@@ -67,21 +67,41 @@
 
   export function onEnterSection(): void {
     if (!container) return;
+    // Set to hidden initially - onTransitionComplete will fade it in
     gsap.set(container, { autoAlpha: 0 });
   }
 
   export function onTransitionComplete(): void {
     if ($prm) return;
     
-    // Defensive: Only trigger animation if effect is fully initialized
-    // This prevents black screen if onTransitionComplete races with initialization
+    // CRITICAL: Always attempt to start effect if available
+    // Don't let missing initialization prevent the attempt
+    gsap.killTweensOf(container);
+    
     if (effectInstance) {
+      // Effect initialized successfully - restart animation cleanly
+      effectInstance.stopAnimationLoop();
       effectInstance.neutralizeState(0);
       effectInstance.startAnimationLoop();
+      
+      // Fade in with effect visible
       gsap.to(container, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
     } else {
-      // Fallback: Log warning if called before initialization completes
-      console.warn('[ContactEffect] onTransitionComplete called before initialization - effect will not be visible');
+      // Effect not initialized - keep trying non-blocking in background
+      // Container stays hidden (transparent background, text still visible)
+      console.warn('[ContactEffect] Effect not ready at onTransitionComplete - container remains transparent');
+      
+      // Attempt delayed initialization (non-blocking recovery)
+      void initializeEffect().then(() => {
+        if (effectInstance && !$prm) {
+          // Initialization succeeded after delay - start now
+          effectInstance.neutralizeState(0);
+          effectInstance.startAnimationLoop();
+          gsap.to(container, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
+        }
+      }).catch(() => {
+        // Initialization failed permanently - that's ok, effect just won't show
+      });
     }
   }
 

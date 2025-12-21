@@ -72,25 +72,31 @@
   }
 
   // This is called at the START of the page transition.
-  // It should only contain lightweight animations.
+  // CRITICAL: Start ALL animations here synchronously (like ProjectSection)
   export function onEnterSection(): void {
     hasEntered = true;
+    
+    // Start text/button animations immediately (non-blocking)
     if (keyboardButtonsInstance) {
       keyboardButtonsInstance.onEnterSection();
     }
+    
+    // Handle effect initialization and fade-in (non-blocking, like ProjectSection)
     if (aboutImageEffectInstance) {
-      // Lazy init safeguard: if preloading was skipped, initialize now (non-blocking)
+      // Fire-and-forget initialization (if not already done by preloader)
       void aboutImageEffectInstance.initializeEffect?.().catch(() => {});
-      // The image effect's onEnterSection just starts a simple fade-in.
+      
+      // Start fade-in immediately - onEnterSection is synchronous
       aboutImageEffectInstance.onEnterSection();
     }
   }
   
-  // FIX: This is called at the END of the page transition.
-  // It's for heavy, layout-dependent animations.
+  // CRITICAL: Called at END of transition for heavy work only (particles, WebGL)
+  // NOT used for critical fade-ins (those happen in onEnterSection)
   export function onTransitionComplete() {
     if (aboutImageEffectInstance?.onTransitionComplete) {
-      // This starts the particle rendering, which depends on the final layout.
+      // Just trigger particle animation start (non-critical)
+      // Effect will check its own readiness internally
       aboutImageEffectInstance.onTransitionComplete();
     }
   }
