@@ -405,7 +405,7 @@ export function getProjects(locale: Locale): Project[] {
       ? 'Ein post-hoc hierarchisches Framework für YOLO und ähnliche Modelle, das unsichere Detektionen validiert und den Tracking-Recall drastisch verbessert.'
       : 'Enhancing YOLO like models with a post-hoc hierarchical framework to validate uncertain detections and dramatically improve tracking recall.',
     backgrounds: [
-      { type: 'image', value: '/images/projects/project-two/bg1.jpg' }
+      { type: 'image', value: '/images/projects/project-two/bg_desktop.webp' }
     ],
     backgroundsMobile: [
       { type: 'image', value: '/images/projects/project-two/bg_mobile.webp' }
@@ -422,36 +422,36 @@ export function getProjects(locale: Locale): Project[] {
       {
         id: 'p2_live_ops',
         title: isDE ? '' : '',
-        cardImage: '/images/projects/project-two/Wide_1_Fog.png',
-        cardImageMobile: '/images/projects/project-two/Mobile_1_Fog.png',
+        cardImage: '/images/projects/project-two/desktop_comparison/Wide_1_Fog.webp',
+        cardImageMobile: '/images/projects/project-two/mobile_comparison/Mobile_1_Fog.webp',
         description: isDE ? '' : ''
       },
       {
         id: 'p2_adaptive_ui',
         title: isDE ? '' : '',
-        cardImage: '/images/projects/project-two/Wide_2_Vehicle.png',
-        cardImageMobile: '/images/projects/project-two/Mobile_2_Vehicle.png',
+        cardImage: '/images/projects/project-two/desktop_comparison/Wide_2_Vehicle.webp',
+        cardImageMobile: '/images/projects/project-two/mobile_comparison/Mobile_2_Vehicle.webp',
         description: isDE ? '' : ''
       },
       {
         id: 'p2_ai_insights',
         title: isDE ? '' : '',
-        cardImage: '/images/projects/project-two/Wide_3_dark.png',
-        cardImageMobile: '/images/projects/project-two/Mobile_3_dark.png',
+        cardImage: '/images/projects/project-two/desktop_comparison/Wide_3_dark.webp',
+        cardImageMobile: '/images/projects/project-two/mobile_comparison/Mobile_3_dark.webp',
         description: isDE ? '' : ''
       },
       {
         id: 'p2_collab_overlay',
         title: isDE ? '' : '',
-        cardImage: '/images/projects/project-two/Wide_4_Occlusions.png',
-        cardImageMobile: '/images/projects/project-two/Mobile_4_Occlusions.png',
+        cardImage: '/images/projects/project-two/desktop_comparison/Wide_4_Occlusions.webp',
+        cardImageMobile: '/images/projects/project-two/mobile_comparison/Mobile_4_Occlusions.webp',
         description: isDE ? '' : ''
       },
       {
         id: 'p2_after_action',
         title: isDE ? '' : '',
-        cardImage: '/images/projects/project-two/Wide_5_distance.png',
-        cardImageMobile: '/images/projects/project-two/Mobile_5_distance.png',
+        cardImage: '/images/projects/project-two/desktop_comparison/Wide_5_distance.webp',
+        cardImageMobile: '/images/projects/project-two/mobile_comparison/Mobile_5_distance.webp',
         description: isDE ? '' : ''
       }
     ],
@@ -471,7 +471,7 @@ export function getProjects(locale: Locale): Project[] {
       ? 'Eine Desktop-Anwendung zur KI-gestützten Erstellung von Anki-Lernkarten. Entwickelt für effizientes Lernen an der Universität. Jetzt mit professionellem Installer und UI veröffentlicht.'
       : 'A desktop application for AI-powered Anki flashcard creation. Built for efficient university learning. Now released with professional installer and UI.',
     backgrounds: [
-      { type: 'image', value: '/images/projects/project-three/bg3.jpg' }
+      { type: 'image', value: '/images/projects/project-three/bg_desktop.webp' }
     ],
     backgroundsMobile: [
       { type: 'image', value: '/images/projects/project-three/bg_mobile.webp' }

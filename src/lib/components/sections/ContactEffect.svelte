@@ -72,10 +72,16 @@
 
   export function onTransitionComplete(): void {
     if ($prm) return;
+    
+    // Defensive: Only trigger animation if effect is fully initialized
+    // This prevents black screen if onTransitionComplete races with initialization
     if (effectInstance) {
       effectInstance.neutralizeState(0);
       effectInstance.startAnimationLoop();
       gsap.to(container, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
+    } else {
+      // Fallback: Log warning if called before initialization completes
+      console.warn('[ContactEffect] onTransitionComplete called before initialization - effect will not be visible');
     }
   }
 

@@ -47,6 +47,8 @@
   export let headlineAnimation: Project['headlineAnimation'] | undefined = undefined;
 
   $: locale = $page.params?.lang === 'de' ? 'de' : 'en';
+
+  // Animation is handled by ProjectSection wrapper using .anim-* classes
 </script>
 
 <div class="layout-container" class:mobile-layout={$renderProfile.isMobile}>
@@ -80,7 +82,7 @@
           <div class="button-row">
             <!-- Demo button - primary with cyan glow -->
             {#if navigationLinks.demo}
-              <div class="key-position">
+              <div class="key-position anim-button">
                 <a 
                   href={navigationLinks.demo.url} 
                   class="key key-wide key-primary"
@@ -94,7 +96,7 @@
             
             <!-- Guide button -->
             {#if navigationLinks.guide}
-              <div class="key-position">
+              <div class="key-position anim-button">
                 <a 
                   href={navigationLinks.guide.url} 
                   class="key key-wide"
@@ -108,7 +110,7 @@
             
             <!-- Card Setup button -->
             {#if navigationLinks.cardSetup}
-              <div class="key-position">
+              <div class="key-position anim-button">
                 <a 
                   href={navigationLinks.cardSetup.url} 
                   class="key key-wide"
@@ -125,7 +127,7 @@
           {#if navigationLinks.github && !$renderProfile.isMobile}
             <div class="button-row">
               <!-- GitHub icon button -->
-              <div class="key-position">
+              <div class="key-position anim-button">
                 <a 
                   href={navigationLinks.github.url} 
                   class="key"
@@ -138,7 +140,7 @@
               </div>
               
               <!-- New Releases button -->
-              <div class="key-position">
+              <div class="key-position anim-button">
                 <a 
                   href="https://github.com/Mik477/Anki-Automation/releases" 
                   class="key key-wide"
@@ -230,13 +232,13 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: calc(var(--keyboard-key-base-size) * 0.25);
+    gap: calc(var(--keyboard-key-base-size) * 0.01);
   }
 
   .button-row {
     display: flex;
     align-items: flex-start;
-    gap: calc(var(--keyboard-key-base-size) * 0.15);
+    gap: calc(var(--keyboard-key-base-size) * 0.01);
     flex-wrap: wrap;
   }
 
@@ -374,6 +376,7 @@
     align-items: center;
     z-index: 1;
     min-height: clamp(400px, 50vh, 520px);
+    margin-left: -5vw;
   }
 
   /* ============ MOBILE LAYOUT ============ */
@@ -407,13 +410,13 @@
   }
 
   .layout-container.mobile-layout .keyboard-buttons-wrapper {
-    gap: 0.5rem;
+    gap: calc(var(--keyboard-key-base-size) * 0.01);
     --keyboard-key-base-size: 3rem;
   }
 
   .layout-container.mobile-layout .button-row {
     justify-content: center;
-    gap: 0.5rem;
+    gap: calc(var(--keyboard-key-base-size) * 0.01);
   }
 
   .layout-container.mobile-layout .key.key-wide {

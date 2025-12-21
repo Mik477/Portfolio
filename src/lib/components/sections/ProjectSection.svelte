@@ -340,12 +340,12 @@
     const headline = sectionWrapperEl.querySelector('.anim-headline');
     const summary = sectionWrapperEl.querySelector('.anim-summary');
     const cards = gsap.utils.toArray(sectionWrapperEl.querySelectorAll('.anim-card'));
-    const button = sectionWrapperEl.querySelector('.anim-button');
+    const buttons = gsap.utils.toArray(sectionWrapperEl.querySelectorAll('.anim-button'));
     
     if (headline) gsap.set(headline, { autoAlpha: 0, y: 50 });
     if (summary) gsap.set(summary, { autoAlpha: 0, y: 40 });
     if (cards.length > 0) gsap.set(cards, { autoAlpha: 0, scale: 0.95, y: 20 });
-    if (button) gsap.set(button, { autoAlpha: 0, y: 10, scale: 0.95 });
+    if (buttons.length > 0) gsap.set(buttons, { autoAlpha: 0, y: 15 });
     
     enterTimeline?.kill();
     enterTimeline = gsap.timeline({
@@ -356,7 +356,7 @@
     if (headline) enterTimeline.to(headline, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 'start');
     if (summary) enterTimeline.to(summary, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 'start+=0.15');
     if (cards.length > 0) enterTimeline.to(cards, { autoAlpha: 1, scale: 1, y: 0, duration: 1.2, stagger: 0.1, ease: 'expo.out' }, 'start+=0.25');
-    if (button) enterTimeline.to(button, { autoAlpha: 1, y: 0, scale: 1, duration: 1.2, ease: 'expo.out' }, 'start+=0.4');
+    if (buttons.length > 0) enterTimeline.to(buttons, { autoAlpha: 1, y: 0, duration: 0.7, stagger: 0.08, ease: 'power3.out' }, 'start+=0.4');
   }
 
   export function onLeaveSection() {

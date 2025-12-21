@@ -5,6 +5,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
   import { renderProfile } from '$lib/stores/renderProfile';
+  import katex from 'katex';
+  import 'katex/dist/katex.min.css';
   
   // Card data interface matching the demo format
   interface CardField {
@@ -354,9 +356,85 @@
     document.removeEventListener('touchcancel', handleGlobalTouchEnd);
   });
   
+  // Render LaTeX in HTML content
+  function renderLatex(html: string): string {
+    if (!browser) return html;
+    
+    try {
+      // Replace display math \[ ... \] (LaTeX syntax)
+      html = html.replace(/\\\[([\s\S]*?)\\\]/g, (match, latex) => {
+        try {
+          return katex.renderToString(latex.trim(), {
+            displayMode: true,
+            throwOnError: false,
+            trust: true
+          });
+        } catch (e) {
+          console.warn('KaTeX display render error:', e);
+          return match;
+        }
+      });
+      
+      // Replace display math $$...$$ (must come before inline)
+      html = html.replace(/\$\$([^$]+)\$\$/g, (match, latex) => {
+        try {
+          return katex.renderToString(latex.trim(), {
+            displayMode: true,
+            throwOnError: false,
+            trust: true
+          });
+        } catch (e) {
+          console.warn('KaTeX display render error:', e);
+          return match;
+        }
+      });
+      
+      // Replace inline math \( ... \) (LaTeX syntax)
+      html = html.replace(/\\\(([\s\S]*?)\\\)/g, (match, latex) => {
+        try {
+          return katex.renderToString(latex.trim(), {
+            displayMode: false,
+            throwOnError: false,
+            trust: true
+          });
+        } catch (e) {
+          console.warn('KaTeX inline render error:', e);
+          return match;
+        }
+      });
+      
+      // Replace inline math $...$ 
+      html = html.replace(/\$([^$]+)\$/g, (match, latex) => {
+        try {
+          return katex.renderToString(latex.trim(), {
+            displayMode: false,
+            throwOnError: false,
+            trust: true
+          });
+        } catch (e) {
+          console.warn('KaTeX inline render error:', e);
+          return match;
+        }
+      });
+    } catch (e) {
+      console.warn('KaTeX processing error:', e);
+    }
+    
+    return html;
+  }
+  
+  // Process card data with LaTeX rendering reactively
+  $: processedCards = cards.map(card => ({
+    ...card,
+    fields: {
+      Front: renderLatex(card.fields.Front),
+      Back: renderLatex(card.fields.Back)
+    }
+  }));
+
   // Get visible cards based on current indices
-  $: visibleCards = cards.length > 0 ? cardIndices.map((idx, pos) => ({
-    data: cards[idx],
+  $: visibleCards = processedCards.length > 0 ? cardIndices.map((idx, pos) => ({
+    data: processedCards[idx],
     dataIndex: idx,
     position: pos
   })) : [];

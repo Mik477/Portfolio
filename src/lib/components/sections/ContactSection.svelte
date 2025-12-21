@@ -70,36 +70,47 @@
     // Robustness: Don't fail completely if some elements are missing
     if (!h2El && !pEl && keyPositionElements.length === 0) return;
 
-    if (h2El) gsap.set(h2El, { autoAlpha: 0, y: 30 });
-    if (pEl) gsap.set(pEl, { autoAlpha: 0, y: 20 });
-    if (keyPositionElements.length > 0) gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
-
     enterTimeline?.kill();
+    enterTimeline = null;
+
+    // Set initial hidden state
+    gsap.set(h2El, { autoAlpha: 0, y: 30 });
+    gsap.set(pEl, { autoAlpha: 0, y: 20 });
+    gsap.set(keyPositionElements, { autoAlpha: 0, y: 15 });
+
+    // Create animation timeline
     enterTimeline = gsap.timeline({
       delay: 0.5,
       onComplete: () => { dispatch('animationComplete'); }
-    });
-
-    if (h2El) enterTimeline.to(h2El, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0);
-    if (pEl) enterTimeline.to(pEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 0.1);
-    if (keyPositionElements.length > 0) {
-      enterTimeline.to(keyPositionElements, { autoAlpha: 1, y: 0, duration: 0.7, ease: 'power3.out', stagger: 0.08 }, 0.25);
-    }
+    })
+      .to(h2El, { autoAlpha: 1, y: 0, duration: 0.9, ease: 'power3.out' }, 0)
+      .to(pEl, { autoAlpha: 1, y: 0, duration: 0.8, ease: 'power3.out' }, 0.1)
+      .to(keyPositionElements, {
+        autoAlpha: 1,
+        y: 0,
+        duration: 0.7,
+        ease: 'power3.out',
+        stagger: 0.08
+      }, 0.25);
   }
 
   export async function onTransitionComplete() {
     // Ensure effect is fully initialized before we trigger its transition-complete fade
     if (contactEffectInstance) {
-      if (contactEffectInstance.initializeEffect) {
-        try { 
-          // Race initialization with a timeout to prevent hanging
-          const initPromise = contactEffectInstance.initializeEffect();
-          const timeoutPromise = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000));
-          await Promise.race([initPromise, timeoutPromise]); 
-        } catch (e) {
-          // Proceed even if init failed or timed out
-        }
+      // CRITICAL: Always attempt initialization before calling onTransitionComplete
+      // This handles cases where rapid navigation arrives before preloading completes
+      try { 
+        // Race initialization with a timeout to prevent hanging
+        const initPromise = contactEffectInstance.initializeEffect();
+        const timeoutPromise = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
+        await Promise.race([initPromise, timeoutPromise]); 
+      } catch (e) {
+        // Proceed even if init failed or timed out
+        console.warn('[ContactSection] Effect initialization timeout/failure during transition complete:', e);
       }
+      
+      // CRITICAL: Only call onTransitionComplete AFTER initialization completes (or times out)
+      // This ensures effectInstance exists before attempting fade-in animation
       contactEffectInstance.onTransitionComplete?.();
     }
   }
@@ -182,7 +193,10 @@
         {/if}
         <div class="key-position key-position-cta gpu-prewarm-target">
           <a aria-label="Download Resume" class="key call-to-action" href={resumeLink} download>
-            <span class="call-to-action-content">{(data.additionalLinks?.[0]?.name) ?? 'Resume'}</span>
+            <span class="call-to-action-content">
+              <span class="desktop-text">{(data.additionalLinks?.[0]?.name) ?? 'Resume'}</span>
+              <span class="mobile-text">My Resume</span>
+            </span>
           </a>
         </div>
       </div>
@@ -222,6 +236,8 @@
   }
   .key.call-to-action { width: 160px; font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
   .call-to-action-content { position: relative; }
+  .call-to-action-content .desktop-text { display: inline; }
+  .call-to-action-content .mobile-text { display: none; }
   .call-to-action-content:after { position: absolute; content: ""; width: 0; left: 0; bottom: -4px; background: var(--keyboard-contrast); height: 1.5px; transition: 0.3s ease-out; }
   .key.call-to-action:hover .call-to-action-content:after { width: 100%; }
 
@@ -243,8 +259,7 @@
 
     .keyboard-buttons-wrapper {
       flex-wrap: wrap;
-      gap: 0.6rem;
-      row-gap: 0.75rem;
+      gap: calc(var(--keyboard-key-base-size) * 0.01);
       align-items: flex-start;
       justify-content: flex-start;
       width: 100%;
@@ -257,6 +272,21 @@
       display: flex;
       justify-content: flex-start;
       margin-top: 0;
+    }
+
+    .key.call-to-action {
+      width: auto;
+      min-width: fit-content;
+      padding-left: 0.75rem;
+      padding-right: 0.75rem;
+    }
+
+    .call-to-action-content .desktop-text {
+      display: none;
+    }
+
+    .call-to-action-content .mobile-text {
+      display: inline;
     }
   }
 
@@ -278,8 +308,7 @@
 
   .contact-content.mobile-layout .keyboard-buttons-wrapper {
     flex-wrap: wrap;
-    gap: 0.6rem;
-    row-gap: 0.75rem;
+    gap: calc(var(--keyboard-key-base-size) * 0.01);
     align-items: flex-start;
     justify-content: flex-start;
     width: 100%;
@@ -292,5 +321,20 @@
     display: flex;
     justify-content: flex-start;
     margin-top: 0;
+  }
+
+  .contact-content.mobile-layout .key.call-to-action {
+    width: auto;
+    min-width: fit-content;
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .contact-content.mobile-layout .call-to-action-content .desktop-text {
+    display: none;
+  }
+
+  .contact-content.mobile-layout .call-to-action-content .mobile-text {
+    display: inline;
   }
 </style>
