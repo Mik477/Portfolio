@@ -88,6 +88,10 @@
   export async function onEnterSection() {
     if (fadeInTimeoutId) clearTimeout(fadeInTimeoutId);
 
+    // Ensure we start from hidden so the fade-in actually happens
+    gsap.set(mainContainer, { autoAlpha: 0 });
+    if (particleOverlayElement) gsap.set(particleOverlayElement, { autoAlpha: 0 });
+
     fadeInTimeoutId = window.setTimeout(() => {
       gsap.to(mainContainer, { autoAlpha: 1, duration: 1.2, ease: 'power2.inOut' });
     }, fadeInDelay);
@@ -118,6 +122,12 @@
               // Ensure proper state reset before starting
               effectInstance.onWindowResize();
               effectInstance.start();
+              
+              // Fade in the overlay now that the effect has started
+              if (particleOverlayElement) {
+                  gsap.to(particleOverlayElement, { autoAlpha: 1, duration: 1.0, ease: 'power2.inOut' });
+              }
+
               kickoffRafId = null;
             } else {
               // Effect lost or became unready - abort
@@ -140,6 +150,10 @@
 
         gsap.killTweensOf(mainContainer);
         gsap.set(mainContainer, { autoAlpha: 0 });
+        if (particleOverlayElement) {
+            gsap.killTweensOf(particleOverlayElement);
+            gsap.set(particleOverlayElement, { autoAlpha: 0 });
+        }
   }
 
   // --- NEW Component API Method ---
@@ -151,6 +165,10 @@
         }
         gsap.killTweensOf(mainContainer);
         gsap.set(mainContainer, { autoAlpha: 0 });
+        if (particleOverlayElement) {
+            gsap.killTweensOf(particleOverlayElement);
+            gsap.set(particleOverlayElement, { autoAlpha: 0 });
+        }
 
     if (effectInstance) {
       effectInstance.dispose();
@@ -621,6 +639,7 @@
         this.camera.position.z = 100;
         
     this.renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+    this.renderer.setClearColor(0x000000, 0);
     // Manual scaling: setPixelRatio(1) and setSize to internal target, CSS to overlay size
     this.renderer.setPixelRatio(1);
     const { targetW, targetH } = this.computeInternalSize(this.width, this.height);
@@ -1542,6 +1561,8 @@
     object-position: center;
   }
     .particle-overlay {
+        opacity: 0;
+        visibility: hidden;
         position: fixed;
     top: 0;
     left: 0;

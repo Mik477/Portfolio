@@ -7,6 +7,7 @@
     // Add the new optional method to its type definition
     onTransitionComplete?: () => void;
     onUnload?: () => void;
+    primeFirstFrame?: (signal?: AbortSignal) => Promise<void>;
   };
 </script>
 
@@ -69,6 +70,10 @@
     if (aboutImageEffectInstance?.initializeEffect) {
       await aboutImageEffectInstance.initializeEffect();
     }
+  }
+
+  export async function primeFirstFrame(signal?: AbortSignal) {
+    await initializeEffect();
   }
 
   // This is called at the START of the page transition.

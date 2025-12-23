@@ -7,6 +7,7 @@
     initializeEffect?: () => Promise<void>;
     onTransitionComplete?: () => void;
     onUnload?: () => void;
+    primeFirstFrame?: (signal?: AbortSignal) => Promise<void>;
   };
 </script>
 
@@ -58,6 +59,10 @@
     if (contactEffectInstance?.initializeEffect) {
       await contactEffectInstance.initializeEffect(signal);
     }
+  }
+
+  export async function primeFirstFrame(signal?: AbortSignal) {
+    await initializeEffect(signal);
   }
 
   export function onEnterSection() {

@@ -48,6 +48,7 @@ export class BloomEffect {
 
         // 1. Render the original scene
         this.renderPass = new RenderPass(this.scene, this.camera);
+        this.renderPass.clearAlpha = 0;
         this.composer.addPass(this.renderPass);
 
         // 2. Apply bloom

@@ -220,7 +220,9 @@ export class LegacySectionScheduler {
 		// Legacy PRELOADING transitional state (optional) — keep for compatibility
 		this.sectionStatesStore.update(states => { states[index] = 'PRELOADING'; return states; });
 
-		if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
+		if (instance.primeFirstFrame) {
+			await instance.primeFirstFrame(signal);
+		} else if (sectionInfo.id === 'about' || sectionInfo.id === 'contact') {
 			gsap.set(element, { yPercent: 0, autoAlpha: 0.0001 });
 			instance.onEnterSection();
 			instance.onTransitionComplete?.();
