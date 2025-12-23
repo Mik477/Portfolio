@@ -171,7 +171,8 @@
 <style>
   .about-text-block { max-width: 860px; }
   .about-text-block > p { 
-    font-size: clamp(1rem, 2.2vw, 1.15rem); 
+    font-size: clamp(1rem, 1.8vw, 1.15rem); 
+    font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     line-height: 1.8; 
     margin-bottom: 2.5rem; 
     color: rgb(212 212 216); 
@@ -179,7 +180,8 @@
     visibility: hidden;
   }
   .about-text-block h2 {
-    font-size: clamp(2.2rem, 4.5vw, 3rem);
+    font-size: clamp(2.2rem, 5vw, 3.8rem);
+    font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
     margin-bottom: 1.5rem;
     font-weight: 300;
     letter-spacing: -0.02em;

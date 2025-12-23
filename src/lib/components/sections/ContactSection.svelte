@@ -203,8 +203,8 @@
   .contact-section-wrapper { width: 100%; height: 100%; position: relative; overflow: hidden; background: transparent; }
   .contact-content { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; display: flex; align-items: center; padding: 3rem max(calc(env(safe-area-inset-left, 0px) + 6vw), 3rem) calc(3rem + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; }
   .contact-text-block { max-width: 860px; text-align: left; }
-  .contact-text-block h2 { font-size: clamp(2.2rem, 4.5vw, 3rem); margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; visibility: hidden; }
-  .contact-text-block p { font-size: clamp(1rem, 2.2vw, 1.15rem); line-height: 1.8; margin-bottom: 2.5rem; color: rgb(212 212 216); opacity: 0; visibility: hidden; }
+  .contact-text-block h2 { font-size: clamp(2.2rem, 5vw, 3.8rem); font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; margin-bottom: 1.5rem; font-weight: 300; letter-spacing: -0.02em; color: rgb(245 245 247); opacity: 0; visibility: hidden; }
+  .contact-text-block p { font-size: clamp(1rem, 1.8vw, 1.15rem); font-family: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; line-height: 1.8; margin-bottom: 2.5rem; color: rgb(212 212 216); opacity: 0; visibility: hidden; }
 
   /* Keyboard style buttons (duplicated minimal styles from About for isolation) */
   .keyboard-buttons-wrapper { display: flex; align-items: flex-start; gap: calc(var(--keyboard-key-base-size) * 0.01); flex-wrap: nowrap; }

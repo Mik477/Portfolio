@@ -26,8 +26,7 @@
 
   $: isMobile = $renderProfile.isMobile;
 
-  let leftFeatureElement: HTMLElement;
-  let rightFeatureElement: HTMLElement;
+  let gridElement: HTMLElement;
   let gpsAreaElement: HTMLElement;
   let tl: gsap.core.Timeline | null = null;
 
@@ -43,8 +42,7 @@
     playAnimation();
   } else {
     if (tl) tl.kill();
-    if (leftFeatureElement) gsap.set(leftFeatureElement, { autoAlpha: 0, y: 30 });
-    if (rightFeatureElement) gsap.set(rightFeatureElement, { autoAlpha: 0, y: 30 });
+    if (gridElement && gridElement.children.length > 0) gsap.set(gridElement.children, { autoAlpha: 0, y: 30 });
     if (gpsAreaElement) gsap.set(gpsAreaElement, { autoAlpha: 0, y: 30 });
   }
 
@@ -52,33 +50,23 @@
     if (tl) tl.kill();
     
     // Initial states
-    if (leftFeatureElement) gsap.set(leftFeatureElement, { autoAlpha: 0, y: 30 });
-    if (rightFeatureElement) gsap.set(rightFeatureElement, { autoAlpha: 0, y: 30 });
+    if (gridElement && gridElement.children.length > 0) gsap.set(gridElement.children, { autoAlpha: 0, y: 30 });
     if (gpsAreaElement) gsap.set(gpsAreaElement, { autoAlpha: 0, y: 30 });
 
     tl = gsap.timeline({ delay: 0.5 });
 
-    // 1. Left Feature
-    if (leftFeatureElement) {
-      tl.to(leftFeatureElement, {
+    // 1. Feature Cards (staggered)
+    if (gridElement && gridElement.children.length > 0) {
+      tl.to(gridElement.children, {
         autoAlpha: 1,
         y: 0,
         duration: 0.8,
-        ease: 'power3.out'
+        ease: 'power3.out',
+        stagger: 0.15
       }, 0.2);
     }
 
-    // 2. Right Feature (slightly delayed)
-    if (rightFeatureElement) {
-      tl.to(rightFeatureElement, {
-        autoAlpha: 1,
-        y: 0,
-        duration: 0.8,
-        ease: 'power3.out'
-      }, 0.3);
-    }
-
-    // 3. GPS Area (bottom)
+    // 2. GPS Area (bottom)
     if (gpsAreaElement) {
       tl.to(gpsAreaElement, {
         autoAlpha: 1,
@@ -97,9 +85,9 @@
       <h2 class="main-title">{title}</h2>
     </div>
 
-    <div class="mobile-content">
+    <div class="mobile-content" bind:this={gridElement}>
       <!-- Top Feature -->
-      <div class="mobile-feature" bind:this={leftFeatureElement}>
+      <div class="mobile-feature">
         <FeatureCard title={sensorTitle}>
           <p>{sensorDescription}</p>
           {#if sensorImage}
@@ -111,7 +99,7 @@
       </div>
 
       <!-- Bottom Feature -->
-      <div class="mobile-feature" bind:this={rightFeatureElement}>
+      <div class="mobile-feature">
         <FeatureCard title={antennaTitle}>
           <p>{antennaDescription}</p>
           {#if antennaImage}
@@ -128,9 +116,9 @@
   <div class="capabilities-desktop">
     <SectionTitle {title} {isActive} delay={0.5} />
 
-    <div class="features-layout">
+    <div class="features-layout" bind:this={gridElement}>
       <!-- Left: Sensor Array -->
-      <div class="feature-left" bind:this={leftFeatureElement}>
+      <div class="feature-left">
         <FeatureCard title={sensorTitle}>
           <div bind:clientHeight={leftTextH}>
             <p>{sensorDescription}</p>
@@ -147,7 +135,7 @@
       <div class="center-space"></div>
 
       <!-- Right: Dual RX Antenna -->
-      <div class="feature-right" bind:this={rightFeatureElement}>
+      <div class="feature-right">
         <FeatureCard title={antennaTitle}>
           <div bind:clientHeight={rightTextH}>
             <p>{antennaDescription}</p>

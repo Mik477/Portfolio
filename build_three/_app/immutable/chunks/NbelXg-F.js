@@ -1,1 +1,0 @@
-const t={siteTitle:"Miká Müller - Data Scientist Portfolio",siteDescription:"A portfolio showcasing data science projects and expertise"},o={skipToContent:"Skip to main content"},e={meta:t,a11y:o};export{o as a11y,e as default,t as meta};
