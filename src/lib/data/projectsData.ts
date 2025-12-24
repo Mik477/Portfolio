@@ -154,7 +154,7 @@ export interface AboutContent {
 
 // Feature flags (simple manual toggles)
 export const featureFlags = {
-  showInstagram: false,
+  showInstagram: true,
   disableAboutImageOnMobile: true
 };
 
@@ -176,11 +176,11 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
     socialLinks: (() => {
       const links = [
         { name: 'GitHub', url: 'https://github.com/Mik477' },
-        { name: 'LinkedIn', url: 'https://www.linkedin.com/in/coming_soon/' },
+        { name: 'LinkedIn', url: 'https://www.linkedin.com/in/mik%C3%A1-m%C3%BCller-7969032aa/' },
         { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
       ];
       if (featureFlags.showInstagram) {
-        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/coming_soon/' });
+        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/softbagofair' });
       }
       return links;
     })()
@@ -198,7 +198,7 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
         { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
       ];
       if (featureFlags.showInstagram) {
-        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/coming_soon/' });
+        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/' });
       }
       return links;
     })()

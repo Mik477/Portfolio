@@ -26,308 +26,174 @@ export const ankiDemoCards: AnkiCardData[] = [
   {
     uid: "showcase-001",
     fields: {
-      Front: `<p>What is the <span class="badge badge-cyan">Primary</span> purpose of <strong>Anki Automation</strong>?</p>`,
-      Back: `<div class="info">
-  <strong>Definition:</strong> Anki Automation is a tool that uses AI to generate professional flashcards from lecture materials, PDFs, and notes.
-</div>
+      Front: `<p>Explain the <span class="badge badge-purple">Scaled Dot-Product Attention</span> mechanism used in Transformers.</p>`,
+      Back: `<p>The attention mechanism computes a weighted sum of values based on the compatibility of the query with corresponding keys:</p>
 
-<p>Key benefits:</p>
+<p>\\[ \\text{Attention}(Q, K, V) = \\text{softmax}\\left(\\frac{QK^T}{\\sqrt{d_k}}\\right)V \\]</p>
 
 <ul>
-<li>Saves hours of manual card creation</li>
-<li>Ensures consistent, high-quality formatting</li>
-<li>Supports LaTeX, tables, and rich HTML styling</li>
+<li><strong>Q</strong>: Query matrix</li>
+<li><strong>K</strong>: Key matrix</li>
+<li><strong>V</strong>: Value matrix</li>
+<li><strong>\\( d_k \\)</strong>: Dimension of keys (scaling factor to prevent vanishing gradients in softmax)</li>
 </ul>`
     },
-    tags: ["intro", "definition"]
+    tags: ["deep-learning", "transformers", "nlp"]
   },
   {
     uid: "showcase-002",
     fields: {
-      Front: `<p>Explain the difference between <mark>Supervised</mark> and <mark class="highlight-green">Unsupervised</mark> Learning.</p>`,
-      Back: `<table>
-<thead>
-<tr>
-  <th style="text-align:left;">Aspect</th>
-  <th style="text-align:center;">Supervised Learning</th>
-  <th style="text-align:center;">Unsupervised Learning</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-  <td style="text-align:left;">Data</td>
-  <td style="text-align:center;">Labeled</td>
-  <td style="text-align:center;">Unlabeled</td>
-</tr>
-<tr>
-  <td style="text-align:left;">Goal</td>
-  <td style="text-align:center;">Predict outcomes</td>
-  <td style="text-align:center;">Find patterns</td>
-</tr>
-<tr>
-  <td style="text-align:left;">Examples</td>
-  <td style="text-align:center;">Classification, Regression</td>
-  <td style="text-align:center;">Clustering</td>
-</tr>
-</tbody>
-</table>
+      Front: `<p>What is the objective function optimized in a <span class="badge badge-cyan">Variational Autoencoder (VAE)</span>?</p>`,
+      Back: `<p>VAEs maximize the <strong>Evidence Lower Bound (ELBO)</strong>:</p>
 
-<div class="tip">
-  <strong>Tip:</strong> Think of supervised learning as learning with a teacher!
+<p>\\[ \\mathcal{L}(\\theta, \\phi; x) = \\mathbb{E}_{q_\\phi(z|x)}[\\log p_\\theta(x|z)] - D_{KL}(q_\\phi(z|x) || p(z)) \\]</p>
+
+<div class="info">
+  <strong>Components:</strong>
+  <ul>
+    <li>First term: <strong>Reconstruction Loss</strong> (how well we decode)</li>
+    <li>Second term: <strong>KL Divergence</strong> (regularization towards prior \\( p(z) \\))</li>
+  </ul>
 </div>`
     },
-    tags: ["machine-learning", "comparison"]
+    tags: ["generative-ai", "math", "probabilistic-models"]
   },
   {
     uid: "showcase-003",
     fields: {
-      Front: `<p>What is the <span class="badge badge-purple">Quadratic Formula</span>?</p>
+      Front: `<p>Implement a Python <span class="badge badge-green">decorator</span> <code>@time_execution</code> that measures function runtime.</p>`,
+      Back: `<pre><code>import time
+import functools
 
-<p>Hint: <span class="spoiler" tabindex="0">It solves ax² + bx + c = 0</span></p>`,
-      Back: `<p>The general form of a quadratic equation is:</p>
+def time_execution(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        start = time.perf_counter()
+        result = func(*args, **kwargs)
+        end = time.perf_counter()
+        print(f"{func.__name__} took {end - start:.4f}s")
+        return result
+    return wrapper
 
-<p>\\[ ax^2 + bx + c = 0 \\]</p>
-
-<p>The solutions are given by:</p>
-
-<p>\\[ x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a} \\]</p>
-
-<div class="warning">
-  <strong>Note:</strong> The discriminant \\( \\Delta = b^2 - 4ac \\) determines the nature of roots.
-</div>`
+@time_execution
+def heavy_compute():
+    # ... implementation
+    pass</code></pre>`
     },
-    tags: ["mathematics", "algebra"]
+    tags: ["python", "advanced", "metaprogramming"]
   },
   {
     uid: "showcase-004",
     fields: {
-      Front: `<p>What keyboard shortcut opens the <kbd>Command Palette</kbd> in VS Code?</p>`,
-      Back: `<p>Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> (Windows/Linux)</p>
+      Front: `<p>Describe the update rules for the <span class="badge badge-amber">Adam</span> optimizer.</p>`,
+      Back: `<p>Adam (Adaptive Moment Estimation) maintains moving averages of gradients and squared gradients:</p>
 
-<p>Or <kbd>Cmd</kbd> + <kbd>Shift</kbd> + <kbd>P</kbd> (macOS)</p>
+<p>\\[ m_t = \\beta_1 m_{t-1} + (1-\\beta_1)g_t \\] <br>
+\\[ v_t = \\beta_2 v_{t-1} + (1-\\beta_2)g_t^2 \\]</p>
 
-<div class="info">
-  <strong>Pro Tip:</strong> You can also use <kbd>F1</kbd> as an alternative!
-</div>`
+<p>Bias-corrected estimates:</p>
+<p>\\[ \\hat{m}_t = \\frac{m_t}{1-\\beta_1^t}, \\quad \\hat{v}_t = \\frac{v_t}{1-\\beta_2^t} \\]</p>
+
+<p>Parameter update:</p>
+<p>\\[ \\theta_{t+1} = \\theta_t - \\frac{\\eta}{\\sqrt{\\hat{v}_t} + \\epsilon} \\hat{m}_t \\]</p>`
     },
-    tags: ["shortcuts", "vscode"]
+    tags: ["optimization", "deep-learning", "math"]
   },
   {
     uid: "showcase-005",
     fields: {
-      Front: `<p>Write a Python function for <span class="badge badge-green">factorial</span>.</p>`,
-      Back: `<pre><code>def factorial(n):
-    if n == 0 or n == 1:
-        return 1
-    return n * factorial(n - 1)
+      Front: `<p>How does <span class="badge badge-blue">LoRA (Low-Rank Adaptation)</span> reduce parameters during LLM fine-tuning?</p>`,
+      Back: `<p>Instead of updating the full weight matrix \\( W \\), LoRA injects trainable rank decomposition matrices \\( A \\) and \\( B \\):</p>
 
-print(factorial(5))  # Output: 120</code></pre>
+<p>\\[ h = W_0 x + \\Delta W x = W_0 x + BAx \\]</p>
 
 <div class="tip">
-  <strong>Complexity:</strong> \\( O(n) \\) for recursive calls
+  <strong>Key Insight:</strong>
+  Where \\( A \\in \\mathbb{R}^{r \\times d} \\) and \\( B \\in \\mathbb{R}^{d \\times r} \\) with rank \\( r \\ll d \\).
+  This reduces trainable parameters by up to 10,000x.
 </div>`
     },
-    tags: ["programming", "python"]
+    tags: ["llm", "fine-tuning", "efficiency"]
   },
   {
     uid: "showcase-006",
     fields: {
-      Front: `<p>What are the <span class="badge badge-amber">ACID</span> properties?</p>
+      Front: `<p>State the <span class="badge badge-red">Bellman Optimality Equation</span> for the value function \\( V^*(s) \\).</p>`,
+      Back: `<p>The value of a state under an optimal policy must equal the expected return for the best action:</p>
 
-<p>Hint: <span class="spoiler" tabindex="0">Atomicity, Consistency, Isolation, Durability</span></p>`,
-      Back: `<dl>
-  <dt>Atomicity</dt>
-  <dd>All operations succeed or all fail together</dd>
+<p>\\[ V^*(s) = \\max_{a} \\left( R(s,a) + \\gamma \\sum_{s'} P(s'|s,a) V^*(s') \\right) \\]</p>
 
-  <dt>Consistency</dt>
-  <dd>Database remains in a valid state</dd>
-
-  <dt>Isolation</dt>
-  <dd>Concurrent transactions don't interfere</dd>
-
-  <dt>Durability</dt>
-  <dd>Committed transactions persist after failures</dd>
-</dl>
-
-<div class="error">
-  <strong>Common Mistake:</strong> Confusing Isolation levels (READ UNCOMMITTED, READ COMMITTED, REPEATABLE READ, SERIALIZABLE) with the Isolation property itself.
+<div class="info">
+  This recursive definition is the foundation for Q-Learning and Dynamic Programming in RL.
 </div>`
     },
-    tags: ["databases", "transactions", "theory"]
+    tags: ["reinforcement-learning", "math", "theory"]
   },
   {
     uid: "showcase-007",
     fields: {
-      Front: `<p><details class="spoiler-block">
-  <summary>Click to reveal the question about Neural Networks</summary>
-  <p>What are the three main types of layers in a neural network?</p>
-</details></p>`,
-      Back: `<table>
-<thead>
-<tr>
-  <th style="text-align:left;">Layer Type</th>
-  <th style="text-align:center;">Function</th>
-  <th style="text-align:center;">Position</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-  <td style="text-align:left;"><span class="badge badge-blue">Input</span></td>
-  <td style="text-align:center;">Receives raw data</td>
-  <td style="text-align:center;">First</td>
-</tr>
-<tr>
-  <td style="text-align:left;"><span class="badge badge-purple">Hidden</span></td>
-  <td style="text-align:center;">Learns features and patterns</td>
-  <td style="text-align:center;">Middle</td>
-</tr>
-<tr>
-  <td style="text-align:left;"><span class="badge badge-green">Output</span></td>
-  <td style="text-align:center;">Produces final predictions</td>
-  <td style="text-align:center;">Last</td>
-</tr>
-</tbody>
-</table>
+      Front: `<p>Create a custom <span class="badge badge-green">Context Manager</span> in Python for handling resources.</p>`,
+      Back: `<pre><code>class ManagedResource:
+    def __enter__(self):
+        print("Acquiring resource...")
+        return self
 
-<blockquote>
-  "Deep learning allows computational models that are composed of multiple processing layers to learn representations of data with multiple levels of abstraction."
-  <cite>— Yann LeCun, Yoshua Bengio, Geoffrey Hinton</cite>
-</blockquote>`
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        print("Releasing resource...")
+        # Return True to suppress exceptions
+        return False
+
+# Usage
+with ManagedResource() as r:
+    print("Using resource")</code></pre>`
     },
-    tags: ["deep-learning", "neural-networks", "architecture"]
+    tags: ["python", "patterns", "advanced"]
   },
   {
     uid: "showcase-008",
     fields: {
-      Front: `<p>What does <code>HTTP 404</code> status code mean?</p>`,
-      Back: `<p><span class="badge badge-red">404 Not Found</span></p>
+      Front: `<p>What is the <span class="badge badge-purple">Vanishing Gradient Problem</span> and how do Residual Connections solve it?</p>`,
+      Back: `<p>In deep networks, gradients can shrink exponentially during backpropagation, preventing learning in early layers.</p>
 
-<p>The server cannot find the requested resource. This typically means:</p>
+<p><strong>Residual Connections (ResNets):</strong></p>
+<p>\\[ y = \\mathcal{F}(x, \\{W_i\\}) + x \\]</p>
 
-<ul>
-<li>The URL is incorrect or misspelled</li>
-<li>The resource has been moved or deleted</li>
-<li>The link is broken</li>
-</ul>
-
-<div class="info">
-  <strong>Related Codes:</strong>
-  <ul>
-    <li><code>400</code> - Bad Request</li>
-    <li><code>401</code> - Unauthorized</li>
-    <li><code>403</code> - Forbidden</li>
-    <li><code>500</code> - Internal Server Error</li>
-  </ul>
-</div>`
+<p>The gradient signal can flow directly through the identity connection \\( + x \\), acting as a "gradient superhighway".</p>`
     },
-    tags: ["web-development", "http", "status-codes"]
+    tags: ["deep-learning", "architecture", "theory"]
   },
   {
     uid: "showcase-009",
     fields: {
-      Front: `<p>Compare <span class="yes">✓</span> advantages and <span class="no">✗</span> disadvantages of <strong>SQL</strong> vs <strong>NoSQL</strong> databases.</p>`,
-      Back: `<table>
-<thead>
-<tr>
-  <th>Feature</th>
-  <th>SQL</th>
-  <th>NoSQL</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-  <td>Schema</td>
-  <td><span class="no">✗</span> Fixed</td>
-  <td><span class="yes">✓</span> Flexible</td>
-</tr>
-<tr>
-  <td>Scalability</td>
-  <td>Vertical</td>
-  <td><span class="yes">✓</span> Horizontal</td>
-</tr>
-<tr>
-  <td>ACID Compliance</td>
-  <td><span class="yes">✓</span> Full</td>
-  <td>Partial</td>
-</tr>
-<tr>
-  <td>Complex Queries</td>
-  <td><span class="yes">✓</span> Excellent</td>
-  <td>Limited</td>
-</tr>
-<tr>
-  <td>Speed (simple ops)</td>
-  <td>Good</td>
-  <td><span class="yes">✓</span> Faster</td>
-</tr>
-</tbody>
-</table>
+      Front: `<p>Explain <span class="badge badge-amber">Principal Component Analysis (PCA)</span> mathematically.</p>`,
+      Back: `<p>PCA seeks orthogonal unit vectors (principal components) that maximize the variance of the projected data.</p>
+
+<p>These are the <strong>eigenvectors</strong> of the covariance matrix \\( \\Sigma \\):</p>
+
+<p>\\[ \\Sigma v = \\lambda v \\]</p>
 
 <div class="tip">
-  <strong>When to use SQL:</strong> Complex relationships, transactions, data integrity
-</div>
-
-<div class="tip">
-  <strong>When to use NoSQL:</strong> Rapid scaling, unstructured data, real-time apps
+  The eigenvector with the largest eigenvalue \\( \\lambda \\) corresponds to the direction of maximum variance.
 </div>`
     },
-    tags: ["databases", "comparison", "architecture"]
+    tags: ["statistics", "dimensionality-reduction", "math"]
   },
   {
     uid: "showcase-010",
     fields: {
-      Front: `<p>What is <mark class="highlight-yellow">Big O Notation</mark> and why is it important?</p>`,
-      Back: `<p>Big O notation describes the <strong>upper bound</strong> of an algorithm's time or space complexity as input size grows.</p>
+      Front: `<p>What is the time complexity of the <span class="badge badge-cyan">Self-Attention</span> layer?</p>
+<p>Hint: <span class="spoiler" tabindex="0">Sequence length n, dimension d</span></p>`,
+      Back: `<p>The complexity is quadratic with respect to sequence length:</p>
 
-<p>Common complexities (best to worst):</p>
+<p>\\[ O(n^2 \\cdot d) \\]</p>
 
-<table>
-<thead>
-<tr>
-  <th style="text-align:left;">Notation</th>
-  <th style="text-align:center;">Name</th>
-  <th style="text-align:right;">Example</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-  <td style="text-align:left;">\\( O(1) \\)</td>
-  <td style="text-align:center;">Constant</td>
-  <td style="text-align:right;">Array access</td>
-</tr>
-<tr>
-  <td style="text-align:left;">\\( O(\\log n) \\)</td>
-  <td style="text-align:center;">Logarithmic</td>
-  <td style="text-align:right;">Binary search</td>
-</tr>
-<tr>
-  <td style="text-align:left;">\\( O(n) \\)</td>
-  <td style="text-align:center;">Linear</td>
-  <td style="text-align:right;">Simple loop</td>
-</tr>
-<tr>
-  <td style="text-align:left;">\\( O(n \\log n) \\)</td>
-  <td style="text-align:center;">Linearithmic</td>
-  <td style="text-align:right;">Merge sort</td>
-</tr>
-<tr>
-  <td style="text-align:left;">\\( O(n^2) \\)</td>
-  <td style="text-align:center;">Quadratic</td>
-  <td style="text-align:right;">Nested loops</td>
-</tr>
-<tr>
-  <td style="text-align:left;">\\( O(2^n) \\)</td>
-  <td style="text-align:center;">Exponential</td>
-  <td style="text-align:right;">Recursive Fibonacci</td>
-</tr>
-</tbody>
-</table>
+<p>This is because we compute the attention scores for every pair of tokens (\\( n \\times n \\) matrix).</p>
 
-<div class="error">
-  <strong>Important:</strong> Big O ignores constants and lower-order terms. \\( O(2n) \\) simplifies to \\( O(n) \\).
+<div class="warning">
+  <strong>Impact:</strong> This limits standard Transformers to relatively short context windows without optimizations like FlashAttention.
 </div>`
     },
-    tags: ["algorithms", "complexity", "fundamentals"]
+    tags: ["complexity", "transformers", "algorithms"]
   }
 ];
 

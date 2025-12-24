@@ -16,18 +16,25 @@
   }>();
 
   let activeIndex = 0;
-  let scrollAccumulator = 0;
-  let wheelCooldownTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingDirection: number | null = null;
   let hasInitialised = false;
   let lastInitialIndex = initialIndex;
-  const WHEEL_THRESHOLD = 80;
-  const WHEEL_COOLDOWN_MS = 240;
-  const LINE_HEIGHT_PX = 16;
-  const PAGE_HEIGHT_PX = 640;
-  const DELTA_MODE_LINE = 1;
-  const DELTA_MODE_PAGE = 2;
+  
+  // Touchpad-friendly wheel gesture lock
+  const WHEEL_NOISE_THRESH = 2;
+  const WHEEL_LOCK_DURATION = 800; // 0.6s transition + buffer
+  const SECONDARY_MIN_DELTA = 30;
+  const SECONDARY_WINDOW_MS = 600;
   const CARD_HEIGHT_FALLBACK = 180;
+
+  let wheelGestureLocked = false;
+  let wheelUnlockTimer: number | null = null;
+  let unlockAt = 0;
+  let lastWheelDir = 0;
+
+  // Touch handling state
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let horizontalLocked = false;
 
   let carouselElement: HTMLDivElement;
   let baseCardHeight: number = CARD_HEIGHT_FALLBACK;
@@ -86,30 +93,9 @@
     }
   }
 
-  function changeBy(step: number, { useCooldown = false }: { useCooldown?: boolean } = {}) {
+  function changeBy(step: number) {
     if (total <= 1 || step === 0) return;
     setActive(activeIndex + step);
-    resetWheelAccumulator();
-    if (useCooldown) startWheelCooldown();
-  }
-
-  function resetWheelAccumulator() {
-    scrollAccumulator = 0;
-    pendingDirection = null;
-  }
-
-  function startWheelCooldown() {
-    if (wheelCooldownTimer) {
-      clearTimeout(wheelCooldownTimer);
-    }
-    wheelCooldownTimer = setTimeout(() => {
-      wheelCooldownTimer = null;
-      if (pendingDirection) {
-        const direction = pendingDirection;
-        pendingDirection = null;
-        changeBy(direction, { useCooldown: true });
-      }
-    }, WHEEL_COOLDOWN_MS);
   }
 
   function measureActiveCardHeight() {
@@ -155,53 +141,91 @@
 
   onDestroy(() => {
     isDestroyed = true;
-    if (wheelCooldownTimer) {
-      clearTimeout(wheelCooldownTimer);
-      wheelCooldownTimer = null;
+    if (wheelUnlockTimer) {
+      clearTimeout(wheelUnlockTimer);
+      wheelUnlockTimer = null;
     }
     resizeObserver?.disconnect();
     resizeObserver = null;
   });
 
-  function normalizeWheelDelta(event: WheelEvent) {
-    let primary = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-    if (primary === 0) return 0;
-
-    if (event.deltaMode === DELTA_MODE_LINE) {
-      primary *= LINE_HEIGHT_PX;
-    } else if (event.deltaMode === DELTA_MODE_PAGE) {
-      primary *= PAGE_HEIGHT_PX;
-    }
-    return primary;
-  }
-
   function handleWheel(event: WheelEvent) {
-    if (total <= 1) {
-      return;
-    }
-
-    if (carouselElement && !carouselElement.contains(event.target as Node)) {
-      return;
-    }
+    if (total <= 1) return;
+    if (carouselElement && !carouselElement.contains(event.target as Node)) return;
 
     event.preventDefault();
     event.stopPropagation();
 
-    const delta = normalizeWheelDelta(event);
-    if (delta === 0) return;
+    if (wheelGestureLocked) return;
 
-    scrollAccumulator += delta;
+    const now = Date.now();
+    // Use deltaY or deltaX depending on which is larger (support horizontal scroll wheels)
+    const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+    const dir = delta > 0 ? 1 : -1;
+    const absDelta = Math.abs(delta);
 
-    if (wheelCooldownTimer) {
-      const direction = Math.sign(scrollAccumulator);
-      pendingDirection = direction !== 0 ? direction : pendingDirection;
-      return;
+    // Dynamic threshold: right after unlock, require a much larger delta (same direction)
+    const withinSecondaryWindow = unlockAt && (now - unlockAt < SECONDARY_WINDOW_MS);
+    const needsHigherThreshold = withinSecondaryWindow && dir === lastWheelDir;
+    const minDelta = needsHigherThreshold ? Math.max(WHEEL_NOISE_THRESH, SECONDARY_MIN_DELTA) : WHEEL_NOISE_THRESH;
+    
+    if (absDelta < minDelta) return;
+
+    // Lock for the duration of the transition
+    wheelGestureLocked = true;
+    if (wheelUnlockTimer === null) {
+      wheelUnlockTimer = window.setTimeout(() => {
+        wheelGestureLocked = false;
+        wheelUnlockTimer = null;
+        unlockAt = Date.now();
+      }, WHEEL_LOCK_DURATION);
     }
 
-    if (scrollAccumulator <= -WHEEL_THRESHOLD) {
-      changeBy(-1, { useCooldown: true });
-    } else if (scrollAccumulator >= WHEEL_THRESHOLD) {
-      changeBy(1, { useCooldown: true });
+    lastWheelDir = dir;
+    changeBy(dir);
+  }
+
+  function handleTouchStart(event: TouchEvent) {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    touchStartX = touch.clientX;
+    touchStartY = touch.clientY;
+    horizontalLocked = false;
+  }
+
+  function handleTouchMove(event: TouchEvent) {
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const dx = Math.abs(touch.clientX - touchStartX);
+    const dy = Math.abs(touch.clientY - touchStartY);
+    
+    // If moving horizontally more than vertically, lock out vertical swipes
+    if (dx > dy && dx > 6) {
+      horizontalLocked = true;
+    }
+
+    if (horizontalLocked) return;
+
+    // If moving vertically significantly, prevent default to avoid page scroll
+    if (dy > 10) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  function handleTouchEnd(event: TouchEvent) {
+    if (horizontalLocked) {
+      horizontalLocked = false;
+      return;
+    }
+    
+    const touch = event.changedTouches[0];
+    const dy = touch.clientY - touchStartY;
+    
+    // Threshold for swipe
+    if (Math.abs(dy) > 30) {
+      const direction = dy > 0 ? -1 : 1; // Swipe down -> prev, Swipe up -> next
+      changeBy(direction);
     }
   }
 
@@ -240,9 +264,11 @@
     aria-label="Project preview carousel"
     tabindex="0"
     bind:this={carouselElement}
-    on:mouseleave={resetWheelAccumulator}
     on:wheel|nonpassive={handleWheel}
     on:keydown={handleKeyDown}
+    on:touchstart|passive={handleTouchStart}
+    on:touchmove|nonpassive={handleTouchMove}
+    on:touchend|passive={handleTouchEnd}
   >
     {#each cards as card, idx}
       {@const layout = cardLayout[idx]}

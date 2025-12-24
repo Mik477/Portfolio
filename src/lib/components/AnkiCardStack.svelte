@@ -29,6 +29,7 @@
   let currentCardIndex = 0;
   let cardIndices: number[] = [];
   let cardElements: HTMLElement[] = [];
+  let isMounted = false;
   
   // Drag state matching demo implementation
   let dragState = {
@@ -336,6 +337,7 @@
   
   onMount(() => {
     if (!browser) return;
+    isMounted = true;
     
     // Add global event listeners
     document.addEventListener('mousemove', handleGlobalMouseMove);
@@ -427,8 +429,8 @@
   $: processedCards = cards.map(card => ({
     ...card,
     fields: {
-      Front: renderLatex(card.fields.Front),
-      Back: renderLatex(card.fields.Back)
+      Front: isMounted ? renderLatex(card.fields.Front) : card.fields.Front,
+      Back: isMounted ? renderLatex(card.fields.Back) : card.fields.Back
     }
   }));
 
@@ -726,6 +728,31 @@
     color: inherit;
     padding: 0;
     font-size: inherit;
+  }
+
+  /* KaTeX Display Math - Scrollable */
+  .card-half-content :global(.katex-display) {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.5em 0;
+    margin: 1em 0;
+    max-width: 100%;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(156, 163, 175, 0.3) transparent;
+  }
+
+  .card-half-content :global(.katex-display::-webkit-scrollbar) {
+    height: 4px;
+  }
+
+  .card-half-content :global(.katex-display::-webkit-scrollbar-track) {
+    background: transparent;
+  }
+
+  .card-half-content :global(.katex-display::-webkit-scrollbar-thumb) {
+    background: rgba(156, 163, 175, 0.3);
+    border-radius: 2px;
   }
 
   /* Tables */
