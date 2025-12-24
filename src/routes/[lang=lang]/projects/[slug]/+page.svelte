@@ -98,9 +98,19 @@
   let currentSectionIndex = 0;
   let navActiveIndex = 0;
   let isAnimating = false;
-  let lastScrollTime = 0;
-  const scrollDebounce = 200;
+  
+  // Wheel Navigation State
   const transitionDuration = 1.1;
+  const minSectionDisplayDuration = 1.2;
+  const WHEEL_NOISE_THRESH = 2;
+  const WHEEL_LOCK_DURATION = Math.max(transitionDuration, minSectionDisplayDuration) * 1000 + 150; // ~1.35s
+  const SECONDARY_MIN_DELTA = 30;
+  const SECONDARY_WINDOW_MS = 600;
+  let wheelGestureLocked = false;
+  let wheelUnlockTimer: number | null = null;
+  let unlockAt = 0;
+  let lastWheelDir = 0;
+
   let suppressHashUpdate = false; // prevent feedback loop when programmatically updating hash
   let suppressHashResetTimer: number | null = null;
   let isDestroyed = false;
@@ -195,7 +205,33 @@
   const RUBBER_BAND_FACTOR = 0.4; // Resistance at boundaries
   const MOMENTUM_MULTIPLIER = 180; // Convert velocity to distance
   const MIN_MOMENTUM_DISTANCE = 30; // Minimum px for momentum navigation
-  const MAX_VISUAL_FEEDBACK = 0.20; // Cap visual feedback at 20% of screen (just a nudge)
+  const MAX_VISUAL_FEEDBACK = 0.15; // Cap visual feedback at 15% of screen (just a nudge)
+
+  function getSectionAssets(index: number): string[] {
+    if (index < 0 || index >= allSubSections.length) return [];
+    const section = allSubSections[index];
+    const assets: string[] = [];
+    if (section.background?.value) assets.push(section.background.value);
+    return assets;
+  }
+
+  async function preloadSurroundingAssets(activeIndex: number) {
+    const candidates = [activeIndex - 1, activeIndex + 1];
+    const assetsToLoad = new Set<string>();
+    
+    candidates.forEach(idx => {
+      const assets = getSectionAssets(idx);
+      assets.forEach(a => assetsToLoad.add(a));
+    });
+    
+    if (assetsToLoad.size > 0) {
+      try {
+        await preloadAssets(Array.from(assetsToLoad));
+      } catch (e) {
+        console.warn('Failed to preload surrounding assets', e);
+      }
+    }
+  }
 
   onMount(() => {
     // Initialize locale tracking for the reactive handler
@@ -204,33 +240,38 @@
 
     const runPreloadAndSetup = async () => {
       startLoadingTask(PROJECT_ASSETS_TASK_ID, 2);
-      const assetUrls = new Set<string>();
-      const enqueueAsset = (asset: { type: string; value: string } | undefined) => {
-        if (asset && asset.type === 'image' && asset.value) {
-          assetUrls.add(asset.value);
-        }
-      };
+      
+      // Determine initial index
+      const urlHash = get(page).url.hash;
+      const cleanHash = urlHash.startsWith('#') ? urlHash.substring(1) : null;
+      let initialIndex = 0;
+      if (cleanHash) {
+        const foundIndex = allSubSections.findIndex(s => s.id === cleanHash);
+        if (foundIndex !== -1) initialIndex = foundIndex;
+      }
 
-      project.backgrounds.forEach(enqueueAsset);
-      project.backgroundsMobile?.forEach(enqueueAsset);
-      project.subPageSections?.forEach((section) => {
-        enqueueAsset(section.background);
-        enqueueAsset(section.backgroundMobile);
+      // Preload current and next section
+      const initialAssets = new Set<string>();
+      [initialIndex, initialIndex + 1].forEach(idx => {
+        getSectionAssets(idx).forEach(a => initialAssets.add(a));
       });
 
-      const resolvedAssets = allSubSections
-        .filter(s => s.background && s.background.type === 'image')
-        .map(s => s.background.value);
-      resolvedAssets.forEach((value) => assetUrls.add(value));
-
       try {
-        await preloadAssets(Array.from(assetUrls));
+        if (initialAssets.size > 0) {
+          await preloadAssets(Array.from(initialAssets));
+        }
         preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'loaded');
       } catch (error) {
         console.error(error);
         preloadingStore.updateTaskStatus(PROJECT_ASSETS_TASK_ID, 'error', (error as Error).message);
       } finally {
         isContentLoaded.set(true);
+        // Lazy load the rest in background
+        const allAssets = new Set<string>();
+        allSubSections.forEach((_, idx) => {
+           getSectionAssets(idx).forEach(a => allAssets.add(a));
+        });
+        preloadAssets(Array.from(allAssets)).catch(() => {});
       }
     };
     runPreloadAndSetup();
@@ -241,6 +282,10 @@
       if (suppressHashResetTimer !== null) {
         window.clearTimeout(suppressHashResetTimer);
         suppressHashResetTimer = null;
+      }
+      if (wheelUnlockTimer !== null) {
+        window.clearTimeout(wheelUnlockTimer);
+        wheelUnlockTimer = null;
       }
       activeTransitionTimeline?.kill();
       activeTransitionTimeline = null;
@@ -392,6 +437,7 @@
           }
         });
         // Now trigger the normal navigation animation
+        if (get(renderProfile).isMobile) tryVibrate();
         navigateToSection(targetIdx);
       } else {
         snapBackToCurrentSection();
@@ -537,6 +583,19 @@
     dragVelocity = 0;
   }
 
+  function tryVibrate(duration = 15) {
+    try {
+      if (navigator && 'vibrate' in navigator) {
+        navigator.vibrate(duration);
+      }
+    } catch {}
+  }
+
+  function handleDotNavigation(index: number) {
+    if (get(renderProfile).isMobile) tryVibrate();
+    navigateToSection(index);
+  }
+
   function navigateToSection(newIndex: number) {
     if (isDestroyed) return;
     const oldIndex = currentSectionIndex;
@@ -560,6 +619,10 @@
         currentSectionIndex = newIndex;
         updateHashForSection(newIndex);
         activeTransitionTimeline = null;
+        
+        // Preload surrounding assets AFTER animation to ensure smoothness
+        // This prevents network/decoding activity from causing jank during the transition
+        preloadSurroundingAssets(newIndex);
       }
     });
     activeTransitionTimeline.to(currentSectionEl, { yPercent: -direction * 100, autoAlpha: 0, duration: transitionDuration, ease: 'expo.out' }, 'slide');
@@ -599,16 +662,45 @@
 
   function handleWheel(event: WheelEvent) {
     event.preventDefault();
-    const currentTime = Date.now();
-    if (currentTime - lastScrollTime < scrollDebounce || isAnimating) return;
-    lastScrollTime = currentTime;
-    navigateToSection(currentSectionIndex + (event.deltaY > 0 ? 1 : -1));
+    if (isAnimating) return;
+    if (wheelGestureLocked) return;
+
+    const now = Date.now();
+    const dir = event.deltaY > 0 ? 1 : -1;
+    const absDelta = Math.abs(event.deltaY);
+
+    // Dynamic threshold: right after unlock, require a much larger delta (same direction)
+    const withinSecondaryWindow = unlockAt && (now - unlockAt < SECONDARY_WINDOW_MS);
+    const needsHigherThreshold = withinSecondaryWindow && dir === lastWheelDir;
+    const minDelta = needsHigherThreshold ? Math.max(WHEEL_NOISE_THRESH, SECONDARY_MIN_DELTA) : WHEEL_NOISE_THRESH;
+    if (absDelta < minDelta) return;
+
+    // Lock for the duration of the transition
+    wheelGestureLocked = true;
+    if (wheelUnlockTimer === null) {
+      wheelUnlockTimer = window.setTimeout(() => {
+        wheelGestureLocked = false;
+        wheelUnlockTimer = null;
+        unlockAt = Date.now();
+      }, WHEEL_LOCK_DURATION);
+    }
+
+    lastWheelDir = dir;
+    navigateToSection(currentSectionIndex + dir);
   }
 
   function handleKeyDown(event: KeyboardEvent) {
     if (isAnimating) { event.preventDefault(); return; }
+    // Use a simple debounce for keyboard to prevent spamming
     const currentTime = Date.now();
-    if (currentTime - lastScrollTime < scrollDebounce) { event.preventDefault(); return; }
+    // Re-using unlockAt as a "last action time" for keyboard simple debounce if needed, 
+    // or just rely on isAnimating check which is usually sufficient.
+    // But let's keep the original debounce logic for keyboard if we removed lastScrollTime.
+    // Since I removed lastScrollTime, I'll use a local var or just rely on isAnimating.
+    // The main page uses lastScrollTime for keyboard. I should probably restore it or use a new var.
+    // Let's use a new var for keyboard debounce.
+    if (currentTime - lastKeyboardTime < 200) { event.preventDefault(); return; }
+    
     let newIndex = currentSectionIndex; let shouldScroll = false;
     switch (event.key) {
       case 'ArrowDown': case 'PageDown': case ' ': newIndex++; shouldScroll = true; break;
@@ -616,8 +708,14 @@
       case 'Home': newIndex = 0; shouldScroll = true; break;
       case 'End': newIndex = allSubSections.length - 1; shouldScroll = true; break;
     }
-    if (shouldScroll && newIndex !== currentSectionIndex) { event.preventDefault(); lastScrollTime = currentTime; navigateToSection(newIndex); }
+    if (shouldScroll && newIndex !== currentSectionIndex) { 
+      event.preventDefault(); 
+      lastKeyboardTime = currentTime; 
+      navigateToSection(newIndex); 
+    }
   }
+  
+  let lastKeyboardTime = 0;
 
   function handleResize() {
     if (resizeTimer !== null) clearTimeout(resizeTimer);
@@ -723,7 +821,7 @@
   <MobileNavDots
     sections={navSections}
     activeIndex={navActiveIndex}
-    on:select={({ detail }) => navigateToSection(detail.index)}
+    on:select={({ detail }) => handleDotNavigation(detail.index)}
   />
 {/if}
 

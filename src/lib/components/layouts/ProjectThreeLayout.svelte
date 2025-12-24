@@ -14,37 +14,8 @@
   export let headlineSegments: ProjectHeadlineSegment[] | undefined = undefined;
   export let navigationLinks: Project['navigationLinks'] | undefined = undefined;
   
-  // These props are passed but not used in this layout (required for compatibility with ProjectSection wrapper)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let cards: ProjectCard[] = [];
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let slug: string = '';
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let readMoreLinkText: string | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let readMoreFallbackLabel: string | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let backgrounds: Project['backgrounds'] = [];
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let backgroundsMobile: Project['backgrounds'] | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let subPageSections: ProjectSubPageSection[] | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let paperUrl: string | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let cardDisplay: ProjectCardDisplayConfig | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let id: string = '';
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let tags: string[] | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let layoutType: string | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let overviewBackground: Project['overviewBackground'] | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let overviewBackgroundMobile: Project['overviewBackgroundMobile'] | undefined = undefined;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  export let headlineAnimation: Project['headlineAnimation'] | undefined = undefined;
+  // Note: Other props passed by ProjectSection (cards, slug, etc.) are not used in this layout
+  // and are implicitly handled by Svelte's prop mechanism (ignored).
 
   $: locale = $page.params?.lang === 'de' ? 'de' : 'en';
 

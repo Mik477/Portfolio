@@ -459,6 +459,7 @@
           const target = e.currentTarget as HTMLElement;
           handleCardTouchStart(e, target);
         }}
+        on:keydown={() => {}}
         on:touchmove|nonpassive={(e) => {
           const target = e.currentTarget as HTMLElement;
           handleCardTouchMove(e, target);
@@ -561,7 +562,7 @@
     transition-delay: 0s, 0s, 0.05s;
   }
 
-  .preview-card.dragging {
+  .preview-card:global(.dragging) {
     transition: none !important;
     cursor: grabbing;
   }
@@ -594,7 +595,7 @@
     pointer-events: none;
   }
 
-  .preview-card.to-back {
+  .preview-card:global(.to-back) {
     z-index: 0 !important;
     transition: 
       transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -997,7 +998,7 @@
     pointer-events: none;
   }
 
-  .overflow-indicator.visible {
+  .overflow-indicator:global(.visible) {
     display: flex;
   }
 

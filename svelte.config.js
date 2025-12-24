@@ -48,7 +48,10 @@ const config = {
 				'/en/privacy', '/de/datenschutz',
 				'/en/accessibility', '/de/barrierefreiheit',
 				'/en/projects/BURA', '/de/projects/BURA',
-				'/en/projects/Project2', '/de/projects/Project2'
+				'/en/projects/Project2', '/de/projects/Project2',
+				'/anki-automation-demo',
+				'/anki-automation-demo/getting-started',
+				'/anki-automation-demo/card-setup'
 			]
 		}
 	}

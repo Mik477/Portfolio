@@ -1,0 +1,5 @@
+ACK: Loaded copilot-instructions for Portfolio SvelteKit project.
+Session focus: Fix build errors and warnings (Anki 404s, unused exports, a11y issues).
+Architecture doc: PROJECT_ARCHITECTURE.md loaded.
+Key constraints: aspect-ratio responsive, desktop-first layout, animation safety, locale parity, accessibility.
+Ready to proceed.
