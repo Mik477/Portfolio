@@ -1339,13 +1339,11 @@
 				{/if}
 			</section>
 		{/each}
-			{#if get(renderProfile).isMobile}
-				<MobileNavDots
-					sections={allSectionsData.map(s => ({ id: s.id, label: s.id }))}
-					activeIndex={$navActiveIndex}
-					on:select={(e) => mobileNavigateTo(e.detail.index, 'dot')}
-				/>
-			{/if}
+			<MobileNavDots
+				sections={allSectionsData.map(s => ({ id: s.id, label: s.id }))}
+				activeIndex={$navActiveIndex}
+				on:select={(e) => mobileNavigateTo(e.detail.index, 'dot')}
+			/>
 		</main>
 
   

@@ -80,5 +80,14 @@
     transform: scale(1.7); 
     background: rgba(255,255,255,1);
   }
-  @media (min-width: 769px) { .mobile-dots { display: none; } }
+  
+  @media (hover: hover) {
+    .mobile-dots button:hover .dot-visual {
+      background: rgba(255,255,255,1);
+      transform: scale(1.3);
+    }
+    .mobile-dots button.active:hover .dot-visual {
+      transform: scale(1.7); /* Keep active scale */
+    }
+  }
 </style>
