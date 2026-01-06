@@ -264,12 +264,12 @@ export function getProjects(locale: Locale): Project[] {
       { type: 'image', value: '/images/projects/project-one/mobile2_Drone_Sunset.webp' },
       { type: 'image', value: '/images/projects/project-one/Drone_Trees.webp' },
       { type: 'image', value: '/images/projects/project-one/Drone_Front.webp' },      
-      { type: 'image', value: '/images/projects/project-one/mobile_clouds.jpg' },      
+      { type: 'image', value: '/images/projects/project-one/mobile_clouds.webp' },      
       { type: 'image', value: '/images/projects/project-one/Drone_Sunflowers_Wide.webp' },      
-      { type: 'image', value: '/images/projects/project-one/mobile_Drone_close_clouds.jpg' }     
+      { type: 'image', value: '/images/projects/project-one/mobile_Drone_close_clouds.webp' }     
     ],
     overviewBackground: { type: 'image', value: '/images/projects/project-one/profile_drone.webp' },
-    overviewBackgroundMobile: { type: 'image', value: '/images/projects/project-one/profile_drone_shorter1.JPG' },
+    overviewBackgroundMobile: { type: 'image', value: '/images/projects/project-one/profile_drone_shorter1.webp' },
     tags: isDE
       ? ['3D‑Druck', 'UAV‑Design', 'Luft- und Raumfahrttechnik', 'Elektronik']
       : ['3D Printing', 'UAV Design', 'Aerospace Engineering', 'Electronics'],
