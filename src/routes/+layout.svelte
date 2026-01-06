@@ -3,6 +3,7 @@
   // Import the global stylesheet. This is the new line.
   import '../app.css';
   import TransitionOverlay from '$lib/components/TransitionOverlay.svelte';
+  import MobileOrientationLock from '$lib/components/MobileOrientationLock.svelte';
   import LegalFooter from '$lib/components/LegalFooter.svelte';
   import LanguageSwitcher from '$lib/components/LanguageSwitcher.svelte';
   import { siteConfig } from '$lib/data/siteConfig';
@@ -90,6 +91,8 @@
 </svelte:head>
 
 <TransitionOverlay />
+
+<MobileOrientationLock />
 
 <slot />
 

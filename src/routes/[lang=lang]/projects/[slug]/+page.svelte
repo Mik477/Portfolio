@@ -765,6 +765,9 @@
               printingTitle={layoutData.printingTitle}
               printingPoints={layoutData.printingPoints}
               printingImage={layoutData.printingImage}
+              adaptabilityTitle={layoutData.adaptabilityTitle}
+              adaptabilityDescription={layoutData.adaptabilityDescription}
+              adaptabilityImage={layoutData.adaptabilityImage}
               batteryTitle={layoutData.batteryTitle}
               batteryDescription={layoutData.batteryDescription}
               batteryImage={layoutData.batteryImage}

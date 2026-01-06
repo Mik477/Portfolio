@@ -12,6 +12,9 @@
   export let printingTitle: string;
   export let printingPoints: string[];
   export let printingImage: string | undefined = undefined;
+  export let adaptabilityTitle: string;
+  export let adaptabilityDescription: string;
+  export let adaptabilityImage: string | undefined = undefined;
   export let batteryTitle: string;
   export let batteryDescription: string;
   export let batteryImage: string | undefined = undefined;
@@ -26,11 +29,19 @@
 
   // Dynamic height adjustment variables
   let leftTextH = 0;
+  let middleTextH = 0;
   let rightTextH = 0;
+  let middleImgWidth = 0;
   let rightImgWidth = 0;
   
-  $: heightDiff = Math.max(0, leftTextH - rightTextH);
-  $: rightImgHeight = rightImgWidth > 0 ? (rightImgWidth * 9 / 16) + heightDiff : 0;
+  // Calculate height difference to align bottom of images
+  // For middle column
+  $: middleHeightDiff = Math.max(0, leftTextH - middleTextH);
+  $: middleImgHeight = middleImgWidth > 0 ? (middleImgWidth * 9 / 16) + middleHeightDiff : 0;
+
+  // For right column
+  $: rightHeightDiff = Math.max(0, leftTextH - rightTextH);
+  $: rightImgHeight = rightImgWidth > 0 ? (rightImgWidth * 9 / 16) + rightHeightDiff : 0;
 
   $: if (isActive) {
     playAnimation();
@@ -52,15 +63,39 @@
     // Note: SectionTitle handles its own animation with the same delay.
     // We start the content animation slightly after the title starts appearing.
 
-    // 1. Feature Cards (staggered)
-    if (gridElement && gridElement.children.length > 0) {
-      tl.to(gridElement.children, {
+    // 1. Feature Cards (Left -> Right -> Middle)
+    if (gridElement && gridElement.children.length >= 3) {
+      const left = gridElement.children[0];
+      const middle = gridElement.children[1];
+      const right = gridElement.children[2];
+
+      tl.to(left, {
+        autoAlpha: 1,
+        y: 0,
+        duration: 0.8,
+        ease: 'power3.out'
+      }, 0.2)
+      .to(right, {
+        autoAlpha: 1,
+        y: 0,
+        duration: 0.8,
+        ease: 'power3.out'
+      }, 0.35)
+      .to(middle, {
+        autoAlpha: 1,
+        y: 0,
+        duration: 0.8,
+        ease: 'power3.out'
+      }, 0.5);
+    } else if (gridElement && gridElement.children.length > 0) {
+       // Fallback for mobile or if structure changes
+       tl.to(gridElement.children, {
         autoAlpha: 1,
         y: 0,
         duration: 0.8,
         ease: 'power3.out',
         stagger: 0.15
-      }, 0.2); // Start at 0.2s relative to timeline start (which has 0.5s delay)
+      }, 0.2);
     }
 
     // 2. Materials Strip
@@ -70,7 +105,7 @@
         y: 0,
         duration: 0.8,
         ease: 'power3.out'
-      }, 0.4);
+      }, 0.65); // Adjusted delay to come after cards
     }
   }
 </script>
@@ -113,7 +148,7 @@
     </div>
   </div>
 {:else}
-  <!-- Desktop: Two-column with materials strip -->
+  <!-- Desktop: Three-column with materials strip -->
   <div class="manufacturing-desktop">
     <SectionTitle {title} {isActive} delay={0.5} />
 
@@ -136,8 +171,21 @@
         </FeatureCard>
       </div>
 
-      <!-- Center: Empty space to show background -->
-      <div class="center-space"></div>
+      <!-- Middle: Adaptability Card -->
+      <div class="feature-middle">
+        <FeatureCard title={adaptabilityTitle}>
+          <div bind:clientHeight={middleTextH}>
+            <p>{adaptabilityDescription}</p>
+          </div>
+          {#if adaptabilityImage}
+            <div class="feature-image-container"
+                 bind:clientWidth={middleImgWidth}
+                 style={middleImgWidth > 0 ? `height: ${middleImgHeight}px; aspect-ratio: auto;` : ''}>
+              <img src={adaptabilityImage} alt={adaptabilityTitle} loading="lazy" />
+            </div>
+          {/if}
+        </FeatureCard>
+      </div>
 
       <!-- Right: Battery Card -->
       <div class="feature-right">
@@ -275,9 +323,11 @@
     width: 100%;
     margin-top: 1vh;
     flex-grow: 1;
+    gap: clamp(1rem, 2vw, 3rem);
   }
 
   .feature-left,
+  .feature-middle,
   .feature-right {
     width: 100%;
     max-width: clamp(20rem, 30vw, 25rem);
@@ -290,13 +340,14 @@
     grid-column: 1;
   }
 
+  .feature-middle {
+    justify-self: center;
+    grid-column: 2;
+  }
+
   .feature-right {
     justify-self: end;
     grid-column: 3;
-  }
-
-  .center-space {
-    display: block;
   }
 
   .feature-image-container {
@@ -318,8 +369,7 @@
   .materials-area {
     position: absolute;
     bottom: clamp(2rem, 4vh, 3rem);
-    left: 50%;
-    transform: translateX(-50%);
+    left: 0;
     width: 100%;
     display: flex;
     justify-content: center;

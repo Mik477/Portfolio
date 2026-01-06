@@ -49,6 +49,9 @@ export interface ManufacturingLayoutData {
   printingTitle: string;
   printingPoints: string[];
   printingImage?: string;
+  adaptabilityTitle: string;
+  adaptabilityDescription: string;
+  adaptabilityImage?: string;
   batteryTitle: string;
   batteryDescription: string;
   batteryImage?: string;
@@ -180,7 +183,7 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
         { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
       ];
       if (featureFlags.showInstagram) {
-        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/softbagofair' });
+        links.splice(2, 0, { name: 'Instagram', url: 'https://www.instagram.com/mik.mllr' });
       }
       return links;
     })()
@@ -326,6 +329,11 @@ export function getProjects(locale: Locale): Project[] {
                 'Optimized layer orientation'
               ],
           printingImage: '/images/projects/project-one/printer2.webp',
+          adaptabilityTitle: isDE ? 'Adaptabilität' : 'Adaptability',
+          adaptabilityDescription: isDE
+            ? 'Das modulare Design ermöglicht eine einfache Konfiguration mit verschiedenen Motoren und Propellern, um die Effizienz, Geschwindigkeit oder Nutzlast je nach Mission zu optimieren.'
+            : 'The airframe’s modular design enables easy configuration with different motors and propellers, to enable finetuning for greater efficiency, speed, or payload.',
+          adaptabilityImage: '/images/projects/project-one/ZweiMotoren.webp',
           batteryTitle: isDE ? 'Akkusystem' : 'Battery System',
           batteryDescription: isDE
             ? 'Maßgeschneiderte 18650 4S2P und 4S4P LiIon-Akkupacks, optimiert für das beste Verhältnis von Energie zu Gewicht für verlängerte Flugzeiten.'
@@ -348,13 +356,13 @@ export function getProjects(locale: Locale): Project[] {
           sensorTitle: isDE ? 'Sensorik' : 'Sensor Array',
           sensorDescription: isDE
             ? 'Digitale und analoge Videoübertragung für Echtzeit-Aufklärungsmissionen. Maßgeschneidertes FPV-Setup für kombinierte First- und Third-Person-Ansichten.'
-            : 'Digital and analog video transmission for real-time reconnaissance missions. Custom FPV setup for combined first and third-person views.',
+            : 'Digital and analog video transmission for real-time reconnaissance missions. Custom FPV setup for combined first and third-person perspectives.',
           sensorImage: '/images/projects/project-one/FPV_Headset.webp',
           antennaTitle: isDE ? 'Dual-RX-Antenne' : 'Dual RX Antenna',
           antennaDescription: isDE
             ? 'Diversitäts-Empfang für optimale Reichweite und Signalqualität auch bei schwierigen Bedingungen.'
             : 'Diversity reception for optimal range and signal quality even in challenging conditions.',
-          antennaImage: '/images/projects/project-one/battery.webp',
+          antennaImage: '/images/projects/project-one/DualRX_small.webp',
           gpsTitle: isDE ? 'GPS-Autonomie' : 'GPS Autonomy',
           gpsFeatures: isDE
             ? ['Wegpunkt-Navigation', 'Return-to-Home', 'Loiter-Modus', 'Geofencing']

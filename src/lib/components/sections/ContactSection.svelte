@@ -150,6 +150,9 @@
     const match = data.additionalLinks?.find(l => /resume|lebenslauf/i.test(l.name));
     return match?.url || '/resume.pdf';
   })();
+  // Feature flag: hide resume download button while resume is not ready
+  // Toggle to `true` to re-enable the button when resume is available.
+  const SHOW_RESUME_BUTTON = false;
 </script>
 
 <div class="contact-section-wrapper" bind:this={wrapperEl}>
@@ -191,14 +194,16 @@
             </a>
           </div>
         {/if}
-        <div class="key-position key-position-cta gpu-prewarm-target">
-          <a aria-label="Download Resume" class="key call-to-action" href={resumeLink} download>
-            <span class="call-to-action-content">
-              <span class="desktop-text">{(data.additionalLinks?.[0]?.name) ?? 'Resume'}</span>
-              <span class="mobile-text">My Resume</span>
-            </span>
-          </a>
-        </div>
+        {#if SHOW_RESUME_BUTTON}
+          <div class="key-position key-position-cta gpu-prewarm-target">
+            <a aria-label="Download Resume" class="key call-to-action" href={resumeLink} download>
+              <span class="call-to-action-content">
+                <span class="desktop-text">{(data.additionalLinks?.[0]?.name) ?? 'Resume'}</span>
+                <span class="mobile-text">My Resume</span>
+              </span>
+            </a>
+          </div>
+        {/if}
       </div>
     </div>
   </div>
