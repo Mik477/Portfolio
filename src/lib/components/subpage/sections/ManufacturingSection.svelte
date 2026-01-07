@@ -311,26 +311,29 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: clamp(3rem, 6vw, 5rem);
+    padding: clamp(3rem, 5vw, 5rem);
     padding-bottom: clamp(2rem, 4vh, 4rem);
     box-sizing: border-box;
   }
 
   .features-layout {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    /* Three equal columns to ensure consistent sizing and no squishing */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     align-items: start;
     width: 100%;
-    margin-top: 1vh;
+    margin-top: 1.5vh;
     flex-grow: 1;
-    gap: clamp(1rem, 2vw, 3rem);
+    /* Reduced max gap to keep columns closer on large displays */
+    gap: clamp(1.5rem, 2vw, 3rem);
   }
 
   .feature-left,
   .feature-middle,
   .feature-right {
     width: 100%;
-    max-width: clamp(20rem, 30vw, 25rem);
+    /* Reduced scaling factor (26vw) to fix laptop/1080p sizing, increased max cap for 1440p */
+    max-width: clamp(18rem, 26vw, 36rem);
     will-change: transform, opacity;
     backface-visibility: hidden;
   }

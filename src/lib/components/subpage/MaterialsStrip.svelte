@@ -20,8 +20,9 @@
     justify-content: center;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    padding: clamp(0.5rem, 1vw, 0.75rem) clamp(1rem, 2vw, 1.5rem);
+    gap: clamp(0.5rem, 1vw, 1rem);
+    /* Increased padding for larger screens */
+    padding: clamp(0.6rem, 1vw + 0.3rem, 1.25rem) clamp(1.25rem, 2vw + 0.5rem, 2.5rem);
     background: rgba(9, 9, 11, 0.85);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
@@ -31,7 +32,8 @@
 
   .material-item {
     font-family: 'Space Grotesk', monospace;
-    font-size: clamp(0.65rem, 1vw, 0.8rem);
+    /* Increased scaling for larger screens */
+    font-size: clamp(0.7rem, 0.6vw + 0.4rem, 1rem);
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.06em;

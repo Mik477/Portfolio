@@ -358,7 +358,7 @@ export function getProjects(locale: Locale): Project[] {
             ? 'Digitale und analoge Videoübertragung für Echtzeit-Aufklärungsmissionen. Maßgeschneidertes FPV-Setup für kombinierte First- und Third-Person-Ansichten.'
             : 'Digital and analog video transmission for real-time reconnaissance missions. Custom FPV setup for combined first and third-person perspectives.',
           sensorImage: '/images/projects/project-one/FPV_Headset.webp',
-          antennaTitle: isDE ? 'Dual-RX-Antenne' : 'Dual RX Antenna',
+          antennaTitle: isDE ? 'Dual-RX-Antennen' : 'Dual RX Antennas',
           antennaDescription: isDE
             ? 'Diversitäts-Empfang für optimale Reichweite und Signalqualität auch bei schwierigen Bedingungen.'
             : 'Diversity reception for optimal range and signal quality even in challenging conditions.',
@@ -384,7 +384,9 @@ export function getProjects(locale: Locale): Project[] {
             ? 'Der Weg zur optimalen Leistung erforderte umfangreiche Iterationen bei Druckeinstellungen, Materialien und Strukturkonfigurationen.'
             : 'The path to optimal performance required extensive iteration across print settings, materials, and structural configurations.',
           materialImage: '/images/projects/project-one/material_comparison.webp',
+          materialCaption: isDE ? '' : '',
           versionImage: '/images/projects/project-one/version_evolution.webp',
+          versionCaption: isDE ? '' : '',
           stats: [
             { value: 'V1→V4', label: isDE ? 'Iterationen' : 'Iterations' },
             { value: '25+', label: isDE ? 'Testflüge' : 'Test Flights' },

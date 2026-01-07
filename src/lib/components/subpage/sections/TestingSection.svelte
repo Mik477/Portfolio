@@ -284,7 +284,7 @@
 
   .content-layout {
     display: grid;
-    grid-template-columns: minmax(20rem, 40%) 1fr;
+    grid-template-columns: minmax(22rem, 45%) 1fr;
     gap: clamp(2rem, 4vw, 4rem);
     flex: 1;
     align-items: start;
@@ -299,11 +299,12 @@
   }
 
   .intro-text {
-    font-size: clamp(0.95rem, 1.5vw, 1.1rem);
-    line-height: 1.75;
+    /* Slightly increased for better readability on larger displays */
+    font-size: clamp(1rem, 1.2vw + 0.4rem, 1.3rem);
+    line-height: 1.8;
     color: rgba(230, 230, 235, 0.95);
     margin: 0;
-    max-width: 55ch;
+    max-width: 60ch;
     will-change: transform, opacity;
     backface-visibility: hidden;
   }
@@ -312,8 +313,16 @@
     display: flex;
     flex-direction: column;
     /* Reduced gap between images. Adjust clamp values to fine-tune. */
-    gap: clamp(0.5rem, 1vw, 1rem);
-    max-width: clamp(16rem, 25vw, 25vw);
+    gap: clamp(0.5rem, 1vw, 1.25rem);
+    /* Base size smaller for 4:3 and 3:2 displays (Laptops) */
+    max-width: clamp(14rem, 18vw, 28rem);
+  }
+
+  /* For wider aspect ratio displays (16:9 Monitors), increase gallery size */
+  @media (min-aspect-ratio: 1.7) {
+    .vertical-gallery {
+      max-width: clamp(20rem, 25vw, 36rem);
+    }
   }
 
   .gallery-item-wrapper {

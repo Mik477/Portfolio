@@ -274,37 +274,38 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: clamp(3rem, 6vw, 5rem);
+    padding: clamp(3rem, 5vw, 5rem);
     padding-bottom: clamp(2rem, 4vh, 4rem);
     box-sizing: border-box;
   }
 
   .features-layout {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr; /* Three equal columns */
-    gap: 2rem;
+    /* Three equal columns to ensure consistent sizing and no squishing */
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* Reduced max gap to keep columns closer on large displays */
+    gap: clamp(1.5rem, 2vw, 3rem);
     width: 100%;
-    margin-top: 1vh;
+    margin-top: 1.5vh;
     flex-grow: 1;
-    /* Removed max-width to allow full spread */
   }
 
   .feature-left,
   .feature-right {
-    /* Allow them to take available space but maybe cap it */
     width: 100%;
-    max-width: clamp(20rem, 30vw, 25rem);
+    /* Reduced scaling factor (26vw) to fix laptop/1080p sizing, increased max cap for 1440p */
+    max-width: clamp(18rem, 26vw, 36rem);
     will-change: transform, opacity;
     backface-visibility: hidden;
   }
 
   .feature-left {
-    justify-self: start; /* Push to left edge */
+    justify-self: start;
     grid-column: 1;
   }
 
   .feature-right {
-    justify-self: end; /* Push to right edge */
+    justify-self: end;
     grid-column: 3;
   }
 
@@ -347,8 +348,8 @@
 
   /* Override FeatureCard styles for GPS area to make it more compact */
   .gps-area :global(.feature-card) {
-    /* Match MaterialsStrip style */
-    padding: clamp(0.5rem, 1vw, 0.75rem) clamp(1rem, 2vw, 1.5rem) !important;
+    /* Match MaterialsStrip style - increased padding for larger screens */
+    padding: clamp(0.6rem, 1vw + 0.3rem, 1.25rem) clamp(1.25rem, 2vw + 0.5rem, 2.5rem) !important;
     background: rgba(9, 9, 11, 0.85) !important;
     max-width: 90%; /* Prevent overflow */
   }
@@ -356,21 +357,24 @@
   /* Reduce headline spacing in GPS card */
   .gps-area :global(.feature-headline) {
     text-align: center;
-    margin-bottom: 0.3rem !important;
-    padding-bottom: 0.2rem !important;
+    margin-bottom: 0.4em !important;
+    padding-bottom: 0.3em !important;
+    /* Scale with the content */
+    font-size: clamp(0.9rem, 0.8vw + 0.4rem, 1.2rem) !important;
   }
 
   .gps-features {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: clamp(0.5rem, 1vw, 1rem);
     justify-content: center;
     align-items: center;
   }
 
   .gps-feature-tag {
     font-family: 'Space Grotesk', monospace;
-    font-size: clamp(0.65rem, 1vw, 0.8rem);
+    /* Increased scaling to match MaterialsStrip */
+    font-size: clamp(0.7rem, 0.6vw + 0.4rem, 1rem);
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.06em;

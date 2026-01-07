@@ -94,7 +94,7 @@
 
 <style>
   .section-header {
-    margin-bottom: clamp(1.5rem, 3vw, 2.5rem);
+    margin-bottom: clamp(1.5rem, 2.5vw, 2.5rem);
     display: flex;
     flex-direction: column;
     align-items: flex-start; /* Ensure left alignment */
@@ -108,7 +108,8 @@
   }
 
   .section-title {
-    font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+    /* Increased range for better scaling on 1440p+ displays */
+    font-size: clamp(2rem, 2.5vw + 1rem, 3.5rem);
     font-weight: 700;
     font-family: var(--project-title-font-family, 'Playfair Display', serif);
     letter-spacing: 0.02em;
@@ -133,7 +134,8 @@
   }
 
   .section-subtitle {
-    font-size: clamp(1rem, 1.8vw, 1.2rem);
+    /* Increased range for better scaling */
+    font-size: clamp(1rem, 1vw + 0.5rem, 1.4rem);
     font-weight: 400;
     color: rgba(200, 200, 205, 0.9);
     margin: 0;

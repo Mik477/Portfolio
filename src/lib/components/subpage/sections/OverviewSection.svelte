@@ -171,13 +171,13 @@
     flex-direction: column;
     justify-content: center;
     align-items: flex-start;
-    padding: clamp(3rem, 6vw, 5rem);
+    padding: clamp(3rem, 5vw, 5rem);
     padding-bottom: clamp(5rem, 10vh, 8rem);
     box-sizing: border-box;
   }
 
   .content-area {
-    max-width: clamp(30rem, 50vw, 45rem);
+    max-width: clamp(32rem, 50vw, 50rem);
     padding: 0;
   }
   
@@ -194,7 +194,8 @@
   }
 
   .main-title {
-    font-size: clamp(2.5rem, 5vw, 4rem);
+    /* Increased to match main page project section headline style */
+    font-size: clamp(2.8rem, 3.5vw + 1rem, 4.5rem);
     font-weight: 700;
     font-family: var(--project-title-font-family, 'Playfair Display', serif);
     letter-spacing: 0.04em;
@@ -223,7 +224,8 @@
   }
 
   .subtitle {
-    font-size: clamp(1.1rem, 2vw, 1.4rem);
+    /* Increased range for better scaling */
+    font-size: clamp(1.2rem, 1.5vw + 0.5rem, 1.6rem);
     font-weight: 400;
     color: rgba(200, 200, 205, 0.95);
     margin: 0;
@@ -239,11 +241,12 @@
   }
 
   .description {
-    font-size: clamp(0.95rem, 1.5vw, 1.15rem);
-    line-height: 1.75;
+    /* Increased to match main page summary text style */
+    font-size: clamp(1rem, 1.2vw + 0.4rem, 1.35rem);
+    line-height: 1.8;
     color: rgba(230, 230, 235, 0.95);
     margin: 0;
-    max-width: 55ch;
+    max-width: 60ch;
     will-change: transform, opacity;
     backface-visibility: hidden;
   }
@@ -257,13 +260,14 @@
   .stats-area {
     position: absolute;
     bottom: clamp(2rem, 5vh, 4rem);
-    left: 50%;
-    transform: translateX(-50%);
-    will-change: transform, opacity;
-    backface-visibility: hidden;
-    width: 90%; /* Ensure it doesn't overflow on mobile */
+    /* Use left:0 + width:100% + flexbox for reliable centering */
+    left: 0;
+    right: 0;
+    width: 100%;
     display: flex;
     justify-content: center;
+    will-change: transform, opacity;
+    backface-visibility: hidden;
   }
 
   /* Mobile override for stats positioning */
