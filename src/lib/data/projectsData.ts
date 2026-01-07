@@ -329,7 +329,7 @@ export function getProjects(locale: Locale): Project[] {
                 'Optimized layer orientation'
               ],
           printingImage: '/images/projects/project-one/printer2.webp',
-          adaptabilityTitle: isDE ? 'Adaptabilität' : 'Adaptability',
+          adaptabilityTitle: isDE ? 'Anpassbarkeit' : 'Adaptability',
           adaptabilityDescription: isDE
             ? 'Das modulare Design ermöglicht eine einfache Konfiguration mit verschiedenen Motoren und Propellern, um die Effizienz, Geschwindigkeit oder Nutzlast je nach Mission zu optimieren.'
             : 'The airframe’s modular design enables easy configuration with different motors and propellers, to enable finetuning for greater efficiency, speed, or payload.',
