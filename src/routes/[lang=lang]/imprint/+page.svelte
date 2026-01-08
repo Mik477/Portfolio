@@ -1,9 +1,16 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { transitionStore } from '$lib/stores/transitionStore';
+  import { navigationHistoryStore } from '$lib/stores/navigationHistoryStore';
   import BackButton from '$lib/components/BackButton.svelte';
   $: currentLang = $page.params.lang === 'de' ? 'de' : 'en';
   const lastUpdatedISO = '2025-09-16';
   const lastUpdatedText = 'September 16, 2025';
+
+  function handleBack() {
+    const target = navigationHistoryStore.getBackUrl(currentLang as 'en' | 'de');
+    transitionStore.fadeToBlackAndNavigate(target);
+  }
 </script>
 
 <svelte:head>
@@ -79,7 +86,7 @@
     </section>
 
     <footer class="article-footer">
-      <button class="back" on:click={() => (location.href = `/${currentLang}`)} aria-label="Back to homepage">Back to homepage</button>
+      <button class="back" on:click={handleBack} aria-label="Back to homepage">Back to homepage</button>
     </footer>
   </article>
 </main>

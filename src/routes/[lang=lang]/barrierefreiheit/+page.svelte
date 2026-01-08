@@ -1,9 +1,13 @@
 <script lang="ts">
   import { transitionStore } from '$lib/stores/transitionStore';
+  import { navigationHistoryStore } from '$lib/stores/navigationHistoryStore';
   import BackButton from '$lib/components/BackButton.svelte';
   // Deutschsprachige Seite (englisches Pendant unter /en/accessibility)
   const lang: 'de' = 'de';
-  function backHome() { transitionStore.fadeToBlackAndNavigate(`/${lang}`); }
+  function backHome() { 
+    const target = navigationHistoryStore.getBackUrl(lang);
+    transitionStore.fadeToBlackAndNavigate(target); 
+  }
   const lastUpdatedISO = '2025-09-16';
   const lastUpdatedText = '16.09.2025';
 </script>

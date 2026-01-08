@@ -20,9 +20,11 @@ def clear_metadata_from_image(file_path):
         
         # Open file within a context manager
         with Image.open(file_path) as img:
-            # Skip animated images
-            if getattr(img, 'is_animated', False):
-                print(f"Skipping animated image: {file_path}")
+            # Skip animated images (mostly GIFs/WEBPs). 
+            # Note: Some JPEGs (like MPO or Live Photos) might flag is_animated=True. 
+            # We allow JPEGs or MPO to proceed, effectively flattening them to the first frame.
+            if getattr(img, 'is_animated', False) and img.format not in ['JPEG', 'MPO']:
+                print(f"Skipping animated image (Format: {img.format}): {file_path}")
                 return
 
             img.load()
@@ -84,6 +86,11 @@ def clear_metadata_from_image(file_path):
             
         # Determine format
         save_format = original_format
+        
+        # Force MPO (Multi-Picture Object) to be saved as standard JPEG
+        if save_format == 'MPO':
+            save_format = 'JPEG'
+
         if not save_format:
             ext = os.path.splitext(file_path)[1].lower()
             if ext in ['.jpg', '.jpeg']: save_format = 'JPEG'

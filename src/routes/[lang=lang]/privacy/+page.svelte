@@ -1,12 +1,16 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { transitionStore } from '$lib/stores/transitionStore';
+  import { navigationHistoryStore } from '$lib/stores/navigationHistoryStore';
   import BackButton from '$lib/components/BackButton.svelte';
   // Force English content; if lang param is 'de', we will optionally redirect higher up (handled in datenschutz redirect) or still show EN fallback.
   const lastUpdatedISO = '2025-09-16';
   const lastUpdatedText = 'September 16, 2025';
   $: currentLang = $page.params.lang === 'de' ? 'de' : 'en';
-  function backHome() { transitionStore.fadeToBlackAndNavigate(`/${currentLang}`); }
+  function backHome() { 
+    const target = navigationHistoryStore.getBackUrl(currentLang as 'en' | 'de');
+    transitionStore.fadeToBlackAndNavigate(target); 
+  }
 </script>
 
 <svelte:head>

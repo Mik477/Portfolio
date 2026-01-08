@@ -1,11 +1,15 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { transitionStore } from '$lib/stores/transitionStore';
+  import { navigationHistoryStore } from '$lib/stores/navigationHistoryStore';
   import BackButton from '$lib/components/BackButton.svelte';
 
   // German-only page (English redirects handled in +page.ts)
   const lang: 'de' = 'de';
-  function backHome() { transitionStore.fadeToBlackAndNavigate('/de'); }
+  function backHome() { 
+    const target = navigationHistoryStore.getBackUrl(lang);
+    transitionStore.fadeToBlackAndNavigate(target); 
+  }
 
   const title = 'Datenschutz';
   const backLabel = 'Zurück zur Startseite';
