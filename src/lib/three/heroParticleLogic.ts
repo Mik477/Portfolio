@@ -1097,7 +1097,7 @@ export class CreateParticles {
       this.interactionActivated = true;
       this.lastPointerClientX = cx; this.lastPointerClientY = cy;
     }
-    event.preventDefault();
+    // Don't preventDefault - allow scrolling to work alongside particle interaction
   }
   private onTouchMove(event: TouchEvent) {
     if (event.touches.length > 0) {
@@ -1119,7 +1119,7 @@ export class CreateParticles {
       this.lastPointerClientX = cx; this.lastPointerClientY = cy;
       this.updateMousePosition(cx, cy);
     }
-    event.preventDefault();
+    // Don't preventDefault - allow scrolling to work alongside particle interaction
   }
   private onTouchEnd(event: TouchEvent) {
     // Check if touch is hitting navigation dots - if so, let it through
@@ -1128,7 +1128,8 @@ export class CreateParticles {
       return; // Don't handle this touch; let navigation dots handle it
     }
     
-    this.isPressed = false; this.data.ease = .05; event.preventDefault();
+    this.isPressed = false; this.data.ease = .05;
+    // Don't preventDefault - allow scrolling to work alongside particle interaction
   }
   
   private updateMousePosition(clientX: number, clientY: number) {

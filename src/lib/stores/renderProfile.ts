@@ -31,24 +31,26 @@ function mql(query: string): MediaQueryList | null {
 // Set up listeners only in browser
 if (browser) {
   const mqMobile = mql('(max-width: 768px)');
-  const mqCoarse = mql('(pointer: coarse)');
+  const mqPrimaryCoarse = mql('(pointer: coarse)');
+  const mqAnyCoarse = mql('(any-pointer: coarse)');
   const mqReduced = mql('(prefers-reduced-motion: reduce)');
   const mqTall = mql('(max-aspect-ratio: 4/5)');
   const mqWide = mql('(min-aspect-ratio: 5/4)');
 
   const compute = (override: boolean | null = (get(state).forceMobile ?? null)) => {
     const isMobileWidth = mqMobile ? mqMobile.matches : false;
-    const coarse = mqCoarse ? mqCoarse.matches : false;
+    const primaryCoarse = mqPrimaryCoarse ? mqPrimaryCoarse.matches : false;
+    const anyCoarse = mqAnyCoarse ? mqAnyCoarse.matches : false;
     const reduced = mqReduced ? mqReduced.matches : false;
     const isTall = mqTall ? mqTall.matches : false;
     const isWide = mqWide ? mqWide.matches : false;
     const layoutProfile: RenderProfile['layoutProfile'] = isTall ? 'tall' : (isWide ? 'wide' : 'balanced');
-    // Default detection: width, coarse pointer, or tall aspect ratio implies mobile
-    const detectedMobile = isMobileWidth || coarse || isTall;
+    // Default detection: width, primary coarse pointer, or tall aspect ratio implies mobile layout
+    const detectedMobile = isMobileWidth || primaryCoarse || isTall;
     state.update((s) => ({
       ...s,
       isMobile: override === null ? detectedMobile : !!override,
-      hasCoarsePointer: coarse,
+      hasCoarsePointer: anyCoarse, // Use any-pointer to enable touch features on hybrid devices
       prefersReducedMotion: reduced,
       layoutProfile
     }));
@@ -60,7 +62,8 @@ if (browser) {
   // Listeners
   const onChange = () => compute();
   mqMobile?.addEventListener('change', onChange);
-  mqCoarse?.addEventListener('change', onChange);
+  mqPrimaryCoarse?.addEventListener('change', onChange);
+  mqAnyCoarse?.addEventListener('change', onChange);
   mqReduced?.addEventListener('change', onChange);
   mqTall?.addEventListener('change', onChange);
   mqWide?.addEventListener('change', onChange);
@@ -74,7 +77,8 @@ if (browser) {
   if (import.meta && (import.meta as any).hot) {
     (import.meta as any).hot.dispose(() => {
       mqMobile?.removeEventListener('change', onChange);
-      mqCoarse?.removeEventListener('change', onChange);
+      mqPrimaryCoarse?.removeEventListener('change', onChange);
+      mqAnyCoarse?.removeEventListener('change', onChange);
       mqReduced?.removeEventListener('change', onChange);
       mqTall?.removeEventListener('change', onChange);
       mqWide?.removeEventListener('change', onChange);
@@ -98,20 +102,22 @@ export const renderProfile = derived([state, page], ([$state, $page]) => {
     // Computation will run on next tick for browser listeners; also do a direct apply
     if (browser) {
       const mqMobile = mql('(max-width: 768px)');
-      const mqCoarse = mql('(pointer: coarse)');
+      const mqPrimaryCoarse = mql('(pointer: coarse)');
+      const mqAnyCoarse = mql('(any-pointer: coarse)');
       const mqReduced = mql('(prefers-reduced-motion: reduce)');
       const mqTall = mql('(max-aspect-ratio: 4/5)');
       const mqWide = mql('(min-aspect-ratio: 5/4)');
       const isMobileWidth = mqMobile ? mqMobile.matches : false;
-      const coarse = mqCoarse ? mqCoarse.matches : false;
+      const primaryCoarse = mqPrimaryCoarse ? mqPrimaryCoarse.matches : false;
+      const anyCoarse = mqAnyCoarse ? mqAnyCoarse.matches : false;
       const reduced = mqReduced ? mqReduced.matches : false;
       const isTall = mqTall ? mqTall.matches : false;
       const isWide = mqWide ? mqWide.matches : false;
       const layoutProfile: RenderProfile['layoutProfile'] = isTall ? 'tall' : (isWide ? 'wide' : 'balanced');
-      const detectedMobile = isMobileWidth || coarse || isTall;
+      const detectedMobile = isMobileWidth || primaryCoarse || isTall;
       state.set({
         isMobile: forceMobile === null ? detectedMobile : !!forceMobile,
-        hasCoarsePointer: coarse,
+        hasCoarsePointer: anyCoarse,
         prefersReducedMotion: reduced,
         layoutProfile,
         forceMobile

@@ -31,8 +31,9 @@ export function decideGestureIntent(params: {
 		return { intent: 'horizontal', startDragging: false };
 	}
 
-	// Vertical navigation
-	if (params.absDy > params.absDx * 0.7) {
+	// Vertical navigation - more responsive detection (0.5 instead of 0.7)
+	// This makes vertical scrolling easier to trigger, especially on hero section
+	if (params.absDy > params.absDx * 0.5) {
 		return { intent: 'vertical', startDragging: true };
 	}
 

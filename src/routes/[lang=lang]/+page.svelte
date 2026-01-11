@@ -907,15 +907,25 @@
 	let lastTouchY = 0;
 	let lastTouchTime = 0;
 
-	// Natural scrolling thresholds (much more forgiving)
-	const DRAG_THRESHOLD = 8; // px before starting drag (very low for immediate feedback)
-	const SNAP_THRESHOLD = 0.25; // 25% of screen height to trigger section change
-	const VELOCITY_THRESHOLD = 0.15; // px/ms for momentum-based navigation (very low)
+	// Natural scrolling thresholds (optimized for easy hero section navigation)
+	const DRAG_THRESHOLD = 6; // px before starting drag (lower for more immediate response)
+	const SNAP_THRESHOLD = 0.18; // 18% of screen height to trigger section change (easier to scroll away)
+	const VELOCITY_THRESHOLD = 0.12; // px/ms for momentum-based navigation (more sensitive)
 	const HORIZ_TOLERANCE = 100; // px before canceling vertical gesture
 	const RUBBER_BAND_FACTOR = 0.4; // Resistance at boundaries (0-1, lower = more resistance)
-	const MOMENTUM_MULTIPLIER = 180; // Convert velocity to distance for momentum
-	const MIN_MOMENTUM_DISTANCE = 30; // Minimum px for momentum to trigger navigation
-	const MAX_VISUAL_FEEDBACK = 0.15; // Cap visual feedback at 15% of screen (just a nudge)
+	const MOMENTUM_MULTIPLIER = 200; // Convert velocity to distance for momentum (higher = more sensitive)
+	const MIN_MOMENTUM_DISTANCE = 25; // Minimum px for momentum to trigger navigation
+	const MAX_VISUAL_FEEDBACK = 0.20; // Cap visual feedback at 20% of screen (better feedback)
+
+	/**
+	 * Check if touch navigation should be enabled.
+	 * Returns true for mobile devices OR desktop/tablet devices with touch capability (coarse pointer).
+	 * This enables swipe-to-navigate on tablets and touch laptops in desktop view.
+	 */
+	function isTouchNavigationEnabled(): boolean {
+		const profile = get(renderProfile);
+		return profile.isMobile || profile.hasCoarsePointer;
+	}
 
 	/**
 	 * Check if touch is in an area with interactive effects (hero or contact sections)
@@ -960,7 +970,7 @@
 	 * Update visual position during drag (progressive feedback)
 	 */
 	function updateDragPosition(offset: number) {
-		if (!get(renderProfile).isMobile) return;
+		if (!isTouchNavigationEnabled()) return;
 		
 		const sections = document.querySelectorAll('.full-screen-section');
 		const particleLayer = document.querySelector('.particle-effect-layer') as HTMLElement;
@@ -1015,7 +1025,7 @@
 	 * Reset drag state and snap to nearest section
 	 */
 	function finishDragAndSnap(finalVelocity: number) {
-		if (!get(renderProfile).isMobile) return;
+		if (!isTouchNavigationEnabled()) return;
 		
 		isDragging = false;
 		const viewportHeight = window.innerHeight;
@@ -1035,24 +1045,53 @@
 			const targetIdx = currentIdx + direction;
 			// Boundary check
 			if (targetIdx >= 0 && targetIdx < allSectionsData.length) {
-				// Reset sections to default positions before navigation to avoid conflicts
+				// When navigating away from hero, smoothly animate the particle layer back to position
+				// while simultaneously letting it fade out (handled by onLeaveSection)
+				// This creates a coordinated, smooth transition instead of an abrupt snap
 				const sections = document.querySelectorAll('.full-screen-section');
 				const particleLayer = document.querySelector('.particle-effect-layer') as HTMLElement;
 				
-				// Reset particle layer if currently on hero section
+				// Gaussian-like ease for smooth position return during navigation
+				const gaussianEase = 'power4.inOut';
+				const transitionPrepDuration = 0.3; // Quick but smooth prep before main transition
+				
+				// Smoothly return particle layer to position (will fade out via onLeaveSection)
 				if (particleLayer && currentIdx === 0) {
-					gsap.set(particleLayer, { yPercent: 0, force3D: true });
+					gsap.to(particleLayer, { 
+						yPercent: 0, 
+						duration: transitionPrepDuration,
+						ease: gaussianEase,
+						force3D: true 
+					});
 				}
 				
+				// Smoothly reset current section position before main transition
 				sections.forEach((section, idx) => {
 					if (idx === currentIdx) {
-						gsap.set(section, { yPercent: 0, autoAlpha: 1 });
+						gsap.to(section, { 
+							yPercent: 0, 
+							duration: transitionPrepDuration,
+							ease: gaussianEase,
+							autoAlpha: 1 
+						});
 					} else {
 						gsap.set(section, { yPercent: 100, autoAlpha: 0 });
 					}
 				});
-				// Now trigger the normal navigation animation
-				mobileNavigateTo(targetIdx, 'swipe');
+				
+				// Trigger vibration immediately to acknowledge gesture 
+				// (must be synchronous with user interaction event to work reliably)
+				tryVibrate(15);
+
+				// Trigger navigation after a tiny delay to let prep animation start
+				// This creates a more fluid feel
+				setTimeout(() => {
+					// Manually trigger navigation to avoid double vibration
+					// mobileNavigateTo would call tryVibrate again which might fail 
+					// inside a timeout or cause double feedback
+					markNavCause('swipe');
+					navigateToSection(targetIdx);
+				}, 50);
 			} else {
 				// At boundary, snap back
 				snapBackToCurrentSection();
@@ -1068,6 +1107,8 @@
 
 	/**
 	 * Animate back to current section (cancel gesture)
+	 * Uses a Gaussian-like easing: slow start → speed up → slow end
+	 * This creates a natural, smooth feel when the user releases without scrolling enough
 	 */
 	function snapBackToCurrentSection() {
 		const sections = document.querySelectorAll('.full-screen-section');
@@ -1077,32 +1118,36 @@
 		const currentIdx = get(currentSectionIndex);
 		const currentSection = sections[currentIdx] as HTMLElement;
 		
-		// Reset particle layer if on hero section
+		// Gaussian-like ease: slow → fast → slow (power4.inOut gives this bell-curve feel)
+		const gaussianEase = 'power4.inOut';
+		const snapDuration = 0.5;
+		
+		// Reset particle layer if on hero section with smooth Gaussian-like animation
 		if (particleLayer && currentIdx === 0) {
 			gsap.to(particleLayer, {
 				yPercent: 0,
-				duration: 0.4,
-				ease: 'power2.out',
+				duration: snapDuration,
+				ease: gaussianEase,
 				force3D: true
 			});
 		}
 		
 		gsap.to(currentSection, {
 			yPercent: 0,
-			duration: 0.4,
-			ease: 'power2.out',
+			duration: snapDuration,
+			ease: gaussianEase,
 			force3D: true
 		});
 		
-		// Hide any visible adjacent sections
+		// Hide any visible adjacent sections with matching Gaussian-like animation
 		[currentIdx - 1, currentIdx + 1].forEach(idx => {
 			if (idx >= 0 && idx < sections.length) {
 				const section = sections[idx] as HTMLElement;
 				const direction = idx < currentIdx ? -1 : 1;
 				gsap.to(section, {
 					yPercent: direction * 100,
-					duration: 0.4,
-					ease: 'power2.out',
+					duration: snapDuration,
+					ease: gaussianEase,
 					force3D: true,
 					onComplete: () => {
 						gsap.set(section, { autoAlpha: 0 });
@@ -1113,7 +1158,7 @@
 	}
 
 	function onTouchStart(e: TouchEvent) {
-		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		if (!isTouchNavigationEnabled() || get(isInitialReveal) || get(isAnimating)) return;
 		
 		// Check if touch is on navigation dots
 		const target = e.target;
@@ -1144,7 +1189,7 @@
 	}
 
 	function onTouchMove(e: TouchEvent) {
-		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		if (!isTouchNavigationEnabled() || get(isInitialReveal) || get(isAnimating)) return;
 		
 		// Check if touch is on navigation dots
 		const target = e.target;
@@ -1229,7 +1274,7 @@
 	}
 
 	function onTouchEnd(e: TouchEvent) {
-		if (!get(renderProfile).isMobile || get(isInitialReveal) || get(isAnimating)) return;
+		if (!isTouchNavigationEnabled() || get(isInitialReveal) || get(isAnimating)) return;
 		
 		// Check if touch is on navigation dots
 		const target = e.target;

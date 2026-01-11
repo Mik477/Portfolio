@@ -582,12 +582,64 @@
 
 &lt;!-- MathJax for LaTeX rendering --&gt;
 &lt;script&gt;
-if (typeof MathJax === "undefined") {
-    var script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js";
-    document.head.appendChild(script);
-}
+(function() {
+    // 1. Convert $...$ to \(...\) for Anki's default MathJax (safe for text nodes)
+    function convertMath() {
+        if (!document.body) return;
+        function walk(node) {
+            var child, next;
+            switch (node.nodeType) {
+                case 1:  // Element
+                case 9:  // Document
+                case 11: // Document fragment
+                    if (['SCRIPT', 'STYLE', 'TEXTAREA', 'PRE', 'CODE'].indexOf(node.tagName) === -1) {
+                        child = node.firstChild;
+                        while (child) {
+                            next = child.nextSibling;
+                            walk(child);
+                            child = next;
+                        }
+                    }
+                    break;
+                case 3: // Text node
+                     // Use regex to replace $...$ with \(...\)
+                     // Using ES5 compatible regex (no lookbehind) to ensure compatibility with all Anki versions
+                     if (node.nodeValue.indexOf('$') !== -1) {
+                         node.nodeValue = node.nodeValue.replace(/\$([^\$]+)\$/g, '\\($1\\)');
+                     }
+                    break;
+            }
+        }
+        walk(document.body);
+    }
+    
+    // Config if loading fresh
+    if (typeof MathJax === "undefined") {
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                processEscapes: true
+            }
+        };
+        var script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js";
+        script.async = true;
+        script.onload = function() { convertMath(); };
+        document.head.appendChild(script);
+    } else {
+        // Already loaded? Run conversion then force typeset
+        convertMath();
+        setTimeout(function() {
+            // MathJax 3
+            if (window.MathJax.typesetPromise) window.MathJax.typesetPromise();
+            // MathJax 2 (Legacy Anki)
+            else if (window.MathJax.Hub) window.MathJax.Hub.Queue(["Typeset", window.MathJax.Hub]);
+        }, 0);
+    }
+    
+    // Also run convert immediately in case
+    convertMath();
+})();
 &lt;/script&gt;</code></div>
                     </div>
                     
@@ -603,12 +655,64 @@ if (typeof MathJax === "undefined") {
 
 &lt;!-- MathJax for LaTeX rendering --&gt;
 &lt;script&gt;
-if (typeof MathJax === "undefined") {
-    var script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js";
-    document.head.appendChild(script);
-}
+(function() {
+    // 1. Convert $...$ to \(...\) for Anki's default MathJax (safe for text nodes)
+    function convertMath() {
+        if (!document.body) return;
+        function walk(node) {
+            var child, next;
+            switch (node.nodeType) {
+                case 1:  // Element
+                case 9:  // Document
+                case 11: // Document fragment
+                    if (['SCRIPT', 'STYLE', 'TEXTAREA', 'PRE', 'CODE'].indexOf(node.tagName) === -1) {
+                        child = node.firstChild;
+                        while (child) {
+                            next = child.nextSibling;
+                            walk(child);
+                            child = next;
+                        }
+                    }
+                    break;
+                case 3: // Text node
+                     // Use regex to replace $...$ with \(...\)
+                     // Using ES5 compatible regex (no lookbehind) to ensure compatibility with all Anki versions
+                     if (node.nodeValue.indexOf('$') !== -1) {
+                         node.nodeValue = node.nodeValue.replace(/\$([^\$]+)\$/g, '\\($1\\)');
+                     }
+                    break;
+            }
+        }
+        walk(document.body);
+    }
+    
+    // Config if loading fresh
+    if (typeof MathJax === "undefined") {
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                processEscapes: true
+            }
+        };
+        var script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js";
+        script.async = true;
+        script.onload = function() { convertMath(); };
+        document.head.appendChild(script);
+    } else {
+        // Already loaded? Run conversion then force typeset
+        convertMath();
+        setTimeout(function() {
+            // MathJax 3
+            if (window.MathJax.typesetPromise) window.MathJax.typesetPromise();
+            // MathJax 2 (Legacy Anki)
+            else if (window.MathJax.Hub) window.MathJax.Hub.Queue(["Typeset", window.MathJax.Hub]);
+        }, 0);
+    }
+    
+    // Also run convert immediately in case
+    convertMath();
+})();
 &lt;/script&gt;</code></div>
                     </div>
                     
