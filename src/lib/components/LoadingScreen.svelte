@@ -1,7 +1,7 @@
 <!-- src/lib/components/LoadingScreen.svelte -->
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { overallLoadingState, initialSiteLoadComplete, minimumLoadingDuration, localeDetectionStatus } from '$lib/stores/preloadingStore';
+  import { overallLoadingState, initialSiteLoadComplete, minimumLoadingDuration, loadingAnimationReady } from '$lib/stores/preloadingStore';
   import { page } from '$app/stores';
   import { get } from 'svelte/store';
 
@@ -17,9 +17,6 @@
   
   let loadingStartTime = Date.now();
   let minimumDurationTimer: number | undefined;
-  
-  // Track current locale detection status for dynamic messaging
-  let currentLocaleStatus = get(localeDetectionStatus);
   
   // Ticker class for continuous matrix-like animation
   class Ticker {
@@ -40,6 +37,10 @@
     private originalText: string;
     private continuousMode = false;
     private overlayTimeouts = new Map<HTMLSpanElement, number>();
+    private frameCount = 0;
+    private hasSignaledReady = false;
+    // Number of frames to wait before signaling that heavy loading can begin
+    private static readonly WARMUP_FRAMES = 5;
 
     constructor(element: HTMLDivElement, text: string) {
       this.originalText = text;
@@ -69,10 +70,19 @@
       if (this.isRunning) return;
       this.done = false;
       this.isRunning = true;
+      this.frameCount = 0;
       this.loop();
     }
     
     private loop = (): void => {
+      this.frameCount++;
+      
+      // Signal that animation is running smoothly after warmup frames
+      if (!this.hasSignaledReady && this.frameCount >= Ticker.WARMUP_FRAMES) {
+        this.hasSignaledReady = true;
+        loadingAnimationReady.set(true);
+      }
+      
       if (this.continuousMode) {
         // In continuous mode, randomly glitch some letters periodically
         this.letters.forEach((letter) => {
@@ -199,47 +209,22 @@
     }
   });
 
-  // Subscribe to locale detection status for dynamic messaging
-  const unsubLocaleStatus = localeDetectionStatus.subscribe(status => {
-    currentLocaleStatus = status;
-    
-    if (!textElement || isFadingOut) return;
-    
-    // Update loading message based on locale detection status
-    let msg = 'LOADING...';
-    
-    switch (status) {
-      case 'detecting':
-        msg = 'DETECTING LANGUAGE...';
-        break;
-      case 'found-cookie':
-        msg = 'WELCOME BACK...';
-        break;
-      case 'detected':
-        msg = 'LANGUAGE DETECTED...';
-        break;
-      case 'error':
-        msg = 'REDIRECTING...';
-        break;
-      default:
-        msg = (($page.data as any)?.messages?.common?.loading?.loading) ?? 'LOADING...';
-    }
-    
-    // Update ticker with new message
-    if (tickerInstance && status !== 'idle') {
-      tickerInstance.destroy();
-      tickerInstance = null;
-      tickerInstance = new Ticker(textElement, msg);
-      tickerInstance.start();
-    }
-  });
-
   onMount(() => {
     loadingStartTime = Date.now();
-    if (!get(initialSiteLoadComplete) && textElement) {
+    
+    // If loading is already complete (e.g., returning to page), signal immediately
+    if (get(initialSiteLoadComplete)) {
+      loadingAnimationReady.set(true);
+      return;
+    }
+    
+    if (textElement) {
       const msg = (($page.data as any)?.messages?.common?.loading?.loading) ?? 'LOADING...';
       tickerInstance = new Ticker(textElement, msg);
       tickerInstance.start();
+    } else {
+      // If no text element (edge case), signal ready immediately
+      loadingAnimationReady.set(true);
     }
   });
 
@@ -253,7 +238,6 @@
     clearTimeout(hideScreenTimer);
     unsubOverallState();
     unsubInitialLoad();
-    unsubLocaleStatus();
   });
 </script>
 

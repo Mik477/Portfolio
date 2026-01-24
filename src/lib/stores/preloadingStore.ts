@@ -4,9 +4,32 @@ import { writable, derived, get } from 'svelte/store';
 export type TaskStatus = 'idle' | 'pending' | 'loading' | 'loaded' | 'error';
 export type AssetStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
-// Locale detection status for root page geolocation
+// Locale detection status for root page geolocation (kept for potential future use)
 export type LocaleDetectionStatus = 'idle' | 'detecting' | 'found-cookie' | 'detected' | 'error';
 export const localeDetectionStatus = writable<LocaleDetectionStatus>('idle');
+
+/**
+ * Signals when the loading screen animation has started and heavy work can begin.
+ * This prevents asset loading from causing animation stutter at startup.
+ * Components should wait for this before starting network requests or heavy computation.
+ */
+export const loadingAnimationReady = writable<boolean>(false);
+
+/**
+ * Returns a promise that resolves when the loading animation is ready for heavy work.
+ * Uses requestAnimationFrame-based waiting to ensure smooth animation startup.
+ */
+export function waitForLoadingAnimationReady(): Promise<void> {
+  if (get(loadingAnimationReady)) return Promise.resolve();
+  return new Promise(resolve => {
+    const unsub = loadingAnimationReady.subscribe(ready => {
+      if (ready) {
+        unsub();
+        resolve();
+      }
+    });
+  });
+}
 
 export interface PreloadTask {
   id: string;
@@ -120,6 +143,7 @@ export const preloadingStore = {
   resetTasks: () => {
     tasks.set({});
     initialSiteLoadComplete.set(false);
+    loadingAnimationReady.set(false);
     assetLoadingStatus.set({});
   },
 

@@ -5,7 +5,7 @@
   import *  as THREE from 'three';
   import { FontLoader, type Font } from 'three/examples/jsm/loaders/FontLoader.js';
   import { Environment as ParticleEnvironment } from '$lib/three/heroParticleLogic';
-  import { preloadingStore, startLoadingTask, preloadAssets } from '$lib/stores/preloadingStore';
+  import { preloadingStore, startLoadingTask, preloadAssets, waitForLoadingAnimationReady } from '$lib/stores/preloadingStore';
   import { renderProfile } from '$lib/stores/renderProfile';
   import { prefersReducedMotion as prm } from '$lib/stores/renderProfile';
   import { get } from 'svelte/store';
@@ -274,6 +274,11 @@
     if (!preloadingStore.getTaskStatus(HERO_INIT_TASK_ID)) {
       preloadingStore.registerTask(HERO_INIT_TASK_ID, 'pending');
     }
+
+    // Wait for the loading screen animation to be running smoothly
+    // before starting heavy asset loading. This prevents animation stutter.
+    await waitForLoadingAnimationReady();
+    if (isDestroyed) return;
 
     // Await the asset loading before proceeding.
     await _preloadAssets();

@@ -2,11 +2,10 @@
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
   import LoadingScreen from '$lib/components/LoadingScreen.svelte';
-  import { localeDetectionStatus } from '$lib/stores/preloadingStore';
 
   /**
    * Root page redirect logic with IP-based geolocation for first-time visitors.
-   * Integrates with LoadingScreen for seamless UX.
+   * Shows LoadingScreen while detecting locale and redirecting.
    * 
    * Priority order:
    * 1. Existing cookie (returning user) → immediate redirect
@@ -63,9 +62,6 @@
   onMount(async () => {
     if (!browser) return;
 
-    // Update LoadingScreen status
-    localeDetectionStatus.set('detecting');
-
     // Check if user already has a locale preference
     const cookieMatch = document.cookie.match(/(?:^|; )locale=(en|de)/);
     const existingLocale = cookieMatch?.[1] as Locale | undefined;
@@ -74,14 +70,12 @@
 
     if (existingLocale) {
       // Returning user - use their saved preference (instant)
-      localeDetectionStatus.set('found-cookie');
       targetLocale = existingLocale;
     } else {
       // First-time visitor - detect from IP
       targetLocale = await detectLocaleFromIP();
       // Save preference for future visits
       setLocaleCookie(targetLocale);
-      localeDetectionStatus.set('detected');
     }
 
     // Redirect immediately to appropriate language version
