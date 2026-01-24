@@ -92,8 +92,16 @@ Execute these steps in order for **every** session:
 |------|--------|---------------------|
 | `src/routes/[lang=lang]/+page.svelte` | Main orchestrator (1100+ lines) | Navigation, lifecycle, all sections |
 | `src/lib/stores/renderProfile.ts` | Mobile detection | All responsive behavior |
+| `src/lib/stores/preloadingStore.ts` | Loading state, deferred loading | Loading screen, asset loading |
 | `src/lib/preload/sectionScheduler.ts` | Asset loading | Load times, memory usage |
 | `src/lib/stores/sectionStateStore.ts` | Section lifecycle | Animation timing |
+
+### Loading Screen & Deferred Loading
+The loading screen uses a deferred loading pattern to prevent animation stutter:
+1. `LoadingScreen.svelte` starts its Ticker animation
+2. After 5 frames, sets `loadingAnimationReady.set(true)`
+3. `HeroParticleEffect.svelte` awaits `waitForLoadingAnimationReady()` before heavy work
+4. This ensures smooth animation while assets load in parallel
 
 ### Section Lifecycle API (Must Understand)
 Every section component implements:
@@ -733,6 +741,8 @@ Ready to proceed.
 | Translations | `src/lib/i18n/locales/{en,de}/*.json` |
 | Global styles | `src/app.css` |
 | Preloading | `src/lib/preload/sectionScheduler.ts` |
+| Loading state | `src/lib/stores/preloadingStore.ts` |
+| Edit loading screen | `src/lib/components/LoadingScreen.svelte` |
 
 ### Import Conventions
 ```typescript
@@ -748,6 +758,7 @@ import { goto } from '$app/navigation';
 // Project stores
 import { renderProfile } from '$lib/stores/renderProfile';
 import { sectionStates } from '$lib/stores/sectionStateStore';
+import { loadingAnimationReady, waitForLoadingAnimationReady } from '$lib/stores/preloadingStore';
 
 // GSAP
 import { gsap } from 'gsap';

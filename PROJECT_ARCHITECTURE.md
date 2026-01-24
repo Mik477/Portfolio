@@ -393,11 +393,14 @@ The layout is injected via `<slot>` with spread props.
 - **`DefaultPredictionStrategy`:** Always warm adjacent sections
 
 ### Asset Loading Flow
-1. Scheduler calls `getSectionAssetUrls()` for target section
-2. URLs passed to `preloadAssets()` (deduped via in-flight map)
-3. Images fetched and decoded
-4. Section state updated to READY
-5. `initializeEffect()` called for GPU setup
+1. LoadingScreen animation starts, runs for 5 frames to warm up
+2. `loadingAnimationReady` store signals heavy work can begin
+3. HeroParticleEffect awaits this signal, then starts asset loading
+4. Scheduler calls `getSectionAssetUrls()` for target section
+5. URLs passed to `preloadAssets()` (deduped via in-flight map)
+6. Images fetched and decoded
+7. Section state updated to READY
+8. `initializeEffect()` called for GPU setup
 
 ### Memory Management
 - **Unload Distance:** Sections >4 positions away get `onUnload()` called
@@ -414,12 +417,17 @@ The layout is injected via `<slot>` with spread props.
 tasks: Record<string, PreloadTask>
 loadingProgress: derived (0-1)
 initialSiteLoadComplete: writable<boolean>
-localeDetectionStatus: writable<LocaleDetectionStatus>
+
+// Deferred loading signal - prevents animation stutter
+loadingAnimationReady: writable<boolean>
+waitForLoadingAnimationReady(): Promise<void>
 
 // Asset tracking
 assetLoadingStatus: Record<string, AssetStatus>
 preloadAssets(urls): Promise<void>
 ```
+
+**Deferred Loading Pattern:** The `loadingAnimationReady` store signals when the loading screen animation has started running smoothly (after ~5 frames). Heavy asset loading (Three.js, images) waits for this signal before starting, preventing animation stutter at startup.
 
 ### sectionStateStore.ts
 ```typescript
