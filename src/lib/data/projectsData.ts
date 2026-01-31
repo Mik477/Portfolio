@@ -179,7 +179,7 @@ const aboutContentByLocale: Record<Locale, AboutContent> = {
     socialLinks: (() => {
       const links = [
         { name: 'GitHub', url: 'https://github.com/Mik477' },
-        { name: 'LinkedIn', url: 'https://www.linkedin.com/in/mik%C3%A1-m%C3%BCller-7969032aa/' },
+        { name: 'LinkedIn', url: 'https://www.linkedin.com/in/mika-mueller' },
         { name: 'Email', url: 'mailto:mika.mueller.work@gmail.com' }
       ];
       if (featureFlags.showInstagram) {
